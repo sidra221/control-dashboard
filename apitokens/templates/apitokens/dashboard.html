@@ -1,0 +1,237 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Control — توكنات kie.ai</title>
+<style>
+  :root {
+    --bg: #f4f5f7;
+    --card: #ffffff;
+    --border: #e2e4e9;
+    --text: #1f2430;
+    --muted: #6b7280;
+    --accent: #2563eb;
+    --accent-dark: #1d4ed8;
+    --success-bg: #ecfdf5;
+    --success-text: #065f46;
+    --error-bg: #fef2f2;
+    --error-text: #991b1b;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: "Segoe UI", Tahoma, Arial, sans-serif;
+    padding: 32px 16px 64px;
+  }
+  .wrap { max-width: 880px; margin: 0 auto; }
+  header { margin-bottom: 24px; }
+  header h1 { font-size: 22px; margin: 0 0 4px; }
+  header a { color: var(--muted); font-size: 13px; text-decoration: none; }
+  header a:hover { text-decoration: underline; }
+
+  .card {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 20px 24px;
+    margin-bottom: 24px;
+  }
+  .card h2 { font-size: 16px; margin: 0 0 16px; }
+
+  .msg { padding: 12px 16px; border-radius: 8px; margin-bottom: 16px; font-size: 14px; }
+  .msg.success { background: var(--success-bg); color: var(--success-text); }
+  .msg.error { background: var(--error-bg); color: var(--error-text); }
+
+  .token-reveal {
+    background: var(--success-bg);
+    border: 1px solid #a7f3d0;
+    border-radius: 10px;
+    padding: 16px;
+    margin-bottom: 24px;
+  }
+  .token-reveal p { margin: 0 0 8px; font-size: 13px; color: var(--success-text); }
+  .token-row { display: flex; gap: 8px; }
+  .token-row input {
+    flex: 1;
+    font-family: "Courier New", monospace;
+    font-size: 13px;
+    padding: 10px 12px;
+    border-radius: 8px;
+    border: 1px solid var(--border);
+    background: #fff;
+  }
+
+  form.generate { display: grid; grid-template-columns: 2fr 1fr 1fr auto; gap: 12px; align-items: end; }
+  .field { display: flex; flex-direction: column; gap: 6px; }
+  .field label { font-size: 13px; color: var(--muted); }
+  .field input, .field select {
+    padding: 10px 12px;
+    border-radius: 8px;
+    border: 1px solid var(--border);
+    font-size: 14px;
+    background: #fff;
+    color: var(--text);
+  }
+
+  button {
+    cursor: pointer;
+    border: none;
+    border-radius: 8px;
+    padding: 10px 18px;
+    font-size: 14px;
+    font-weight: 600;
+  }
+  .btn-primary { background: var(--accent); color: #fff; }
+  .btn-primary:hover { background: var(--accent-dark); }
+  .btn-copy { background: #eef2ff; color: var(--accent-dark); padding: 8px 12px; font-size: 13px; }
+  .btn-copy:hover { background: #e0e7ff; }
+  .btn-toggle { background: transparent; border: 1px solid var(--border); padding: 6px 10px; font-size: 12px; color: var(--muted); }
+  .btn-toggle:hover { border-color: var(--accent); color: var(--accent); }
+
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th, td { text-align: right; padding: 10px 8px; border-bottom: 1px solid var(--border); }
+  th { color: var(--muted); font-weight: 600; }
+  td code { font-family: "Courier New", monospace; font-size: 12px; }
+  .badge { padding: 2px 8px; border-radius: 999px; font-size: 11px; }
+  .badge.active { background: var(--success-bg); color: var(--success-text); }
+  .badge.inactive { background: #f3f4f6; color: var(--muted); }
+  .token-cell { display: flex; align-items: center; gap: 8px; }
+  .empty { color: var(--muted); padding: 16px 0; text-align: center; }
+
+  @media (max-width: 720px) {
+    form.generate { grid-template-columns: 1fr; }
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>توكنات API</h1>
+    <a href="/admin/">&larr; رجوع للوحة الأدمن</a>
+  </header>
+
+  {% for message in messages %}
+    <div class="msg {{ message.tags }}">{{ message }}</div>
+  {% endfor %}
+
+  {% if new_token %}
+  <div class="token-reveal">
+    <p>التوكن تبع "{{ new_token.label }}" — انسخه وابعتو للمستخدم:</p>
+    <div class="token-row">
+      <input type="text" readonly value="{{ new_token.token }}" id="fresh-token">
+      <button type="button" class="btn-copy" onclick="copyToken(this, '{{ new_token.token }}')">نسخ</button>
+    </div>
+  </div>
+  {% endif %}
+
+  <div class="card">
+    <h2>توليد توكن جديد</h2>
+    <form class="generate" method="post">
+      {% csrf_token %}
+      <div class="field">
+        <label for="label">اسم العميل / المتجر</label>
+        <input type="text" id="label" name="label" placeholder="مثلاً: سوبرماركت الأمل" required>
+      </div>
+      <div class="field">
+        <label for="image_quota">عدد الصور المسموح</label>
+        <input type="number" id="image_quota" name="image_quota" min="1" value="50" required>
+      </div>
+      <div class="field">
+        <label for="period">كل فترة</label>
+        <select id="period" name="period">
+          {% for value, display in periods %}
+            <option value="{{ value }}" {% if value == "monthly" %}selected{% endif %}>{{ display }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <button type="submit" class="btn-primary">توليد توكن</button>
+    </form>
+  </div>
+
+  <div class="card">
+    <h2>التوكنات الحالية</h2>
+    {% if tokens %}
+    <table>
+      <thead>
+        <tr>
+          <th>الاسم</th>
+          <th>التوكن</th>
+          <th>عدد الصور المسموح</th>
+          <th>الفترة</th>
+          <th>المستخدم حالياً</th>
+          <th>الحالة</th>
+          <th>تاريخ الإنشاء</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for t in tokens %}
+        <tr>
+          <td>{{ t.label }}</td>
+          <td>
+            <div class="token-cell">
+              <code>{{ t.token|slice:":10" }}…</code>
+              <button type="button" class="btn-copy" onclick="copyToken(this, '{{ t.token }}')">نسخ</button>
+            </div>
+          </td>
+          <td>{{ t.image_quota }}</td>
+          <td>{{ t.get_period_display }}</td>
+          <td>{{ t.images_used }}</td>
+          <td>
+            {% if t.is_active %}
+              <span class="badge active">فعّال</span>
+            {% else %}
+              <span class="badge inactive">موقوف</span>
+            {% endif %}
+          </td>
+          <td>{{ t.created_at|date:"Y-m-d H:i" }}</td>
+          <td>
+            <form method="post" action="{% url 'apitokens:toggle' t.pk %}">
+              {% csrf_token %}
+              <button type="submit" class="btn-toggle">{% if t.is_active %}إيقاف{% else %}تفعيل{% endif %}</button>
+            </form>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% else %}
+    <p class="empty">ما في توكنات لسا</p>
+    {% endif %}
+  </div>
+</div>
+
+<script>
+function copyToken(btn, token) {
+  var original = btn.textContent;
+  function showCopied() {
+    btn.textContent = 'تم النسخ ✓';
+    setTimeout(function () { btn.textContent = original; }, 1500);
+  }
+  function fallbackCopy() {
+    var temp = document.createElement('textarea');
+    temp.value = token;
+    temp.style.position = 'fixed';
+    temp.style.opacity = '0';
+    document.body.appendChild(temp);
+    temp.focus();
+    temp.select();
+    try { document.execCommand('copy'); } catch (e) { /* ignored */ }
+    document.body.removeChild(temp);
+  }
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(token).then(showCopied, function () {
+      fallbackCopy();
+      showCopied();
+    });
+  } else {
+    fallbackCopy();
+    showCopied();
+  }
+}
+</script>
+</body>
+</html>
