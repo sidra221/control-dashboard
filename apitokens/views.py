@@ -35,6 +35,11 @@ def dashboard(request):
             messages.success(request, "تم إنشاء التوكن — انسخه وابعتو للمستخدم")
 
     tokens = ApiToken.objects.all()
+    stats = {
+        "total": len(tokens),
+        "active": sum(1 for t in tokens if t.is_active),
+        "images_used": sum(t.images_used for t in tokens),
+    }
     return render(
         request,
         "apitokens/dashboard.html",
@@ -42,6 +47,7 @@ def dashboard(request):
             "tokens": tokens,
             "new_token": new_token,
             "periods": ApiToken.Period.choices,
+            "stats": stats,
         },
     )
 
