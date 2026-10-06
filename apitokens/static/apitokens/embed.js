@@ -3,6 +3,8 @@
 
   var scriptEl = document.currentScript;
   var STORE_KEY = scriptEl ? scriptEl.getAttribute("data-store-key") : null;
+  var POSITION = (scriptEl && scriptEl.getAttribute("data-position")) || "right";
+  var SIDE = POSITION === "left" ? "left" : "right";
   var API_BASE = (function () {
     try {
       return new URL(scriptEl.src).origin;
@@ -28,7 +30,7 @@
   style.textContent = [
     ":host, * { box-sizing: border-box; }",
     ".bubble {",
-    "  position: fixed; bottom: 20px; left: 20px; z-index: 999999;",
+    "  position: fixed; bottom: 20px; " + SIDE + ": 20px; z-index: 999999;",
     "  width: 56px; height: 56px; border-radius: 50%;",
     "  background: linear-gradient(135deg, #6366f1, #4f46e5);",
     "  color: #fff; border: none; cursor: pointer;",
@@ -39,7 +41,7 @@
     "}",
     ".bubble:hover { transform: scale(1.06); }",
     ".panel {",
-    "  position: fixed; bottom: 86px; left: 20px; z-index: 999999;",
+    "  position: fixed; bottom: 86px; " + SIDE + ": 20px; z-index: 999999;",
     "  width: 340px; max-width: calc(100vw - 40px); height: 480px; max-height: calc(100vh - 120px);",
     "  background: #fff; border-radius: 16px; box-shadow: 0 12px 40px -8px rgba(0,0,0,.25);",
     "  display: none; flex-direction: column; overflow: hidden;",
@@ -230,6 +232,7 @@
     assistant_not_configured: "المساعد الذكي مش جاهز بعد.",
     tryon_not_configured: "خاصية تجربة اللبس مش جاهزة بعد.",
     product_not_found: "المنتج مش موجود بالكتالوج.",
+    photo_too_large: "الصورة كبيرة كتير، جرّب صورة أصغر (أقل من 8 ميغا).",
   };
 
   function friendlyError(code) {

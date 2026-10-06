@@ -12,6 +12,7 @@ from .models import ApiToken, Product
 from .services import kieai
 
 MAX_MESSAGES = 30
+MAX_PHOTO_BYTES = 8 * 1024 * 1024
 MAX_MESSAGE_CHARS = 2000
 
 RECOMMEND_TOOL = {
@@ -153,8 +154,10 @@ def chat(request):
                 }
 
     reply_text = " ".join(reply_text_parts).strip()
-    if not reply_text and recommendation:
-        reply_text = recommendation["reason"]
+    if not reply_text:
+        # لو Claude رجع بس tool_use بدون نص (أو sku مش موجود بالكتالوج فطلع
+        # recommendation فاضي)، منضمن إنه الزبون ما يستنى رد فاضي بالشات.
+        reply_text = recommendation["reason"] if recommendation else "ممكن تعيد سؤالك بطريقة تانية؟"
 
     return _cors_response({"ok": True, "reply": reply_text, "recommendation": recommendation})
 
@@ -180,6 +183,8 @@ def tryon(request):
     photo = request.FILES.get("photo")
     if not sku or not photo:
         return _cors_response({"ok": False, "error": "sku_and_photo_required"}, status=400)
+    if photo.size > MAX_PHOTO_BYTES:
+        return _cors_response({"ok": False, "error": "photo_too_large"}, status=400)
 
     if not settings.KIEAI_API_KEY:
         return _cors_response({"ok": False, "error": "tryon_not_configured"}, status=503)
