@@ -9,7 +9,7 @@ from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_http_methods
 
 from .models import ApiToken, Product
-from .services import kieai
+from .services import kieai, llm
 
 MAX_MESSAGES = 30
 MAX_PHOTO_BYTES = 8 * 1024 * 1024
@@ -21,7 +21,7 @@ RECOMMEND_TOOL = {
         "Recommend exactly one specific product from the store catalog once you are "
         "reasonably confident it fits what the customer is looking for."
     ),
-    "input_schema": {
+    "parameters": {
         "type": "object",
         "properties": {
             "sku": {
@@ -102,7 +102,8 @@ def chat(request):
     if clean_messages[-1]["role"] != "user":
         return _cors_response({"ok": False, "error": "last_message_must_be_user"}, status=400)
 
-    if not settings.ANTHROPIC_API_KEY:
+    provider = llm.get_provider()
+    if not provider.is_configured():
         return _cors_response({"ok": False, "error": "assistant_not_configured"}, status=503)
 
     products = list(merchant.products.all())
@@ -120,40 +121,27 @@ def chat(request):
         catalog_json=json.dumps(catalog, ensure_ascii=False)
     )
 
-    import anthropic
-
-    client = anthropic.Anthropic(api_key=settings.ANTHROPIC_API_KEY)
     try:
-        response = client.messages.create(
-            model=settings.ANTHROPIC_MODEL,
-            max_tokens=500,
-            system=system_prompt,
-            messages=clean_messages,
-            tools=[RECOMMEND_TOOL],
-        )
-    except anthropic.APIError:
+        result = provider.chat(system_prompt, clean_messages, RECOMMEND_TOOL)
+    except llm.LLMError:
         return _cors_response({"ok": False, "error": "assistant_unavailable"}, status=502)
 
-    reply_text_parts = []
     recommendation = None
-    for block in response.content:
-        if block.type == "text":
-            reply_text_parts.append(block.text)
-        elif block.type == "tool_use" and block.name == "recommend_product":
-            sku = (block.input or {}).get("sku", "")
-            reason = (block.input or {}).get("reason", "")
-            product = next((p for p in products if p.sku == sku), None)
-            if product is not None:
-                recommendation = {
-                    "sku": product.sku,
-                    "title": product.title,
-                    "price": str(product.price),
-                    "image_url": product.image_url,
-                    "product_url": product.product_url,
-                    "reason": reason,
-                }
+    if result.tool_name == "recommend_product":
+        sku = (result.tool_input or {}).get("sku", "")
+        reason = (result.tool_input or {}).get("reason", "")
+        product = next((p for p in products if p.sku == sku), None)
+        if product is not None:
+            recommendation = {
+                "sku": product.sku,
+                "title": product.title,
+                "price": str(product.price),
+                "image_url": product.image_url,
+                "product_url": product.product_url,
+                "reason": reason,
+            }
 
-    reply_text = " ".join(reply_text_parts).strip()
+    reply_text = result.reply_text
     if not reply_text:
         # لو Claude رجع بس tool_use بدون نص (أو sku مش موجود بالكتالوج فطلع
         # recommendation فاضي)، منضمن إنه الزبون ما يستنى رد فاضي بالشات.
