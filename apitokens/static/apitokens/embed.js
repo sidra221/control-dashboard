@@ -240,6 +240,7 @@
   }
 
   function sendMessage() {
+    if (sendBtn.disabled) return;
     var text = inputEl.value.trim();
     if (!text) return;
     inputEl.value = "";
