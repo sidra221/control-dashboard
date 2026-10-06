@@ -67,3 +67,34 @@ class ApiToken(models.Model):
     @property
     def period_days(self):
         return self.PERIOD_DAYS[self.period]
+
+
+class Product(models.Model):
+    """منتج واحد من كتالوج التاجر (ApiToken). رفع ملف جديد بيعوّض كل
+    منتجات هاد التاجر — مافي مزامنة حية، نسخة واحدة محدّثة بس.
+    """
+
+    merchant = models.ForeignKey(
+        ApiToken, on_delete=models.CASCADE, related_name="products",
+    )
+    sku = models.CharField("SKU", max_length=64)
+    title = models.CharField("الاسم", max_length=255)
+    description = models.TextField("الوصف", blank=True)
+    price = models.DecimalField("السعر", max_digits=10, decimal_places=2)
+    image_url = models.URLField("رابط الصورة", max_length=500)
+    product_url = models.URLField("رابط المنتج", max_length=500, blank=True)
+    category = models.CharField("الفئة", max_length=120, blank=True)
+    tags = models.CharField("الوسوم", max_length=500, blank=True)
+    created_at = models.DateTimeField("تاريخ الإضافة", auto_now_add=True)
+
+    class Meta:
+        verbose_name = "منتج"
+        verbose_name_plural = "منتجات الكتالوج"
+        ordering = ["category", "title"]
+
+    def __str__(self):
+        return f"{self.title} ({self.merchant.label})"
+
+    @property
+    def tag_list(self):
+        return [t.strip() for t in self.tags.split(",") if t.strip()]

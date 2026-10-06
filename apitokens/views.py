@@ -1,9 +1,18 @@
+import csv
+import io
+
+from decimal import Decimal, InvalidOperation
+
 from django.contrib import messages
 from django.contrib.admin.views.decorators import staff_member_required
+from django.db import transaction
+from django.db.models import Count
 from django.shortcuts import get_object_or_404, redirect, render
 from django.views.decorators.http import require_http_methods
 
-from .models import ApiToken
+from .models import ApiToken, Product
+
+REQUIRED_COLUMNS = {"sku", "title", "price", "image_url"}
 
 
 @staff_member_required
@@ -34,7 +43,7 @@ def dashboard(request):
             )
             messages.success(request, "تم إنشاء التوكن — انسخه وابعتو للمستخدم")
 
-    tokens = ApiToken.objects.all()
+    tokens = ApiToken.objects.annotate(product_count=Count("products"))
     stats = {
         "total": len(tokens),
         "active": sum(1 for t in tokens if t.is_active),
@@ -59,3 +68,75 @@ def toggle_active(request, pk):
     token.is_active = not token.is_active
     token.save(update_fields=["is_active"])
     return redirect("apitokens:dashboard")
+
+
+@staff_member_required
+def catalog(request, pk):
+    merchant = get_object_or_404(ApiToken, pk=pk)
+
+    if request.method == "POST":
+        upload = request.FILES.get("feed_file")
+        if not upload:
+            messages.error(request, "لازم تختار ملف CSV")
+        else:
+            error = _replace_catalog(merchant, upload)
+            if error:
+                messages.error(request, error)
+            else:
+                messages.success(request, "تم استبدال الكتالوج بنجاح")
+        return redirect("apitokens:catalog", pk=pk)
+
+    products = merchant.products.all()
+    return render(
+        request,
+        "apitokens/catalog.html",
+        {"merchant": merchant, "products": products},
+    )
+
+
+def _replace_catalog(merchant, upload):
+    try:
+        raw = upload.read().decode("utf-8-sig")
+    except UnicodeDecodeError:
+        return "الملف لازم يكون UTF-8"
+
+    reader = csv.DictReader(io.StringIO(raw))
+    if reader.fieldnames is None or not REQUIRED_COLUMNS.issubset(set(reader.fieldnames)):
+        missing = REQUIRED_COLUMNS - set(reader.fieldnames or [])
+        return f"أعمدة ناقصة بالملف: {', '.join(missing)}"
+
+    new_products = []
+    for i, row in enumerate(reader, start=2):
+        sku = (row.get("sku") or "").strip()
+        title = (row.get("title") or "").strip()
+        image_url = (row.get("image_url") or "").strip()
+        price_raw = (row.get("price") or "").strip()
+        if not sku or not title or not image_url:
+            return f"سطر {i}: sku أو title أو image_url ناقص"
+        try:
+            price = Decimal(price_raw)
+        except InvalidOperation:
+            return f"سطر {i}: السعر '{price_raw}' مش رقم صحيح"
+
+        new_products.append(
+            Product(
+                merchant=merchant,
+                sku=sku,
+                title=title,
+                description=(row.get("description") or "").strip(),
+                price=price,
+                image_url=image_url,
+                product_url=(row.get("product_url") or "").strip(),
+                category=(row.get("category") or "").strip(),
+                tags=(row.get("tags") or "").strip(),
+            )
+        )
+
+    if not new_products:
+        return "الملف ما فيه ولا صف منتج"
+
+    with transaction.atomic():
+        merchant.products.all().delete()
+        Product.objects.bulk_create(new_products)
+
+    return None

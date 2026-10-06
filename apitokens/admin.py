@@ -1,6 +1,6 @@
 from django.contrib import admin
 
-from .models import ApiToken
+from .models import ApiToken, Product
 
 
 @admin.register(ApiToken)
@@ -23,3 +23,10 @@ class ApiTokenAdmin(admin.ModelAdmin):
         if not change:
             obj.created_by = request.user
         super().save_model(request, obj, form, change)
+
+
+@admin.register(Product)
+class ProductAdmin(admin.ModelAdmin):
+    list_display = ("title", "merchant", "category", "price", "created_at")
+    list_filter = ("merchant", "category")
+    search_fields = ("title", "sku", "tags")

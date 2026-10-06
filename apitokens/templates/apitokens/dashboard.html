@@ -1,228 +1,10 @@
-<!DOCTYPE html>
-<html lang="ar" dir="rtl">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Control — توكنات kie.ai</title>
-<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Crect width='100' height='100' rx='22' fill='%236366f1'/%3E%3Ctext x='50' y='68' font-size='58' text-anchor='middle' fill='white' font-family='sans-serif'%3EC%3C/text%3E%3C/svg%3E">
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Tajawal:wght@400;500;700;800&display=swap" rel="stylesheet">
-<style>
-  :root {
-    --bg: #f3f4f8;
-    --bg-soft: #eceefb;
-    --card: #ffffff;
-    --border: #e4e6ef;
-    --text: #1a1d29;
-    --muted: #6b7083;
-    --accent: #6366f1;
-    --accent-dark: #4f46e5;
-    --accent-soft: #eef0ff;
-    --success-bg: #ecfdf5;
-    --success-text: #047857;
-    --success-border: #a7f3d0;
-    --error-bg: #fef2f2;
-    --error-text: #b91c1c;
-    --shadow: 0 1px 2px rgba(20, 20, 50, 0.04), 0 8px 24px -12px rgba(20, 20, 50, 0.10);
-  }
+{% extends "apitokens/base.html" %}
 
-  @media (prefers-color-scheme: dark) {
-    :root {
-      --bg: #11121b;
-      --bg-soft: #171926;
-      --card: #191b28;
-      --border: #2b2e3f;
-      --text: #eef0f8;
-      --muted: #9095ab;
-      --accent: #818cf8;
-      --accent-dark: #a5b4fc;
-      --accent-soft: #23253a;
-      --success-bg: #082f24;
-      --success-text: #34d399;
-      --success-border: #0f5132;
-      --error-bg: #350d0d;
-      --error-text: #f87171;
-      --shadow: 0 1px 2px rgba(0, 0, 0, 0.3), 0 8px 24px -12px rgba(0, 0, 0, 0.5);
-    }
-  }
+{% block title %}Control — توكنات kie.ai{% endblock %}
+{% block page_title %}توكنات kie.ai{% endblock %}
+{% block page_sub %}إدارة توكنات العملاء وحدود الاستهلاك{% endblock %}
 
-  * { box-sizing: border-box; }
-  body {
-    margin: 0;
-    background:
-      radial-gradient(1200px 400px at 50% -120px, var(--bg-soft), transparent),
-      var(--bg);
-    color: var(--text);
-    font-family: "Tajawal", "Segoe UI", Tahoma, Arial, sans-serif;
-    padding: 40px 16px 72px;
-    line-height: 1.5;
-  }
-
-  .wrap { max-width: 920px; margin: 0 auto; }
-
-  header {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    margin-bottom: 28px;
-    gap: 16px;
-    flex-wrap: wrap;
-  }
-  .brand { display: flex; align-items: center; gap: 12px; }
-  .brand-mark {
-    width: 40px; height: 40px; border-radius: 12px;
-    background: linear-gradient(135deg, var(--accent), var(--accent-dark));
-    color: #fff; display: flex; align-items: center; justify-content: center;
-    font-weight: 800; font-size: 18px; flex-shrink: 0;
-    box-shadow: 0 4px 14px -4px rgba(99, 102, 241, 0.55);
-  }
-  header h1 { font-size: 20px; font-weight: 800; margin: 0; }
-  header .sub { font-size: 13px; color: var(--muted); margin: 2px 0 0; }
-  header a.back {
-    color: var(--muted); font-size: 13px; text-decoration: none;
-    display: inline-flex; align-items: center; gap: 4px;
-    padding: 8px 14px; border-radius: 10px; border: 1px solid var(--border);
-    background: var(--card); transition: all .15s ease;
-  }
-  header a.back:hover { color: var(--accent); border-color: var(--accent); }
-
-  .stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; margin-bottom: 24px; }
-  .stat {
-    background: var(--card); border: 1px solid var(--border); border-radius: 14px;
-    padding: 16px 18px; box-shadow: var(--shadow);
-  }
-  .stat .n { font-size: 26px; font-weight: 800; }
-  .stat .l { font-size: 12.5px; color: var(--muted); margin-top: 2px; }
-
-  .card {
-    background: var(--card);
-    border: 1px solid var(--border);
-    border-radius: 16px;
-    padding: 22px 24px;
-    margin-bottom: 20px;
-    box-shadow: var(--shadow);
-  }
-  .card h2 { font-size: 15.5px; font-weight: 700; margin: 0 0 18px; display: flex; align-items: center; gap: 8px; }
-
-  .msg {
-    padding: 13px 16px; border-radius: 12px; margin-bottom: 18px; font-size: 14px;
-    border: 1px solid transparent; font-weight: 500;
-  }
-  .msg.success { background: var(--success-bg); color: var(--success-text); border-color: var(--success-border); }
-  .msg.error { background: var(--error-bg); color: var(--error-text); }
-
-  .token-reveal {
-    background: var(--success-bg);
-    border: 1px solid var(--success-border);
-    border-radius: 14px;
-    padding: 18px 20px;
-    margin-bottom: 20px;
-  }
-  .token-reveal p { margin: 0 0 10px; font-size: 13.5px; color: var(--success-text); font-weight: 500; }
-  .token-row { display: flex; gap: 8px; }
-  .token-row input {
-    flex: 1;
-    font-family: "SFMono-Regular", Consolas, "Courier New", monospace;
-    font-size: 13px;
-    padding: 11px 14px;
-    border-radius: 10px;
-    border: 1px solid var(--success-border);
-    background: var(--card);
-    color: var(--text);
-  }
-
-  form.generate { display: grid; grid-template-columns: 2fr 1fr 1fr auto; gap: 14px; align-items: end; }
-  .field { display: flex; flex-direction: column; gap: 6px; }
-  .field label { font-size: 12.5px; color: var(--muted); font-weight: 500; }
-  .field input, .field select {
-    padding: 11px 14px;
-    border-radius: 10px;
-    border: 1px solid var(--border);
-    font-size: 14px;
-    font-family: inherit;
-    background: var(--bg);
-    color: var(--text);
-    transition: border-color .15s ease, box-shadow .15s ease;
-  }
-  .field input:focus, .field select:focus {
-    outline: none; border-color: var(--accent);
-    box-shadow: 0 0 0 3px var(--accent-soft);
-  }
-
-  button { font-family: inherit; }
-  .btn-primary {
-    cursor: pointer; border: none; border-radius: 10px;
-    padding: 11px 22px; font-size: 14px; font-weight: 700; color: #fff;
-    background: linear-gradient(135deg, var(--accent), var(--accent-dark));
-    box-shadow: 0 4px 14px -4px rgba(99, 102, 241, 0.5);
-    transition: transform .1s ease, box-shadow .15s ease;
-  }
-  .btn-primary:hover { box-shadow: 0 6px 18px -4px rgba(99, 102, 241, 0.65); }
-  .btn-primary:active { transform: translateY(1px); }
-
-  .btn-copy {
-    cursor: pointer; border: 1px solid var(--border); border-radius: 8px;
-    background: var(--accent-soft); color: var(--accent-dark);
-    padding: 7px 12px; font-size: 12.5px; font-weight: 600;
-    white-space: nowrap; transition: all .15s ease;
-  }
-  .btn-copy:hover { border-color: var(--accent); }
-
-  .btn-toggle {
-    cursor: pointer; border: 1px solid var(--border); border-radius: 8px;
-    background: transparent; color: var(--muted);
-    padding: 6px 12px; font-size: 12px; font-weight: 600;
-    transition: all .15s ease;
-  }
-  .btn-toggle:hover { border-color: var(--accent); color: var(--accent); }
-
-  .table-scroll { overflow-x: auto; }
-  table { width: 100%; border-collapse: collapse; font-size: 13.5px; min-width: 640px; }
-  th, td { text-align: right; padding: 12px 10px; }
-  thead th { color: var(--muted); font-weight: 600; font-size: 12.5px; border-bottom: 1px solid var(--border); }
-  tbody tr { border-bottom: 1px solid var(--border); transition: background .1s ease; }
-  tbody tr:last-child { border-bottom: none; }
-  tbody tr:hover { background: var(--bg); }
-  td code {
-    font-family: "SFMono-Regular", Consolas, "Courier New", monospace;
-    font-size: 12px; background: var(--accent-soft); color: var(--accent-dark);
-    padding: 3px 7px; border-radius: 6px;
-  }
-
-  .badge {
-    display: inline-flex; align-items: center; gap: 6px;
-    padding: 4px 11px; border-radius: 999px; font-size: 11.5px; font-weight: 600;
-  }
-  .badge::before { content: ""; width: 7px; height: 7px; border-radius: 50%; }
-  .badge.active { background: var(--success-bg); color: var(--success-text); }
-  .badge.active::before { background: var(--success-text); }
-  .badge.inactive { background: var(--bg-soft); color: var(--muted); }
-  .badge.inactive::before { background: var(--muted); }
-
-  .token-cell { display: flex; align-items: center; gap: 8px; }
-  .empty { color: var(--muted); padding: 36px 0; text-align: center; font-size: 14px; }
-  .empty .ico { font-size: 28px; display: block; margin-bottom: 8px; opacity: .6; }
-
-  @media (max-width: 720px) {
-    form.generate { grid-template-columns: 1fr; }
-    .stats { grid-template-columns: 1fr 1fr; }
-  }
-</style>
-</head>
-<body>
-<div class="wrap">
-  <header>
-    <div class="brand">
-      <div class="brand-mark">C</div>
-      <div>
-        <h1>توكنات kie.ai</h1>
-        <p class="sub">إدارة توكنات العملاء وحدود الاستهلاك</p>
-      </div>
-    </div>
-    <a class="back" href="/admin/">رجوع للوحة الأدمن ←</a>
-  </header>
-
+{% block content %}
   <div class="stats">
     <div class="stat">
       <div class="n">{{ stats.total }}</div>
@@ -237,10 +19,6 @@
       <div class="l">صورة مُستهلكة</div>
     </div>
   </div>
-
-  {% for message in messages %}
-    <div class="msg {{ message.tags }}">{{ message }}</div>
-  {% endfor %}
 
   {% if new_token %}
   <div class="token-reveal">
@@ -291,6 +69,7 @@
           <th>الحالة</th>
           <th>تاريخ الإنشاء</th>
           <th></th>
+          <th></th>
         </tr>
       </thead>
       <tbody>
@@ -315,6 +94,9 @@
           </td>
           <td>{{ t.created_at|date:"Y-m-d H:i" }}</td>
           <td>
+            <a class="btn-toggle" href="{% url 'apitokens:catalog' t.pk %}">الكتالوج ({{ t.product_count }})</a>
+          </td>
+          <td>
             <form method="post" action="{% url 'apitokens:toggle' t.pk %}">
               {% csrf_token %}
               <button type="submit" class="btn-toggle">{% if t.is_active %}إيقاف{% else %}تفعيل{% endif %}</button>
@@ -329,36 +111,4 @@
     <p class="empty"><span class="ico">🗂️</span>ما في توكنات لسا — ولّد أول توكن من الفورم فوق</p>
     {% endif %}
   </div>
-</div>
-
-<script>
-function copyToken(btn, token) {
-  var original = btn.textContent;
-  function showCopied() {
-    btn.textContent = 'تم النسخ ✓';
-    setTimeout(function () { btn.textContent = original; }, 1500);
-  }
-  function fallbackCopy() {
-    var temp = document.createElement('textarea');
-    temp.value = token;
-    temp.style.position = 'fixed';
-    temp.style.opacity = '0';
-    document.body.appendChild(temp);
-    temp.focus();
-    temp.select();
-    try { document.execCommand('copy'); } catch (e) { /* ignored */ }
-    document.body.removeChild(temp);
-  }
-  if (navigator.clipboard && navigator.clipboard.writeText) {
-    navigator.clipboard.writeText(token).then(showCopied, function () {
-      fallbackCopy();
-      showCopied();
-    });
-  } else {
-    fallbackCopy();
-    showCopied();
-  }
-}
-</script>
-</body>
-</html>
+{% endblock %}

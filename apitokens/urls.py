@@ -7,4 +7,5 @@ app_name = "apitokens"
 urlpatterns = [
     path("", views.dashboard, name="dashboard"),
     path("<int:pk>/toggle/", views.toggle_active, name="toggle"),
+    path("<int:pk>/catalog/", views.catalog, name="catalog"),
 ]

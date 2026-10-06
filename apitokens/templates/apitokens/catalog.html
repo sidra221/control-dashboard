@@ -1,0 +1,62 @@
+{% extends "apitokens/base.html" %}
+
+{% block title %}كتالوج {{ merchant.label }} — Control{% endblock %}
+{% block page_title %}كتالوج {{ merchant.label }}{% endblock %}
+{% block page_sub %}إدارة منتجات هالتاجر لمحرّك الترشيح{% endblock %}
+{% block header_links %}
+  <a class="back" href="{% url 'apitokens:dashboard' %}">رجوع للتوكنات ←</a>
+{% endblock %}
+
+{% block content %}
+  <div class="card">
+    <h2>رفع كتالوج جديد</h2>
+    <p class="card-note">رفع ملف جديد بيعوّض كل المنتجات الحالية لهالتاجر. الأعمدة المطلوبة: sku, title, description, price, image_url, product_url, category, tags</p>
+    <form class="upload" method="post" enctype="multipart/form-data">
+      {% csrf_token %}
+      <div class="field">
+        <label for="feed_file">ملف CSV</label>
+        <input type="file" id="feed_file" name="feed_file" accept=".csv" required>
+      </div>
+      <button type="submit" class="btn-primary">رفع واستبدال الكتالوج</button>
+    </form>
+  </div>
+
+  <div class="card">
+    <h2>المنتجات الحالية ({{ products|length }})</h2>
+    {% if products %}
+    <div class="table-scroll">
+    <table>
+      <thead>
+        <tr>
+          <th>المنتج</th>
+          <th>الفئة</th>
+          <th>السعر</th>
+          <th>الوسوم</th>
+          <th>SKU</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for p in products %}
+        <tr>
+          <td>
+            <div class="product-cell">
+              <img class="thumb" src="{{ p.image_url }}" alt="" loading="lazy">
+              <span>{{ p.title }}</span>
+            </div>
+          </td>
+          <td>{{ p.category }}</td>
+          <td>{{ p.price }}</td>
+          <td>
+            {% for tag in p.tag_list %}<span class="tag-pill">{{ tag }}</span>{% endfor %}
+          </td>
+          <td><code>{{ p.sku }}</code></td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    </div>
+    {% else %}
+    <p class="empty"><span class="ico">🛍️</span>ما في منتجات لسا — ارفع ملف الكتالوج فوق</p>
+    {% endif %}
+  </div>
+{% endblock %}
