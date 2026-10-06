@@ -1,7 +1,4 @@
-from datetime import timedelta
-
 from django.db import transaction
-from django.utils import timezone
 from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -44,29 +41,6 @@ class ConsumeTokenView(APIView):
             if not token.is_active:
                 return Response({"ok": False, "error": "token_disabled"})
 
-            period_end = token.period_start + timedelta(days=token.period_days)
-            if timezone.now() >= period_end:
-                token.images_used = 0
-                token.period_start = timezone.now()
+            result = token.consume_quota(count)
 
-            if token.images_used + count > token.image_quota:
-                token.save(update_fields=["images_used", "period_start"])
-                return Response(
-                    {
-                        "ok": False,
-                        "error": "quota_exceeded",
-                        "remaining": max(token.image_quota - token.images_used, 0),
-                    }
-                )
-
-            token.images_used += count
-            token.save(update_fields=["images_used", "period_start"])
-
-        return Response(
-            {
-                "ok": True,
-                "remaining": token.image_quota - token.images_used,
-                "quota": token.image_quota,
-                "period": token.period,
-            }
-        )
+        return Response(result)

@@ -68,6 +68,35 @@ class ApiToken(models.Model):
     def period_days(self):
         return self.PERIOD_DAYS[self.period]
 
+    def consume_quota(self, count=1):
+        """بتخصم `count` صورة من رصيد الفترة الحالية (وبتصفّره إذا الفترة
+        خلصت). لازم تُستدعى جوا select_for_update() حتى ما يصير تسابق.
+        برجّع dict فيه ok/error أو ok/remaining.
+        """
+        from datetime import timedelta
+
+        period_end = self.period_start + timedelta(days=self.period_days)
+        if timezone.now() >= period_end:
+            self.images_used = 0
+            self.period_start = timezone.now()
+
+        if self.images_used + count > self.image_quota:
+            self.save(update_fields=["images_used", "period_start"])
+            return {
+                "ok": False,
+                "error": "quota_exceeded",
+                "remaining": max(self.image_quota - self.images_used, 0),
+            }
+
+        self.images_used += count
+        self.save(update_fields=["images_used", "period_start"])
+        return {
+            "ok": True,
+            "remaining": self.image_quota - self.images_used,
+            "quota": self.image_quota,
+            "period": self.period,
+        }
+
 
 class Product(models.Model):
     """منتج واحد من كتالوج التاجر (ApiToken). رفع ملف جديد بيعوّض كل
