@@ -7,6 +7,7 @@ Gemini بتغيير إعداد وحيد (LLM_PROVIDER) بدون لمس أي كو
 """
 
 import json
+import time
 from dataclasses import dataclass
 from typing import Optional
 
@@ -17,11 +18,35 @@ class LLMError(Exception):
     pass
 
 
+# بدون timeout صريح، أي SDK ممكن يعلّق الـ worker بدون نهاية على شبكة
+# بطيئة/معلّقة — صار فينا هيك فعلياً مع Gemini (علقت 9+ دقايق بلا استثناء).
+# 45 ثانية لأنه كتالوج كبير (30+ منتج) مع الطبقة المجانية بياخد وقت أطول
+# من المعتاد — جرّبنا 20 وكانت قصيرة، طلعت 504 DEADLINE_EXCEEDED بالضبط
+# عند الثانية 20.
+REQUEST_TIMEOUT_SECONDS = 45
+
+
 @dataclass
 class LLMResult:
     reply_text: str
     tool_name: Optional[str] = None
     tool_input: Optional[dict] = None
+
+
+def chat_with_retry(provider, system_prompt, messages, tool, max_attempts=3, backoff_seconds=2):
+    """مزوّدات الذكاء الاصطناعي (خصوصاً الطبقة المجانية) بترجع أخطاء مؤقتة
+    (503/overloaded) بشكل شائع — منعيد المحاولة قبل ما نرجّع خطأ حقيقي
+    للزبون. هاد مشترك لكل المزوّدات بدل ما يتكرر بكل وحدة لحالها.
+    """
+    last_error = None
+    for attempt in range(max_attempts):
+        try:
+            return provider.chat(system_prompt, messages, tool)
+        except LLMError as exc:
+            last_error = exc
+            if attempt < max_attempts - 1:
+                time.sleep(backoff_seconds * (attempt + 1))
+    raise last_error
 
 
 def get_provider():
@@ -32,6 +57,12 @@ def get_provider():
         return OpenAIProvider(settings.OPENAI_API_KEY, settings.OPENAI_MODEL)
     if provider == "gemini":
         return GeminiProvider(settings.GEMINI_API_KEY, settings.GEMINI_MODEL)
+    if provider == "groq":
+        return OpenAIProvider(
+            settings.GROQ_API_KEY,
+            settings.GROQ_MODEL,
+            base_url="https://api.groq.com/openai/v1",
+        )
     raise LLMError(f"unknown_llm_provider:{provider}")
 
 
@@ -46,7 +77,7 @@ class AnthropicProvider:
     def chat(self, system_prompt, messages, tool):
         import anthropic
 
-        client = anthropic.Anthropic(api_key=self.api_key)
+        client = anthropic.Anthropic(api_key=self.api_key, timeout=REQUEST_TIMEOUT_SECONDS)
         anthropic_tool = {
             "name": tool["name"],
             "description": tool["description"],
@@ -80,9 +111,13 @@ class AnthropicProvider:
 
 
 class OpenAIProvider:
-    def __init__(self, api_key, model):
+    """بتخدم OpenAI، وكمان أي مزوّد متوافق مع OpenAI API (مثل Groq) عبر
+    تمرير base_url — الـ endpoint نفسه بالضبط، بس سيرفر مختلف."""
+
+    def __init__(self, api_key, model, base_url=None):
         self.api_key = api_key
         self.model = model
+        self.base_url = base_url
 
     def is_configured(self):
         return bool(self.api_key)
@@ -90,7 +125,11 @@ class OpenAIProvider:
     def chat(self, system_prompt, messages, tool):
         import openai
 
-        client = openai.OpenAI(api_key=self.api_key)
+        client = openai.OpenAI(
+            api_key=self.api_key,
+            base_url=self.base_url,
+            timeout=REQUEST_TIMEOUT_SECONDS,
+        )
         openai_messages = [{"role": "system", "content": system_prompt}] + list(messages)
         openai_tool = {
             "type": "function",
@@ -136,47 +175,63 @@ class GeminiProvider:
         return bool(self.api_key)
 
     def chat(self, system_prompt, messages, tool):
-        import google.generativeai as genai
+        # الباكج القديم google-generativeai صار deprecated رسمياً (ولا
+        # تحديثات/إصلاحات جايّة)، فمبنيين على الـ SDK الموحّد الجديد google-genai.
+        from google import genai
+        from google.genai import types
 
-        genai.configure(api_key=self.api_key)
+        # بدون timeout صريح، طلب عالق (مش حتى خطأ) بيعلّق الـ worker كامل
+        # بدون نهاية — صار فينا هيك فعلياً (علقت 9+ دقايق بدون أي استثناء).
+        client = genai.Client(
+            api_key=self.api_key,
+            http_options=types.HttpOptions(timeout=REQUEST_TIMEOUT_SECONDS * 1000),
+        )
 
-        gemini_tool = genai.protos.Tool(
+        gemini_tool = types.Tool(
             function_declarations=[
-                genai.protos.FunctionDeclaration(
+                types.FunctionDeclaration(
                     name=tool["name"],
                     description=tool["description"],
-                    parameters=tool["parameters"],
+                    parameters_json_schema=tool["parameters"],
                 )
             ]
         )
-        model = genai.GenerativeModel(
-            model_name=self.model,
-            system_instruction=system_prompt,
-            tools=[gemini_tool],
-        )
         # Gemini بيستخدم role="model" مش "assistant"
-        history = [
-            {"role": "user" if m["role"] == "user" else "model", "parts": [m["content"]]}
-            for m in messages[:-1]
+        contents = [
+            {
+                "role": "user" if m["role"] == "user" else "model",
+                "parts": [{"text": m["content"]}],
+            }
+            for m in messages
         ]
+
         try:
-            chat_session = model.start_chat(history=history)
-            response = chat_session.send_message(messages[-1]["content"])
+            response = client.models.generate_content(
+                model=self.model,
+                contents=contents,
+                config=types.GenerateContentConfig(
+                    system_instruction=system_prompt,
+                    tools=[gemini_tool],
+                    max_output_tokens=500,
+                ),
+            )
         except Exception as exc:  # SDK Google بيرمي أنواع استثناءات متعددة
             raise LLMError(str(exc)) from exc
 
-        text_parts = []
         tool_name = None
         tool_input = None
-        for part in response.candidates[0].content.parts:
-            if getattr(part, "text", None):
-                text_parts.append(part.text)
-            fc = getattr(part, "function_call", None)
-            if fc and fc.name:
-                tool_name = fc.name
-                tool_input = dict(fc.args)
+        calls = response.function_calls
+        if calls:
+            tool_name = calls[0].name
+            tool_input = dict(calls[0].args) if calls[0].args else {}
+
+        try:
+            reply_text = (response.text or "").strip()
+        except Exception:
+            reply_text = ""
+
         return LLMResult(
-            reply_text=" ".join(text_parts).strip(),
+            reply_text=reply_text,
             tool_name=tool_name,
             tool_input=tool_input,
         )

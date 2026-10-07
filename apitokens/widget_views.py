@@ -122,7 +122,7 @@ def chat(request):
     )
 
     try:
-        result = provider.chat(system_prompt, clean_messages, RECOMMEND_TOOL)
+        result = llm.chat_with_retry(provider, system_prompt, clean_messages, RECOMMEND_TOOL)
     except llm.LLMError:
         return _cors_response({"ok": False, "error": "assistant_unavailable"}, status=502)
 
