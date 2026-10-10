@@ -4,8 +4,6 @@
 يفهم احتياج الزبون، يرشّح منتج من كتالوج التاجر، وبيطلع للزبون شكله وهو لابس المنتج
 (تجربة لبس افتراضية) — كل هذا بسطر `<script>` واحد يُضاف لأي موقع.
 
-**تجربة حية:** [your-domain.example/static/apitokens/demo.html](https://your-domain.example/static/apitokens/demo.html)
-
 ## المكوّنات
 
 | المكوّن | الوصف |
