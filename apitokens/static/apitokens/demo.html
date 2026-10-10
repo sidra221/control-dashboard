@@ -1,0 +1,233 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="utf-8">
+<title>Store — صفحة تجريبية</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Markazi+Text:wght@600;700&family=IBM+Plex+Sans+Arabic:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #f6f3ee;
+    --surface: #ffffff;
+    --surface-2: #efebe3;
+    --ink: #221f1c;
+    --muted: #7a7368;
+    --line: #e4ded3;
+    --accent: #3b4a3a;
+    --accent-ink: #ffffff;
+    --accent-soft: #e8ede6;
+    --warn-bg: #fbf3e3;
+    --warn-ink: #7a5a1f;
+    --warn-line: #ecd9ae;
+    --shadow: 0 1px 2px rgba(34,31,28,.04), 0 10px 28px -14px rgba(34,31,28,.18);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #15150f;
+      --surface: #1d1c16;
+      --surface-2: #26241b;
+      --ink: #ede9e0;
+      --muted: #a39d8e;
+      --line: #332f26;
+      --accent: #9cbd98;
+      --accent-ink: #15200f;
+      --accent-soft: #232a1f;
+      --warn-bg: #2a2314;
+      --warn-ink: #e4c585;
+      --warn-line: #473a1e;
+      --shadow: 0 1px 2px rgba(0,0,0,.3), 0 10px 28px -14px rgba(0,0,0,.5);
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #15150f;
+    --surface: #1d1c16;
+    --surface-2: #26241b;
+    --ink: #ede9e0;
+    --muted: #a39d8e;
+    --line: #332f26;
+    --accent: #9cbd98;
+    --accent-ink: #15200f;
+    --accent-soft: #232a1f;
+    --warn-bg: #2a2314;
+    --warn-ink: #e4c585;
+    --warn-line: #473a1e;
+    --shadow: 0 1px 2px rgba(0,0,0,.3), 0 10px 28px -14px rgba(0,0,0,.5);
+  }
+
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--ink);
+    font-family: "IBM Plex Sans Arabic", "Segoe UI", Tahoma, sans-serif;
+    line-height: 1.6;
+  }
+  .wrap { max-width: 1080px; margin: 0 auto; padding: 0 20px 80px; }
+
+  header {
+    padding: 30px 20px 22px;
+    display: flex;
+    align-items: baseline;
+    justify-content: center;
+    gap: 10px;
+    border-bottom: 1px solid var(--line);
+  }
+  .wordmark {
+    font-family: "Markazi Text", serif;
+    font-weight: 700;
+    font-size: 34px;
+    letter-spacing: .3px;
+    margin: 0;
+  }
+  .demo-pill {
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: .4px;
+    color: var(--muted);
+    border: 1px solid var(--line);
+    border-radius: 999px;
+    padding: 3px 10px;
+  }
+
+  .notice {
+    max-width: 1080px;
+    margin: 24px auto 0;
+    padding: 14px 18px;
+    background: var(--warn-bg);
+    border: 1px solid var(--warn-line);
+    color: var(--warn-ink);
+    border-radius: 12px;
+    font-size: 13.5px;
+    display: flex;
+    gap: 10px;
+    align-items: flex-start;
+  }
+  .notice strong { font-weight: 700; }
+
+  .banner {
+    max-width: 1080px;
+    margin: 12px auto 0;
+    padding: 16px 20px;
+    background: var(--accent-soft);
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    font-size: 14px;
+  }
+  .banner .dot {
+    width: 8px; height: 8px; border-radius: 50%; background: var(--accent);
+    flex-shrink: 0; box-shadow: 0 0 0 4px color-mix(in srgb, var(--accent) 18%, transparent);
+  }
+  .banner b { font-weight: 600; }
+
+  h2.section {
+    font-size: 15px;
+    font-weight: 600;
+    color: var(--muted);
+    letter-spacing: .2px;
+    margin: 36px 0 14px;
+    padding-bottom: 10px;
+    border-bottom: 1px solid var(--line);
+  }
+
+  .grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+    gap: 16px;
+  }
+  .card {
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    overflow: hidden;
+    box-shadow: var(--shadow);
+    display: flex;
+    flex-direction: column;
+  }
+  .card .thumb {
+    aspect-ratio: 1 / 1;
+    background: var(--surface-2);
+    overflow: hidden;
+  }
+  .card .thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
+  .card .body { padding: 11px 12px 13px; }
+  .card .title {
+    font-size: 13px;
+    font-weight: 500;
+    margin: 0 0 4px;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+  }
+  .card .price {
+    font-size: 13px;
+    color: var(--accent);
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+  }
+
+  footer {
+    margin-top: 56px;
+    padding-top: 20px;
+    border-top: 1px solid var(--line);
+    color: var(--muted);
+    font-size: 12.5px;
+    text-align: center;
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <p class="wordmark">Store</p>
+  <span class="demo-pill">DEMO</span>
+</header>
+
+<div class="wrap">
+
+  <div class="notice">
+    <span>⚠️</span>
+    <span>هي صفحة تجريبية فقط لاختبار الودجت — ليست متجر حقيقي. فيها <strong>15 منتج</strong> بالمجمل من فئتين: قمصان رجالي وفساتين نسائي.</span>
+  </div>
+
+  <div class="banner">
+    <span class="dot"></span>
+    <span>جرّب <b>مساعد التسوق الذكي</b> — اضغط على الفقاعة واحكيله شو يلي بتدوّر عليه.</span>
+  </div>
+
+  <h2 class="section">قمصان رجالي</h2>
+  <div class="grid">
+    <div class="card"><div class="thumb"><img src="https://cdn.dummyjson.com/product-images/mens-shirts/blue-&-black-check-shirt/thumbnail.webp" alt="Blue & Black Check Shirt" loading="lazy"></div><div class="body"><p class="title">Blue &amp; Black Check Shirt</p><p class="price">29.99 $</p></div></div>
+    <div class="card"><div class="thumb"><img src="https://cdn.dummyjson.com/product-images/mens-shirts/gigabyte-aorus-men-tshirt/thumbnail.webp" alt="Gigabyte Aorus Men Tshirt" loading="lazy"></div><div class="body"><p class="title">Gigabyte Aorus Men Tshirt</p><p class="price">24.99 $</p></div></div>
+    <div class="card"><div class="thumb"><img src="https://cdn.dummyjson.com/product-images/mens-shirts/man-plaid-shirt/thumbnail.webp" alt="Man Plaid Shirt" loading="lazy"></div><div class="body"><p class="title">Man Plaid Shirt</p><p class="price">34.99 $</p></div></div>
+    <div class="card"><div class="thumb"><img src="https://cdn.dummyjson.com/product-images/mens-shirts/man-short-sleeve-shirt/thumbnail.webp" alt="Man Short Sleeve Shirt" loading="lazy"></div><div class="body"><p class="title">Man Short Sleeve Shirt</p><p class="price">19.99 $</p></div></div>
+    <div class="card"><div class="thumb"><img src="https://cdn.dummyjson.com/product-images/mens-shirts/men-check-shirt/thumbnail.webp" alt="Men Check Shirt" loading="lazy"></div><div class="body"><p class="title">Men Check Shirt</p><p class="price">27.99 $</p></div></div>
+  </div>
+
+  <h2 class="section">فساتين نسائي</h2>
+  <div class="grid">
+    <div class="card"><div class="thumb"><img src="https://cdn.dummyjson.com/product-images/womens-dresses/black-women's-gown/thumbnail.webp" alt="Black Women's Gown" loading="lazy"></div><div class="body"><p class="title">Black Women's Gown</p><p class="price">129.99 $</p></div></div>
+    <div class="card"><div class="thumb"><img src="https://cdn.dummyjson.com/product-images/womens-dresses/corset-leather-with-skirt/thumbnail.webp" alt="Corset Leather With Skirt" loading="lazy"></div><div class="body"><p class="title">Corset Leather With Skirt</p><p class="price">89.99 $</p></div></div>
+    <div class="card"><div class="thumb"><img src="https://cdn.dummyjson.com/product-images/womens-dresses/corset-with-black-skirt/thumbnail.webp" alt="Corset With Black Skirt" loading="lazy"></div><div class="body"><p class="title">Corset With Black Skirt</p><p class="price">79.99 $</p></div></div>
+    <div class="card"><div class="thumb"><img src="https://cdn.dummyjson.com/product-images/womens-dresses/dress-pea/thumbnail.webp" alt="Dress Pea" loading="lazy"></div><div class="body"><p class="title">Dress Pea</p><p class="price">49.99 $</p></div></div>
+    <div class="card"><div class="thumb"><img src="https://cdn.dummyjson.com/product-images/womens-dresses/marni-red-&-black-suit/thumbnail.webp" alt="Marni Red & Black Suit" loading="lazy"></div><div class="body"><p class="title">Marni Red &amp; Black Suit</p><p class="price">179.99 $</p></div></div>
+    <div class="card"><div class="thumb"><img src="https://cdn.dummyjson.com/product-images/tops/blue-frock/thumbnail.webp" alt="Blue Frock" loading="lazy"></div><div class="body"><p class="title">Blue Frock</p><p class="price">29.99 $</p></div></div>
+    <div class="card"><div class="thumb"><img src="https://cdn.dummyjson.com/product-images/tops/girl-summer-dress/thumbnail.webp" alt="Girl Summer Dress" loading="lazy"></div><div class="body"><p class="title">Girl Summer Dress</p><p class="price">19.99 $</p></div></div>
+    <div class="card"><div class="thumb"><img src="https://cdn.dummyjson.com/product-images/tops/gray-dress/thumbnail.webp" alt="Gray Dress" loading="lazy"></div><div class="body"><p class="title">Gray Dress</p><p class="price">34.99 $</p></div></div>
+    <div class="card"><div class="thumb"><img src="https://cdn.dummyjson.com/product-images/tops/short-frock/thumbnail.webp" alt="Short Frock" loading="lazy"></div><div class="body"><p class="title">Short Frock</p><p class="price">24.99 $</p></div></div>
+    <div class="card"><div class="thumb"><img src="https://cdn.dummyjson.com/product-images/tops/tartan-dress/thumbnail.webp" alt="Tartan Dress" loading="lazy"></div><div class="body"><p class="title">Tartan Dress</p><p class="price">39.99 $</p></div></div>
+  </div>
+
+  <footer>
+    صفحة تجريبية (Demo) لاختبار ودجت مساعد التسوق — 15 منتج من dummyjson.com لأغراض العرض بس، مش متجر حقيقي.
+  </footer>
+</div>
+
+<script src="https://your-domain.example/static/apitokens/embed.js" data-store-key="YOUR_MERCHANT_TOKEN"></script>
+</body>
+</html>
