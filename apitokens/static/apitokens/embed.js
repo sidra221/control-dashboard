@@ -91,7 +91,11 @@
 
   var bubble = document.createElement("button");
   bubble.className = "bubble";
-  bubble.innerHTML = "👗";
+  bubble.innerHTML =
+    '<svg width="26" height="26" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">' +
+    '<path d="M12 3C7.03 3 3 6.58 3 11c0 2.49 1.28 4.7 3.3 6.17-.11.93-.45 2.22-1.27 3.49a.5.5 0 00.56.76c1.84-.56 3.26-1.42 4.1-2.03.74.14 1.52.21 2.31.21 4.97 0 9-3.58 9-8s-4.03-8-9-8z" fill="#fff"/>' +
+    '<path d="M12.3 7.6l.9 2.1 2.1.9-2.1.9-.9 2.1-.9-2.1-2.1-.9 2.1-.9.9-2.1z" fill="#4f46e5"/>' +
+    "</svg>";
   bubble.title = "تحتاج مساعدة باختيار إطلالتك؟";
   root.appendChild(bubble);
 
