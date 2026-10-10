@@ -1,6 +1,6 @@
 from django.contrib import admin
 
-from .models import ApiToken, Product
+from .models import ApiToken, Product, ShopifyConnection
 
 
 @admin.register(ApiToken)
@@ -27,6 +27,14 @@ class ApiTokenAdmin(admin.ModelAdmin):
 
 @admin.register(Product)
 class ProductAdmin(admin.ModelAdmin):
-    list_display = ("title", "merchant", "category", "price", "created_at")
+    list_display = ("title", "merchant", "category", "price", "external_id", "created_at")
     list_filter = ("merchant", "category")
-    search_fields = ("title", "sku", "tags")
+    search_fields = ("title", "sku", "tags", "external_id")
+
+
+@admin.register(ShopifyConnection)
+class ShopifyConnectionAdmin(admin.ModelAdmin):
+    list_display = ("shop_domain", "merchant", "is_active", "last_synced_at", "created_at")
+    list_filter = ("is_active",)
+    search_fields = ("shop_domain", "merchant__label")
+    readonly_fields = ("last_synced_at", "created_at")

@@ -1,0 +1,81 @@
+{% extends "apitokens/base.html" %}
+
+{% block title %}ربط Shopify — {{ merchant.label }} — Control{% endblock %}
+{% block page_title %}ربط Shopify — {{ merchant.label }}{% endblock %}
+{% block page_sub %}كتالوج حي يتحدّث لحاله من متجر Shopify الحقيقي{% endblock %}
+{% block header_links %}
+  <a class="back" href="{% url 'apitokens:catalog' merchant.pk %}">الكتالوج اليدوي ←</a>
+  <a class="back" href="{% url 'apitokens:dashboard' %}">رجوع للتوكنات ←</a>
+{% endblock %}
+
+{% block content %}
+
+  {% if connection %}
+  <div class="card">
+    <h2>الحالة الحالية</h2>
+    <div class="shopify-status">
+      <span class="badge {% if connection.is_active %}active{% else %}inactive{% endif %}">
+        {% if connection.is_active %}مربوط{% else %}موقوف{% endif %}
+      </span>
+      <code>{{ connection.shop_domain }}</code>
+    </div>
+    <p class="card-note">
+      آخر مزامنة:
+      {% if connection.last_synced_at %}{{ connection.last_synced_at|date:"Y-m-d H:i" }}{% else %}ما صارت مزامنة لسا{% endif %}
+      — عدد المنتجات المتزامنة حالياً: {{ merchant.products.count }}
+    </p>
+    <div class="shopify-actions">
+      <form method="post">
+        {% csrf_token %}
+        <input type="hidden" name="action" value="resync">
+        <button type="submit" class="btn-primary">مزامنة الآن</button>
+      </form>
+      <form method="post" onsubmit="return confirm('متأكد؟ هاد بيفصل الربط الحي (المنتجات الحالية بتضل متل ما هي لحد ما ترفع كتالوج يدوي جديد أو تعيد الربط).');">
+        {% csrf_token %}
+        <input type="hidden" name="action" value="disconnect">
+        <button type="submit" class="btn-toggle">فصل الربط</button>
+      </form>
+    </div>
+  </div>
+  {% endif %}
+
+  <div class="card">
+    <h2>{% if connection %}تحديث بيانات الربط{% else %}ربط متجر Shopify{% endif %}</h2>
+    <p class="card-note">
+      قبل ما تعبي الفورم، لازم تنشئ "تطبيق خاص" (Custom App) من إعدادات متجر الـ Shopify:
+      <br>
+      1) من لوحة تحكم المتجر: Settings ← Apps and sales channels ← Develop apps ← Create an app.
+      <br>
+      2) من تبويب Configuration، فعّل صلاحية <code>read_products</code> على الأقل من Admin API scopes واحفظ.
+      <br>
+      3) دوس Install app، وبعدها من تبويب API credentials انسخ الـ <strong>Admin API access token</strong> (بيبين مرة وحدة بس).
+      <br>
+      4) من نفس الصفحة انسخ الـ <strong>API secret key</strong> (موجود جنب الـ API key تبع التطبيق).
+    </p>
+    <form class="shopify-form" method="post">
+      {% csrf_token %}
+      <input type="hidden" name="action" value="connect">
+      <div class="field">
+        <label for="shop_domain">نطاق المتجر</label>
+        <input type="text" id="shop_domain" name="shop_domain" placeholder="my-store.myshopify.com"
+               value="{{ connection.shop_domain|default:'' }}" required>
+      </div>
+      <div class="field">
+        <label for="access_token">Admin API Access Token</label>
+        <input type="password" id="access_token" name="access_token" placeholder="shpat_xxxxxxxx" required>
+      </div>
+      <div class="field">
+        <label for="api_secret">API Secret</label>
+        <input type="password" id="api_secret" name="api_secret" placeholder="shpss_xxxxxxxx" required>
+      </div>
+      <button type="submit" class="btn-primary">{% if connection %}تحديث وإعادة مزامنة{% else %}ربط ومزامنة{% endif %}</button>
+    </form>
+  </div>
+
+{% endblock %}
+
+{% block extra_style %}
+  .shopify-status { display: flex; align-items: center; gap: 10px; margin-bottom: 6px; }
+  .shopify-actions { display: flex; gap: 10px; margin-top: 16px; }
+  form.shopify-form { display: flex; flex-direction: column; gap: 14px; max-width: 420px; }
+{% endblock %}

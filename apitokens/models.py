@@ -99,12 +99,20 @@ class ApiToken(models.Model):
 
 
 class Product(models.Model):
-    """منتج واحد من كتالوج التاجر (ApiToken). رفع ملف جديد بيعوّض كل
-    منتجات هاد التاجر — مافي مزامنة حية، نسخة واحدة محدّثة بس.
+    """منتج واحد من كتالوج التاجر (ApiToken). لو التاجر بيرفع CSV يدوي، رفع
+    ملف جديد بيعوّض كل منتجاته. لو مربوط بـ Shopify (انظر ShopifyConnection)،
+    المنتجات بتتحدّث لحالها عبر webhooks وبيتعرّف عليها بـ external_id.
     """
 
     merchant = models.ForeignKey(
         ApiToken, on_delete=models.CASCADE, related_name="products",
+    )
+    external_id = models.CharField(
+        "معرّف خارجي (Shopify)",
+        max_length=64,
+        blank=True,
+        default="",
+        help_text="معرّف المنتج بمصدره الخارجي (مثلاً Shopify) — فاضي لمنتجات CSV اليدوية",
     )
     sku = models.CharField("SKU", max_length=64)
     title = models.CharField("الاسم", max_length=255)
@@ -127,3 +135,33 @@ class Product(models.Model):
     @property
     def tag_list(self):
         return [t.strip() for t in self.tags.split(",") if t.strip()]
+
+
+class ShopifyConnection(models.Model):
+    """ربط حي بين تاجر (ApiToken) ومتجر Shopify حقيقي عبر تطبيق خاص
+    (Custom App). الكتالوج بيتزامن أول مرة بالكامل، وبعدها بيتحدّث لحاله
+    عبر webhooks (products/create|update|delete).
+    """
+
+    merchant = models.OneToOneField(
+        ApiToken, on_delete=models.CASCADE, related_name="shopify_connection",
+    )
+    shop_domain = models.CharField(
+        "نطاق متجر Shopify", max_length=255,
+        help_text="مثال: my-store.myshopify.com",
+    )
+    access_token = models.CharField("Admin API Access Token", max_length=255)
+    api_secret = models.CharField(
+        "API Secret", max_length=255,
+        help_text="من إعدادات التطبيق الخاص بـ Shopify — بيستخدم للتحقق من الـ webhooks",
+    )
+    is_active = models.BooleanField("فعّال", default=True)
+    last_synced_at = models.DateTimeField("آخر مزامنة", null=True, blank=True)
+    created_at = models.DateTimeField("تاريخ الربط", auto_now_add=True)
+
+    class Meta:
+        verbose_name = "ربط Shopify"
+        verbose_name_plural = "ربط Shopify"
+
+    def __str__(self):
+        return f"{self.shop_domain} ({self.merchant.label})"

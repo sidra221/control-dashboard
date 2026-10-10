@@ -34,6 +34,10 @@ ALLOWED_HOSTS = [
     if host.strip()
 ]
 
+# بيستخدم لبناء عنوان الـ webhook اللي منسجله عند Shopify — لازم يكون
+# عنوان حقيقي يوصله إنترنت (https://...)، مش localhost.
+SITE_BASE_URL = os.environ.get("SITE_BASE_URL", "http://localhost:8000").strip().rstrip("/")
+
 CSRF_TRUSTED_ORIGINS = [
     origin.strip()
     for origin in os.environ.get(

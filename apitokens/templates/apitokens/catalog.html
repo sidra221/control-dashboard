@@ -4,6 +4,7 @@
 {% block page_title %}كتالوج {{ merchant.label }}{% endblock %}
 {% block page_sub %}إدارة منتجات هالتاجر لمحرّك الترشيح{% endblock %}
 {% block header_links %}
+  <a class="back" href="{% url 'apitokens:shopify-connect' merchant.pk %}">ربط Shopify ←</a>
   <a class="back" href="{% url 'apitokens:dashboard' %}">رجوع للتوكنات ←</a>
 {% endblock %}
 

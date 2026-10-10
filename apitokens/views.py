@@ -3,14 +3,17 @@ import io
 
 from decimal import Decimal, InvalidOperation
 
+from django.conf import settings
 from django.contrib import messages
 from django.contrib.admin.views.decorators import staff_member_required
 from django.db import transaction
 from django.db.models import Count
 from django.shortcuts import get_object_or_404, redirect, render
+from django.utils import timezone
 from django.views.decorators.http import require_http_methods
 
-from .models import ApiToken, Product
+from .models import ApiToken, Product, ShopifyConnection
+from .services import shopify as shopify_service
 
 REQUIRED_COLUMNS = {"sku", "title", "price", "image_url"}
 
@@ -43,7 +46,9 @@ def dashboard(request):
             )
             messages.success(request, "تم إنشاء التوكن — انسخه وابعتو للمستخدم")
 
-    tokens = ApiToken.objects.annotate(product_count=Count("products"))
+    tokens = ApiToken.objects.annotate(product_count=Count("products")).select_related(
+        "shopify_connection"
+    )
     stats = {
         "total": len(tokens),
         "active": sum(1 for t in tokens if t.is_active),
@@ -140,3 +145,99 @@ def _replace_catalog(merchant, upload):
         Product.objects.bulk_create(new_products)
 
     return None
+
+
+@staff_member_required
+def shopify_connect(request, pk):
+    merchant = get_object_or_404(ApiToken, pk=pk)
+    connection = getattr(merchant, "shopify_connection", None)
+
+    if request.method == "POST":
+        action = request.POST.get("action", "connect")
+
+        if action == "disconnect":
+            if connection:
+                connection.delete()
+                messages.success(request, "تم فصل الربط مع Shopify")
+            return redirect("apitokens:shopify-connect", pk=pk)
+
+        if action == "resync":
+            if not connection:
+                messages.error(request, "ما في ربط حالياً مشان نعيد المزامنة")
+            else:
+                try:
+                    _sync_products(merchant, connection)
+                    messages.success(request, "تمت إعادة المزامنة بنجاح")
+                except shopify_service.ShopifyError as exc:
+                    messages.error(request, str(exc))
+            return redirect("apitokens:shopify-connect", pk=pk)
+
+        shop_domain = request.POST.get("shop_domain", "").strip().lower()
+        access_token = request.POST.get("access_token", "").strip()
+        api_secret = request.POST.get("api_secret", "").strip()
+
+        if not shop_domain or not access_token or not api_secret:
+            messages.error(request, "لازم تعبي نطاق المتجر، الـ Access Token، والـ API Secret")
+            return redirect("apitokens:shopify-connect", pk=pk)
+
+        try:
+            shopify_service.get_shop_info(shop_domain, access_token)
+        except shopify_service.ShopifyError as exc:
+            messages.error(request, str(exc))
+            return redirect("apitokens:shopify-connect", pk=pk)
+
+        connection, _ = ShopifyConnection.objects.update_or_create(
+            merchant=merchant,
+            defaults={
+                "shop_domain": shop_domain,
+                "access_token": access_token,
+                "api_secret": api_secret,
+                "is_active": True,
+            },
+        )
+
+        callback_url = f"{settings.SITE_BASE_URL}/webhooks/shopify/{merchant.token}/"
+        try:
+            shopify_service.register_webhooks(shop_domain, access_token, callback_url)
+            _sync_products(merchant, connection)
+            messages.success(request, "تم الربط والمزامنة الأولى بنجاح — الكتالوج هلأ حي")
+        except shopify_service.ShopifyError as exc:
+            messages.error(request, f"تم حفظ الربط بس صار خطأ أثناء التسجيل/المزامنة: {exc}")
+
+        return redirect("apitokens:shopify-connect", pk=pk)
+
+    return render(
+        request,
+        "apitokens/shopify_connect.html",
+        {"merchant": merchant, "connection": connection},
+    )
+
+
+def _sync_products(merchant, connection):
+    raw_products = shopify_service.fetch_all_products(
+        connection.shop_domain, connection.access_token
+    )
+
+    rows = []
+    for raw in raw_products:
+        row = shopify_service.product_row_from_payload(connection.shop_domain, raw)
+        if row is not None:
+            rows.append(row)
+
+    fetched_ids = {row["external_id"] for row in rows}
+
+    with transaction.atomic():
+        for row in rows:
+            external_id = row.pop("external_id")
+            Product.objects.update_or_create(
+                merchant=merchant, external_id=external_id, defaults=row,
+            )
+        (
+            Product.objects.filter(merchant=merchant)
+            .exclude(external_id="")
+            .exclude(external_id__in=fetched_ids)
+            .delete()
+        )
+
+    connection.last_synced_at = timezone.now()
+    connection.save(update_fields=["last_synced_at"])
