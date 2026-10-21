@@ -86,6 +86,18 @@
     "  border-radius: 10px; padding: 0 14px; cursor: pointer; font-weight: 700; font-size: 13px;",
     "}",
     ".inputrow button:disabled { opacity: .5; cursor: default; }",
+    ".card.result img { cursor: zoom-in; }",
+    ".lightbox {",
+    "  position: fixed; inset: 0; z-index: 9999999; background: rgba(0,0,0,.85);",
+    "  display: none; align-items: center; justify-content: center; padding: 24px;",
+    "}",
+    ".lightbox.open { display: flex; }",
+    ".lightbox img { max-width: 100%; max-height: 100%; border-radius: 10px; box-shadow: 0 20px 60px -10px rgba(0,0,0,.5); }",
+    ".lightbox .lb-close {",
+    "  position: absolute; top: 16px; " + SIDE + ": 16px;",
+    "  width: 36px; height: 36px; border-radius: 50%; border: none; cursor: pointer;",
+    "  background: rgba(255,255,255,.15); color: #fff; font-size: 16px; line-height: 1;",
+    "}",
   ].join("\n");
   root.appendChild(style);
 
@@ -121,6 +133,16 @@
   fileInput.style.display = "none";
   root.appendChild(fileInput);
   var pendingSku = null;
+  var savedPhoto = null;
+
+  var lightbox = document.createElement("div");
+  lightbox.className = "lightbox";
+  lightbox.innerHTML = '<button class="lb-close">✕</button><img>';
+  root.appendChild(lightbox);
+  var lightboxImg = lightbox.querySelector("img");
+  lightbox.addEventListener("click", function () {
+    lightbox.classList.remove("open");
+  });
 
   bubble.addEventListener("click", function () {
     panel.classList.toggle("open");
@@ -189,9 +211,13 @@
     tryBtn.className = "tryon";
     tryBtn.textContent = "جرّب شكلك فيه 📸";
     tryBtn.addEventListener("click", function () {
-      pendingSku = rec.sku;
-      fileInput.value = "";
-      fileInput.click();
+      if (savedPhoto) {
+        runTryon(rec.sku, savedPhoto);
+      } else {
+        pendingSku = rec.sku;
+        fileInput.value = "";
+        fileInput.click();
+      }
     });
     card.appendChild(tryBtn);
 
@@ -211,10 +237,15 @@
 
   function addTryonResultCard(imageUrl, productUrl) {
     var card = document.createElement("div");
-    card.className = "card";
+    card.className = "card result";
     var img = document.createElement("img");
     img.src = imageUrl;
-    img.alt = "شكلك فيه";
+    img.alt = "شكلك فيه — دوس للتكبير";
+    img.title = "دوس للتكبير";
+    img.addEventListener("click", function () {
+      lightboxImg.src = imageUrl;
+      lightbox.classList.add("open");
+    });
     card.appendChild(img);
     if (productUrl) {
       var buyLink = document.createElement("a");
@@ -289,10 +320,7 @@
     if (e.key === "Enter") sendMessage();
   });
 
-  fileInput.addEventListener("change", function () {
-    var file = fileInput.files[0];
-    if (!file || !pendingSku) return;
-
+  function runTryon(sku, photo) {
     var loadingEl = document.createElement("div");
     loadingEl.className = "typing";
     loadingEl.textContent = "عم نركّب الإطلالة... ممكن ياخد كم ثانية ⏳";
@@ -300,8 +328,8 @@
     scrollToBottom();
 
     var form = new FormData();
-    form.append("sku", pendingSku);
-    form.append("photo", file);
+    form.append("sku", sku);
+    form.append("photo", photo);
 
     fetch(API_BASE + "/widget/tryon/", {
       method: "POST",
@@ -323,5 +351,12 @@
         loadingEl.remove();
         addErrorMessage("صار في خطأ وقت تركيب الإطلالة، جرّب كمان مرة.");
       });
+  }
+
+  fileInput.addEventListener("change", function () {
+    var file = fileInput.files[0];
+    if (!file || !pendingSku) return;
+    savedPhoto = file;
+    runTryon(pendingSku, file);
   });
 })();
