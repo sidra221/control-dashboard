@@ -1,38 +1,38 @@
 {% extends "apitokens/base.html" %}
 
-{% block title %}كتالوج {{ merchant.label }} — Control{% endblock %}
-{% block page_title %}كتالوج {{ merchant.label }}{% endblock %}
-{% block page_sub %}إدارة منتجات هالتاجر لمحرّك الترشيح{% endblock %}
+{% block title %}{{ T.catalog_title_prefix }}{{ merchant.label }} — Control{% endblock %}
+{% block page_title %}{{ T.catalog_title_prefix }}{{ merchant.label }}{% endblock %}
+{% block page_sub %}{{ T.catalog_sub }}{% endblock %}
 {% block header_links %}
-  <a class="back" href="{% url 'apitokens:shopify-connect' merchant.pk %}">ربط Shopify ←</a>
-  <a class="back" href="{% url 'apitokens:dashboard' %}">رجوع للتوكنات ←</a>
+  <a class="back" href="{% url 'apitokens:shopify-connect' merchant.pk %}">{{ T.shopify_link_short }}</a>
+  <a class="back" href="{% url 'apitokens:dashboard' %}">{{ T.back_to_tokens }}</a>
 {% endblock %}
 
 {% block content %}
   <div class="card">
-    <h2>رفع كتالوج جديد</h2>
-    <p class="card-note">رفع ملف جديد بيعوّض كل المنتجات الحالية لهالتاجر. الأعمدة المطلوبة: sku, title, description, price, image_url, product_url, category, tags</p>
+    <h2>{{ T.upload_new_catalog }}</h2>
+    <p class="card-note">{{ T.upload_note }}</p>
     <form class="upload" method="post" enctype="multipart/form-data">
       {% csrf_token %}
       <div class="field">
-        <label for="feed_file">ملف CSV</label>
+        <label for="feed_file">{{ T.csv_file }}</label>
         <input type="file" id="feed_file" name="feed_file" accept=".csv" required>
       </div>
-      <button type="submit" class="btn-primary">رفع واستبدال الكتالوج</button>
+      <button type="submit" class="btn-primary">{{ T.upload_replace_btn }}</button>
     </form>
   </div>
 
   <div class="card">
-    <h2>المنتجات الحالية ({{ products|length }})</h2>
+    <h2>{{ T.current_products_prefix }} ({{ products|length }})</h2>
     {% if products %}
     <div class="table-scroll">
     <table>
       <thead>
         <tr>
-          <th>المنتج</th>
-          <th>الفئة</th>
-          <th>السعر</th>
-          <th>الوسوم</th>
+          <th>{{ T.th_product }}</th>
+          <th>{{ T.th_category }}</th>
+          <th>{{ T.th_price }}</th>
+          <th>{{ T.th_tags }}</th>
           <th>SKU</th>
         </tr>
       </thead>
@@ -57,7 +57,7 @@
     </table>
     </div>
     {% else %}
-    <p class="empty"><span class="ico">🛍️</span>ما في منتجات لسا — ارفع ملف الكتالوج فوق</p>
+    <p class="empty"><span class="ico">🛍️</span>{{ T.empty_products }}</p>
     {% endif %}
   </div>
 {% endblock %}

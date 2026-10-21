@@ -8,19 +8,32 @@ from django.contrib import messages
 from django.contrib.admin.views.decorators import staff_member_required
 from django.db import transaction
 from django.db.models import Count
+from django.http import HttpResponseRedirect
 from django.shortcuts import get_object_or_404, redirect, render
 from django.utils import timezone
 from django.views.decorators.http import require_http_methods
 
+from .i18n import LANGUAGES, t
 from .models import ApiToken, Product, ShopifyConnection
 from .services import shopify as shopify_service
 
 REQUIRED_COLUMNS = {"sku", "title", "price", "image_url"}
 
 
+def set_language(request):
+    lang = request.POST.get("lang") or request.GET.get("lang")
+    if lang in LANGUAGES:
+        request.session["lang"] = lang
+    next_url = request.POST.get("next") or request.GET.get("next") or "/"
+    if not next_url.startswith("/"):
+        next_url = "/"
+    return HttpResponseRedirect(next_url)
+
+
 @staff_member_required
 def dashboard(request):
     new_token = None
+    lang = request.session.get("lang", "ar")
 
     if request.method == "POST":
         label = request.POST.get("label", "").strip()
@@ -29,11 +42,11 @@ def dashboard(request):
 
         error = None
         if not label:
-            error = "لازم تكتب اسم للتعريف"
+            error = t("err_label_required", lang)
         elif not quota_raw.isdigit() or int(quota_raw) <= 0:
-            error = "عدد الصور لازم يكون رقم أكبر من صفر"
+            error = t("err_quota_invalid", lang)
         elif period not in ApiToken.Period.values:
-            error = "فترة غير صحيحة"
+            error = t("err_period_invalid", lang)
 
         if error:
             messages.error(request, error)
@@ -44,23 +57,24 @@ def dashboard(request):
                 period=period,
                 created_by=request.user,
             )
-            messages.success(request, "تم إنشاء التوكن — انسخه وابعتو للمستخدم")
+            messages.success(request, t("msg_token_created", lang))
 
     tokens = ApiToken.objects.annotate(product_count=Count("products")).select_related(
         "shopify_connection"
     )
     stats = {
         "total": len(tokens),
-        "active": sum(1 for t in tokens if t.is_active),
-        "images_used": sum(t.images_used for t in tokens),
+        "active": sum(1 for tok in tokens if tok.is_active),
+        "images_used": sum(tok.images_used for tok in tokens),
     }
+    periods = [(value, t("period_" + value, lang)) for value in ApiToken.Period.values]
     return render(
         request,
         "apitokens/dashboard.html",
         {
             "tokens": tokens,
             "new_token": new_token,
-            "periods": ApiToken.Period.choices,
+            "periods": periods,
             "stats": stats,
         },
     )
@@ -78,17 +92,18 @@ def toggle_active(request, pk):
 @staff_member_required
 def catalog(request, pk):
     merchant = get_object_or_404(ApiToken, pk=pk)
+    lang = request.session.get("lang", "ar")
 
     if request.method == "POST":
         upload = request.FILES.get("feed_file")
         if not upload:
-            messages.error(request, "لازم تختار ملف CSV")
+            messages.error(request, t("err_csv_required", lang))
         else:
-            error = _replace_catalog(merchant, upload)
+            error = _replace_catalog(merchant, upload, lang)
             if error:
                 messages.error(request, error)
             else:
-                messages.success(request, "تم استبدال الكتالوج بنجاح")
+                messages.success(request, t("msg_catalog_replaced", lang))
         return redirect("apitokens:catalog", pk=pk)
 
     products = merchant.products.all()
@@ -99,16 +114,16 @@ def catalog(request, pk):
     )
 
 
-def _replace_catalog(merchant, upload):
+def _replace_catalog(merchant, upload, lang="ar"):
     try:
         raw = upload.read().decode("utf-8-sig")
     except UnicodeDecodeError:
-        return "الملف لازم يكون UTF-8"
+        return t("err_file_utf8", lang)
 
     reader = csv.DictReader(io.StringIO(raw))
     if reader.fieldnames is None or not REQUIRED_COLUMNS.issubset(set(reader.fieldnames)):
         missing = REQUIRED_COLUMNS - set(reader.fieldnames or [])
-        return f"أعمدة ناقصة بالملف: {', '.join(missing)}"
+        return t("err_missing_columns", lang) % {"missing": ", ".join(missing)}
 
     new_products = []
     for i, row in enumerate(reader, start=2):
@@ -117,11 +132,11 @@ def _replace_catalog(merchant, upload):
         image_url = (row.get("image_url") or "").strip()
         price_raw = (row.get("price") or "").strip()
         if not sku or not title or not image_url:
-            return f"سطر {i}: sku أو title أو image_url ناقص"
+            return t("err_row_missing_field", lang) % {"row": i}
         try:
             price = Decimal(price_raw)
         except InvalidOperation:
-            return f"سطر {i}: السعر '{price_raw}' مش رقم صحيح"
+            return t("err_row_bad_price", lang) % {"row": i, "price": price_raw}
 
         new_products.append(
             Product(
@@ -138,7 +153,7 @@ def _replace_catalog(merchant, upload):
         )
 
     if not new_products:
-        return "الملف ما فيه ولا صف منتج"
+        return t("err_empty_csv", lang)
 
     with transaction.atomic():
         merchant.products.all().delete()
@@ -151,6 +166,7 @@ def _replace_catalog(merchant, upload):
 def shopify_connect(request, pk):
     merchant = get_object_or_404(ApiToken, pk=pk)
     connection = getattr(merchant, "shopify_connection", None)
+    lang = request.session.get("lang", "ar")
 
     if request.method == "POST":
         action = request.POST.get("action", "connect")
@@ -158,16 +174,16 @@ def shopify_connect(request, pk):
         if action == "disconnect":
             if connection:
                 connection.delete()
-                messages.success(request, "تم فصل الربط مع Shopify")
+                messages.success(request, t("msg_shopify_disconnected", lang))
             return redirect("apitokens:shopify-connect", pk=pk)
 
         if action == "resync":
             if not connection:
-                messages.error(request, "ما في ربط حالياً مشان نعيد المزامنة")
+                messages.error(request, t("err_no_connection_to_resync", lang))
             else:
                 try:
                     _sync_products(merchant, connection)
-                    messages.success(request, "تمت إعادة المزامنة بنجاح")
+                    messages.success(request, t("msg_resync_success", lang))
                 except shopify_service.ShopifyError as exc:
                     messages.error(request, str(exc))
             return redirect("apitokens:shopify-connect", pk=pk)
@@ -177,7 +193,7 @@ def shopify_connect(request, pk):
         api_secret = request.POST.get("api_secret", "").strip()
 
         if not shop_domain or not access_token or not api_secret:
-            messages.error(request, "لازم تعبي نطاق المتجر، الـ Access Token، والـ API Secret")
+            messages.error(request, t("err_missing_connect_fields", lang))
             return redirect("apitokens:shopify-connect", pk=pk)
 
         try:
@@ -200,9 +216,9 @@ def shopify_connect(request, pk):
         try:
             shopify_service.register_webhooks(shop_domain, access_token, callback_url)
             _sync_products(merchant, connection)
-            messages.success(request, "تم الربط والمزامنة الأولى بنجاح — الكتالوج هلأ حي")
+            messages.success(request, t("msg_connect_sync_success", lang))
         except shopify_service.ShopifyError as exc:
-            messages.error(request, f"تم حفظ الربط بس صار خطأ أثناء التسجيل/المزامنة: {exc}")
+            messages.error(request, t("err_connect_sync_partial", lang) % {"exc": exc})
 
         return redirect("apitokens:shopify-connect", pk=pk)
 

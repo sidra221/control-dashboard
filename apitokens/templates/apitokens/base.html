@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="ar" dir="rtl">
+<html lang="{{ LANG }}" dir="{{ DIR }}">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -87,6 +87,14 @@
     background: var(--card); transition: all .15s ease;
   }
   header a.back:hover { color: var(--accent); border-color: var(--accent); }
+
+  .lang-switch { display: flex; border: 1px solid var(--border); border-radius: 10px; overflow: hidden; }
+  .lang-switch button {
+    cursor: pointer; border: none; background: var(--card); color: var(--muted);
+    font-size: 12.5px; font-weight: 600; padding: 8px 12px; transition: all .15s ease;
+  }
+  .lang-switch button.active { background: var(--accent); color: #fff; }
+  .lang-switch button:not(.active):hover { color: var(--accent); }
 
   .stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; margin-bottom: 24px; }
   .stat {
@@ -240,8 +248,14 @@
     </div>
     <div class="header-links">
       {% block header_links %}
-      <a class="back" href="/admin/">رجوع للوحة الأدمن ←</a>
+      <a class="back" href="/admin/">{{ T.admin_back }}</a>
       {% endblock %}
+      <form class="lang-switch" method="post" action="{% url 'apitokens:set-language' %}">
+        {% csrf_token %}
+        <input type="hidden" name="next" value="{{ request.path }}">
+        <button type="submit" name="lang" value="ar" class="{% if LANG == 'ar' %}active{% endif %}">AR</button>
+        <button type="submit" name="lang" value="en" class="{% if LANG == 'en' %}active{% endif %}">EN</button>
+      </form>
     </div>
   </header>
 
@@ -253,10 +267,11 @@
 </div>
 
 <script>
+var SW_COPIED_TEXT = "{{ T.copied|escapejs }}";
 function copyToken(btn, token) {
   var original = btn.textContent;
   function showCopied() {
-    btn.textContent = 'تم النسخ ✓';
+    btn.textContent = SW_COPIED_TEXT;
     setTimeout(function () { btn.textContent = original; }, 1500);
   }
   function fallbackCopy() {

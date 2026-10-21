@@ -1,74 +1,66 @@
 {% extends "apitokens/base.html" %}
 
-{% block title %}ربط Shopify — {{ merchant.label }} — Control{% endblock %}
-{% block page_title %}ربط Shopify — {{ merchant.label }}{% endblock %}
-{% block page_sub %}كتالوج حي يتحدّث لحاله من متجر Shopify الحقيقي{% endblock %}
+{% block title %}{{ T.shopify_page_title_prefix }}{{ merchant.label }} — Control{% endblock %}
+{% block page_title %}{{ T.shopify_page_title_prefix }}{{ merchant.label }}{% endblock %}
+{% block page_sub %}{{ T.shopify_page_sub }}{% endblock %}
 {% block header_links %}
-  <a class="back" href="{% url 'apitokens:catalog' merchant.pk %}">الكتالوج اليدوي ←</a>
-  <a class="back" href="{% url 'apitokens:dashboard' %}">رجوع للتوكنات ←</a>
+  <a class="back" href="{% url 'apitokens:catalog' merchant.pk %}">{{ T.manual_catalog_link }}</a>
+  <a class="back" href="{% url 'apitokens:dashboard' %}">{{ T.back_to_tokens }}</a>
 {% endblock %}
 
 {% block content %}
 
   {% if connection %}
   <div class="card">
-    <h2>الحالة الحالية</h2>
+    <h2>{{ T.current_status }}</h2>
     <div class="shopify-status">
       <span class="badge {% if connection.is_active %}active{% else %}inactive{% endif %}">
-        {% if connection.is_active %}مربوط{% else %}موقوف{% endif %}
+        {% if connection.is_active %}{{ T.status_connected }}{% else %}{{ T.status_inactive }}{% endif %}
       </span>
       <code>{{ connection.shop_domain }}</code>
     </div>
     <p class="card-note">
-      آخر مزامنة:
-      {% if connection.last_synced_at %}{{ connection.last_synced_at|date:"Y-m-d H:i" }}{% else %}ما صارت مزامنة لسا{% endif %}
-      — عدد المنتجات المتزامنة حالياً: {{ merchant.products.count }}
+      {{ T.last_sync_prefix }}
+      {% if connection.last_synced_at %}{{ connection.last_synced_at|date:"Y-m-d H:i" }}{% else %}{{ T.never_synced }}{% endif %}
+      {{ T.synced_products_count_prefix }}{{ merchant.products.count }}
     </p>
     <div class="shopify-actions">
       <form method="post">
         {% csrf_token %}
         <input type="hidden" name="action" value="resync">
-        <button type="submit" class="btn-primary">مزامنة الآن</button>
+        <button type="submit" class="btn-primary">{{ T.sync_now }}</button>
       </form>
-      <form method="post" onsubmit="return confirm('متأكد؟ هاد بيفصل الربط الحي (المنتجات الحالية بتضل متل ما هي لحد ما ترفع كتالوج يدوي جديد أو تعيد الربط).');">
+      <form method="post" onsubmit="return confirm('{{ T.disconnect_confirm|escapejs }}');">
         {% csrf_token %}
         <input type="hidden" name="action" value="disconnect">
-        <button type="submit" class="btn-toggle">فصل الربط</button>
+        <button type="submit" class="btn-toggle">{{ T.disconnect }}</button>
       </form>
     </div>
   </div>
   {% endif %}
 
   <div class="card">
-    <h2>{% if connection %}تحديث بيانات الربط{% else %}ربط متجر Shopify{% endif %}</h2>
+    <h2>{% if connection %}{{ T.update_connection }}{% else %}{{ T.connect_shopify_store }}{% endif %}</h2>
     <p class="card-note">
-      قبل ما تعبي الفورم، لازم تنشئ "تطبيق خاص" (Custom App) من إعدادات متجر الـ Shopify:
-      <br>
-      1) من لوحة تحكم المتجر: Settings ← Apps and sales channels ← Develop apps ← Create an app.
-      <br>
-      2) من تبويب Configuration، فعّل صلاحية <code>read_products</code> على الأقل من Admin API scopes واحفظ.
-      <br>
-      3) دوس Install app، وبعدها من تبويب API credentials انسخ الـ <strong>Admin API access token</strong> (بيبين مرة وحدة بس).
-      <br>
-      4) من نفس الصفحة انسخ الـ <strong>API secret key</strong> (موجود جنب الـ API key تبع التطبيق).
+      {{ T.shopify_setup_note|safe }}
     </p>
     <form class="shopify-form" method="post">
       {% csrf_token %}
       <input type="hidden" name="action" value="connect">
       <div class="field">
-        <label for="shop_domain">نطاق المتجر</label>
+        <label for="shop_domain">{{ T.shop_domain_label }}</label>
         <input type="text" id="shop_domain" name="shop_domain" placeholder="my-store.myshopify.com"
                value="{{ connection.shop_domain|default:'' }}" required>
       </div>
       <div class="field">
-        <label for="access_token">Admin API Access Token</label>
+        <label for="access_token">{{ T.access_token_label }}</label>
         <input type="password" id="access_token" name="access_token" placeholder="shpat_xxxxxxxx" required>
       </div>
       <div class="field">
-        <label for="api_secret">API Secret</label>
+        <label for="api_secret">{{ T.api_secret_label }}</label>
         <input type="password" id="api_secret" name="api_secret" placeholder="shpss_xxxxxxxx" required>
       </div>
-      <button type="submit" class="btn-primary">{% if connection %}تحديث وإعادة مزامنة{% else %}ربط ومزامنة{% endif %}</button>
+      <button type="submit" class="btn-primary">{% if connection %}{{ T.update_resync_btn }}{% else %}{{ T.connect_sync_btn }}{% endif %}</button>
     </form>
   </div>
 
