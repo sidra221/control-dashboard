@@ -7,11 +7,14 @@ Gemini بتغيير إعداد وحيد (LLM_PROVIDER) بدون لمس أي كو
 """
 
 import json
+import logging
 import time
 from dataclasses import dataclass
 from typing import Optional
 
 from django.conf import settings
+
+logger = logging.getLogger(__name__)
 
 
 class LLMError(Exception):
@@ -33,10 +36,14 @@ class LLMResult:
     tool_input: Optional[dict] = None
 
 
-def chat_with_retry(provider, system_prompt, messages, tool, max_attempts=3, backoff_seconds=2):
+def chat_with_retry(provider, system_prompt, messages, tool, max_attempts=2, backoff_seconds=1):
     """مزوّدات الذكاء الاصطناعي (خصوصاً الطبقة المجانية) بترجع أخطاء مؤقتة
     (503/overloaded) بشكل شائع — منعيد المحاولة قبل ما نرجّع خطأ حقيقي
     للزبون. هاد مشترك لكل المزوّدات بدل ما يتكرر بكل وحدة لحالها.
+
+    attempt واحد إضافي بس (مش 3): لما الموديل يكون "overloaded" فعلياً عادةً
+    بتضل هيك لثواني/دقايق، فثالث محاولة غالباً بتفشل كمان وبس بتزود وقت
+    الانتظار قبل ما الزبون ياخد أي رد.
     """
     last_error = None
     for attempt in range(max_attempts):
@@ -44,8 +51,13 @@ def chat_with_retry(provider, system_prompt, messages, tool, max_attempts=3, bac
             return provider.chat(system_prompt, messages, tool)
         except LLMError as exc:
             last_error = exc
+            logger.warning(
+                "llm_attempt_failed provider=%s attempt=%s/%s error=%s",
+                type(provider).__name__, attempt + 1, max_attempts, exc,
+            )
             if attempt < max_attempts - 1:
                 time.sleep(backoff_seconds * (attempt + 1))
+    logger.error("llm_all_attempts_failed provider=%s error=%s", type(provider).__name__, last_error)
     raise last_error
 
 

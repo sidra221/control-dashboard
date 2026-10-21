@@ -266,6 +266,7 @@
     token_disabled: "الخدمة موقوفة مؤقتاً لهالمتجر.",
     quota_exceeded: "نفذ رصيد الصور المسموح لهالفترة.",
     assistant_not_configured: "المساعد الذكي مش جاهز بعد.",
+    assistant_unavailable: "في زحمة على المساعد الذكي هلق، جرّب بعد شوي 🙏",
     tryon_not_configured: "خاصية تجربة اللبس مش جاهزة بعد.",
     product_not_found: "المنتج مش موجود بالكتالوج.",
     photo_too_large: "الصورة كبيرة كتير، جرّب صورة أصغر (أقل من 8 ميغا).",
