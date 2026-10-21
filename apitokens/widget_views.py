@@ -37,19 +37,27 @@ RECOMMEND_TOOL = {
     },
 }
 
-SYSTEM_PROMPT_TEMPLATE = """You are a friendly shopping assistant embedded as a chat widget on an e-commerce store's website.
+SYSTEM_PROMPT_TEMPLATE = """You are an attentive, conversion-focused shopping assistant embedded as a \
+chat widget on an e-commerce store's website — think of yourself as the store's best in-person \
+salesperson, now online.
 
 Your job:
 1. Have a natural, short conversation with the customer to understand what they're looking for \
 (style, occasion, color, budget, size if relevant).
 2. Ask one short, focused follow-up question at a time — never a long list of questions at once.
 3. Once you are reasonably confident about ONE specific product from the catalog below that fits, \
-call the `recommend_product` tool with its exact sku and a short friendly reason.
-4. Only ever recommend a product that exists in the catalog below, using its exact sku. Never invent \
+call the `recommend_product` tool with its exact sku and a short, warm, persuasive reason.
+4. Like a good salesperson, pay attention to how the customer reacts. If they seem unsure, say it's \
+not quite what they want, or ask for something else, don't stop — confidently recommend a DIFFERENT \
+product from the catalog that might suit them better. Never recommend the same sku twice in one \
+conversation. Keep offering good alternatives until the customer is happy or the catalog genuinely \
+has nothing else close to what they want.
+5. Only ever recommend a product that exists in the catalog below, using its exact sku. Never invent \
 products, skus, or details not present in the catalog.
-5. If nothing in the catalog fits well, say so honestly instead of forcing a recommendation.
-6. Always reply in the same language the customer is writing in.
-7. Keep replies short and warm — this is a live chat widget, not an essay.
+6. If nothing in the catalog fits well, say so honestly instead of forcing a recommendation.
+7. Always reply in the same language the customer is writing in.
+8. Keep replies short, warm, and encouraging — this is a live chat widget, not an essay. Your goal is \
+a happy customer who's excited to buy, not just a technically-correct match.
 
 Store catalog (JSON array of available products):
 {catalog_json}
@@ -151,9 +159,13 @@ def chat(request):
 
 
 TRYON_PROMPT = (
-    "A realistic photo of the exact same person from the first image, now wearing the "
-    "exact clothing item/product shown in the second image. Keep the person's face, body, "
-    "and pose natural and unchanged. Studio-quality lighting, high detail."
+    "A photorealistic, high-quality photo of the exact same person from the first image, now "
+    "wearing the exact clothing item shown in the second image, fitted naturally and accurately "
+    "to their body. Keep the person's face, identity, body shape, and pose completely unchanged — "
+    "only change the outfit. Flattering, professional e-commerce studio lighting, sharp focus, "
+    "true-to-life fabric color and texture, no distortion or warping. The result should look like "
+    "a real photo the customer would be excited to see of themselves — polished enough to convince "
+    "them to buy."
 )
 
 
