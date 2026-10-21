@@ -11,7 +11,7 @@ UPLOAD_URL = "https://kieai.redpandaai.co/api/file-stream-upload"
 CREATE_TASK_URL = "https://api.kie.ai/api/v1/jobs/createTask"
 RECORD_INFO_URL = "https://api.kie.ai/api/v1/jobs/recordInfo"
 
-MODEL = "nano-banana-2-lite"
+MODEL = "gpt-image-2-image-to-image"
 DEFAULT_MAX_ATTEMPTS = 50
 DEFAULT_DELAY_SECONDS = 5
 
@@ -46,7 +46,7 @@ def create_task(api_key, prompt, input_urls):
             "model": MODEL,
             "input": {
                 "prompt": prompt,
-                "image_urls": input_urls,
+                "input_urls": input_urls,
                 "aspect_ratio": "auto",
             },
         },

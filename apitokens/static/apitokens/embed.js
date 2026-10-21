@@ -214,6 +214,7 @@
       if (savedPhoto) {
         runTryon(rec.sku, savedPhoto);
       } else {
+        addBotMessage("نصيحة: صورة نص الجسم أو كاملة بتعطي نتيجة أدق من صورة وجه مقرّبة جداً 📸");
         pendingSku = rec.sku;
         fileInput.value = "";
         fileInput.click();
