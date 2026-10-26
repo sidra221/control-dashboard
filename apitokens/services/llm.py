@@ -89,7 +89,13 @@ class AnthropicProvider:
     def chat(self, system_prompt, messages, tool):
         import anthropic
 
-        client = anthropic.Anthropic(api_key=self.api_key, timeout=REQUEST_TIMEOUT_SECONDS)
+        # max_retries=0: عنا retry loop خاص فينا (chat_with_retry) فوق كل
+        # المزوّدات بالتساوي — لو تركنا الـ SDK يعيد المحاولة لحاله كمان،
+        # ممكن يحترم Retry-After طويل من المزوّد ويعلّق لدقايق بدل ثواني،
+        # بعيد كلياً عن أي timeout حاططينه إحنا (صار فعلياً مع OpenAI).
+        client = anthropic.Anthropic(
+            api_key=self.api_key, timeout=REQUEST_TIMEOUT_SECONDS, max_retries=0
+        )
         anthropic_tool = {
             "name": tool["name"],
             "description": tool["description"],
@@ -137,10 +143,13 @@ class OpenAIProvider:
     def chat(self, system_prompt, messages, tool):
         import openai
 
+        # max_retries=0: نفس السبب المذكور بـ AnthropicProvider — عنا retry
+        # loop خاص فينا (chat_with_retry) وما بدنا الـ SDK يعيد المحاولة لحاله.
         client = openai.OpenAI(
             api_key=self.api_key,
             base_url=self.base_url,
             timeout=REQUEST_TIMEOUT_SECONDS,
+            max_retries=0,
         )
         openai_messages = [{"role": "system", "content": system_prompt}] + list(messages)
         openai_tool = {
