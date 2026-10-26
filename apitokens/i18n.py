@@ -34,7 +34,7 @@ TRANSLATIONS = {
     "th_status": {"ar": "الحالة", "en": "Status"},
     "th_created": {"ar": "تاريخ الإنشاء", "en": "Created at"},
     "th_catalog": {"ar": "الكتالوج", "en": "Catalog"},
-    "th_discounts": {"ar": "أكواد الخصم", "en": "Discount codes"},
+    "th_discounts": {"ar": "الخصومات", "en": "Discounts"},
     "status_active": {"ar": "فعّال", "en": "Active"},
     "status_inactive": {"ar": "موقوف", "en": "Stopped"},
     "shopify_connected": {"ar": "Shopify ✓", "en": "Shopify ✓"},

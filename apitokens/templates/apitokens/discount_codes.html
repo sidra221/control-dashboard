@@ -47,7 +47,7 @@
           <td>{{ c.description }}</td>
           <td>
             <span class="badge {% if c.is_active %}active{% else %}inactive{% endif %}">
-              {% if c.is_active %}{{ T.status_connected }}{% else %}{{ T.status_inactive }}{% endif %}
+              {% if c.is_active %}{{ T.status_active }}{% else %}{{ T.status_inactive }}{% endif %}
             </span>
           </td>
           <td>
