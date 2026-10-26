@@ -73,6 +73,10 @@
     ".msg.user { align-self: flex-end; background: #6366f1; color: #fff; border-bottom-left-radius: 4px; }",
     ".msg.bot { align-self: flex-start; background: #eef0ff; color: #1a1d29; border-bottom-right-radius: 4px; }",
     ".msg.error { align-self: center; background: #fef2f2; color: #b91c1c; font-size: 12.5px; }",
+    ".msg.discount {",
+    "  align-self: center; background: #fff7ed; color: #9a3412; border: 1px dashed #fb923c;",
+    "  font-size: 13px; font-weight: 700; text-align: center;",
+    "}",
     ".card { align-self: flex-start; max-width: 88%; background: #fff; border: 1px solid #e4e6ef; border-radius: 14px; padding: 10px; }",
     ".card img { width: 100%; border-radius: 10px; display: block; margin-bottom: 8px; max-height: 180px; object-fit: cover; }",
     ".card .title { font-size: 13px; font-weight: 700; margin-bottom: 2px; }",
@@ -241,6 +245,18 @@
     return el;
   }
 
+  function addDiscountMessage(offer) {
+    var el = document.createElement("div");
+    el.className = "msg discount";
+    var text = "🎁 " + offer.code;
+    if (offer.description) {
+      text += " — " + offer.description;
+    }
+    el.textContent = text;
+    msgsEl.appendChild(el);
+    scrollToBottom();
+  }
+
   function addRecommendationCard(rec) {
     var card = document.createElement("div");
     card.className = "card";
@@ -358,6 +374,9 @@
         }
         if (data.recommendation) {
           addRecommendationCard(data.recommendation);
+        }
+        if (data.discount_offer) {
+          addDiscountMessage(data.discount_offer);
         }
       })
       .catch(function () {

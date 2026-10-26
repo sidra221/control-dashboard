@@ -37,6 +37,28 @@ RECOMMEND_TOOL = {
     },
 }
 
+DISCOUNT_TOOL = {
+    "name": "offer_discount_code",
+    "description": (
+        "Offer an active discount code to the customer. Call this ONLY when the customer has just "
+        "clearly signaled they've decided to buy right now (for example: \"قررت اشتريه\", \"بدي اشتريه "
+        "هلق\", or an equally unmistakable, enthusiastic commitment after a recommendation or a "
+        "try-on) — never for mere hesitation or price questions with no clear commitment. Call it at "
+        "most once per conversation, and only with a code that actually exists in the active codes "
+        "list."
+    ),
+    "parameters": {
+        "type": "object",
+        "properties": {
+            "code": {
+                "type": "string",
+                "description": "The exact discount code, copied exactly from the active codes list.",
+            },
+        },
+        "required": ["code"],
+    },
+}
+
 SYSTEM_PROMPT_TEMPLATE = """You are an attentive, conversion-focused shopping assistant embedded as a \
 chat widget on an e-commerce store's website — think of yourself as the store's best in-person \
 salesperson, now online.
@@ -64,10 +86,10 @@ a happy customer who's excited to buy, not just a technically-correct match.
 9. Pay close attention to this rule, don't skip it: if the store has active discount codes listed \
 below, and the customer clearly signals they've decided to buy right now — phrases like "قررت اشتريه", \
 "بدي اشتريه هلق", "عجبني كتير، بدي اطلبه", or an equally clear, enthusiastic commitment after a \
-recommendation or a try-on — then you MUST mention ONE of those codes by its exact code in your reply, \
+recommendation or a try-on — then call the `offer_discount_code` tool with that code's exact value, \
 once per conversation, as a nice final touch to help them commit. Never do this just because they \
 hesitated or asked about price with no clear commitment — only when the buying signal is unmistakable. \
-If no discount codes are listed below, never mention or invent one.
+If no discount codes are listed below, never call this tool or invent a code.
 
 Store catalog (JSON array of available products):
 {catalog_json}
@@ -137,14 +159,16 @@ def chat(request):
     ]
     discount_codes = list(merchant.discount_codes.filter(is_active=True))
     discount_codes_section = ""
+    tools = [RECOMMEND_TOOL]
     if discount_codes:
         codes_json = json.dumps(
             [{"code": d.code, "description": d.description} for d in discount_codes],
             ensure_ascii=False,
         )
         discount_codes_section = (
-            "\nActive discount codes you may offer (see rule 9 for when):\n" + codes_json
+            "\nActive discount codes (see rule 9 for when to offer one):\n" + codes_json
         )
+        tools.append(DISCOUNT_TOOL)
 
     system_prompt = SYSTEM_PROMPT_TEMPLATE.format(
         catalog_json=json.dumps(catalog, ensure_ascii=False),
@@ -152,32 +176,47 @@ def chat(request):
     )
 
     try:
-        result = llm.chat_with_retry(provider, system_prompt, clean_messages, RECOMMEND_TOOL)
+        result = llm.chat_with_retry(provider, system_prompt, clean_messages, tools)
     except llm.LLMError:
         return _cors_response({"ok": False, "error": "assistant_unavailable"}, status=502)
 
     recommendation = None
-    if result.tool_name == "recommend_product":
-        sku = (result.tool_input or {}).get("sku", "")
-        reason = (result.tool_input or {}).get("reason", "")
-        product = next((p for p in products if p.sku == sku), None)
-        if product is not None:
-            recommendation = {
-                "sku": product.sku,
-                "title": product.title,
-                "price": str(product.price),
-                "image_url": product.image_url,
-                "product_url": product.product_url,
-                "reason": reason,
-            }
+    discount_offer = None
+    for call in result.tool_calls:
+        call_input = call.get("input") or {}
+        if call["name"] == "recommend_product":
+            sku = call_input.get("sku", "")
+            reason = call_input.get("reason", "")
+            product = next((p for p in products if p.sku == sku), None)
+            if product is not None:
+                recommendation = {
+                    "sku": product.sku,
+                    "title": product.title,
+                    "price": str(product.price),
+                    "image_url": product.image_url,
+                    "product_url": product.product_url,
+                    "reason": reason,
+                }
+        elif call["name"] == "offer_discount_code":
+            code_value = call_input.get("code", "")
+            code_obj = next((d for d in discount_codes if d.code == code_value), None)
+            if code_obj is not None:
+                discount_offer = {"code": code_obj.code, "description": code_obj.description}
 
     reply_text = result.reply_text
     if not reply_text:
-        # لو Claude رجع بس tool_use بدون نص (أو sku مش موجود بالكتالوج فطلع
+        # لو الموديل رجع بس tool_use بدون نص (أو sku مش موجود بالكتالوج فطلع
         # recommendation فاضي)، منضمن إنه الزبون ما يستنى رد فاضي بالشات.
         reply_text = recommendation["reason"] if recommendation else "ممكن تعيد سؤالك بطريقة تانية؟"
 
-    return _cors_response({"ok": True, "reply": reply_text, "recommendation": recommendation})
+    return _cors_response(
+        {
+            "ok": True,
+            "reply": reply_text,
+            "recommendation": recommendation,
+            "discount_offer": discount_offer,
+        }
+    )
 
 
 TRYON_PROMPT = (

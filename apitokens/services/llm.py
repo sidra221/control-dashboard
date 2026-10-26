@@ -1,16 +1,18 @@
 """طبقة تجريد فوق مزوّد الذكاء الاصطناعي — حتى نقدر نبدّل Anthropic/OpenAI/
 Gemini بتغيير إعداد وحيد (LLM_PROVIDER) بدون لمس أي كود تاني. كل مزوّد
-بيطبّق نفس الواجهة: chat(system_prompt, messages, tool) -> LLMResult.
+بيطبّق نفس الواجهة: chat(system_prompt, messages, tools) -> LLMResult.
 
-`tool` شكله موحّد بغض النظر عن المزوّد:
+`tools` قائمة بشكل موحّد بغض النظر عن المزوّد، كل عنصر:
     {"name": str, "description": str, "parameters": <JSON schema dict>}
+
+الموديل ممكن يستدعي أكتر من أداة بنفس الرد (مثلاً recommend_product و
+offer_discount_code مع بعض) — LLMResult.tool_calls قائمة بكل الاستدعاءات.
 """
 
 import json
 import logging
 import time
-from dataclasses import dataclass
-from typing import Optional
+from dataclasses import dataclass, field
 
 from django.conf import settings
 
@@ -32,11 +34,10 @@ REQUEST_TIMEOUT_SECONDS = 45
 @dataclass
 class LLMResult:
     reply_text: str
-    tool_name: Optional[str] = None
-    tool_input: Optional[dict] = None
+    tool_calls: list = field(default_factory=list)  # [{"name": str, "input": dict}, ...]
 
 
-def chat_with_retry(provider, system_prompt, messages, tool, max_attempts=2, backoff_seconds=1):
+def chat_with_retry(provider, system_prompt, messages, tools, max_attempts=2, backoff_seconds=1):
     """مزوّدات الذكاء الاصطناعي (خصوصاً الطبقة المجانية) بترجع أخطاء مؤقتة
     (503/overloaded) بشكل شائع — منعيد المحاولة قبل ما نرجّع خطأ حقيقي
     للزبون. هاد مشترك لكل المزوّدات بدل ما يتكرر بكل وحدة لحالها.
@@ -48,7 +49,7 @@ def chat_with_retry(provider, system_prompt, messages, tool, max_attempts=2, bac
     last_error = None
     for attempt in range(max_attempts):
         try:
-            return provider.chat(system_prompt, messages, tool)
+            return provider.chat(system_prompt, messages, tools)
         except LLMError as exc:
             last_error = exc
             logger.warning(
@@ -86,7 +87,7 @@ class AnthropicProvider:
     def is_configured(self):
         return bool(self.api_key)
 
-    def chat(self, system_prompt, messages, tool):
+    def chat(self, system_prompt, messages, tools):
         import anthropic
 
         # max_retries=0: عنا retry loop خاص فينا (chat_with_retry) فوق كل
@@ -96,36 +97,29 @@ class AnthropicProvider:
         client = anthropic.Anthropic(
             api_key=self.api_key, timeout=REQUEST_TIMEOUT_SECONDS, max_retries=0
         )
-        anthropic_tool = {
-            "name": tool["name"],
-            "description": tool["description"],
-            "input_schema": tool["parameters"],
-        }
+        anthropic_tools = [
+            {"name": t["name"], "description": t["description"], "input_schema": t["parameters"]}
+            for t in tools
+        ]
         try:
             response = client.messages.create(
                 model=self.model,
                 max_tokens=500,
                 system=system_prompt,
                 messages=messages,
-                tools=[anthropic_tool],
+                tools=anthropic_tools,
             )
         except anthropic.APIError as exc:
             raise LLMError(str(exc)) from exc
 
         text_parts = []
-        tool_name = None
-        tool_input = None
+        tool_calls = []
         for block in response.content:
             if block.type == "text":
                 text_parts.append(block.text)
             elif block.type == "tool_use":
-                tool_name = block.name
-                tool_input = block.input
-        return LLMResult(
-            reply_text=" ".join(text_parts).strip(),
-            tool_name=tool_name,
-            tool_input=tool_input,
-        )
+                tool_calls.append({"name": block.name, "input": block.input})
+        return LLMResult(reply_text=" ".join(text_parts).strip(), tool_calls=tool_calls)
 
 
 class OpenAIProvider:
@@ -140,7 +134,7 @@ class OpenAIProvider:
     def is_configured(self):
         return bool(self.api_key)
 
-    def chat(self, system_prompt, messages, tool):
+    def chat(self, system_prompt, messages, tools):
         import openai
 
         # max_retries=0: نفس السبب المذكور بـ AnthropicProvider — عنا retry
@@ -152,39 +146,36 @@ class OpenAIProvider:
             max_retries=0,
         )
         openai_messages = [{"role": "system", "content": system_prompt}] + list(messages)
-        openai_tool = {
-            "type": "function",
-            "function": {
-                "name": tool["name"],
-                "description": tool["description"],
-                "parameters": tool["parameters"],
-            },
-        }
+        openai_tools = [
+            {
+                "type": "function",
+                "function": {
+                    "name": t["name"],
+                    "description": t["description"],
+                    "parameters": t["parameters"],
+                },
+            }
+            for t in tools
+        ]
         try:
             response = client.chat.completions.create(
                 model=self.model,
                 messages=openai_messages,
-                tools=[openai_tool],
+                tools=openai_tools,
                 max_tokens=500,
             )
         except openai.APIError as exc:
             raise LLMError(str(exc)) from exc
 
         choice = response.choices[0].message
-        tool_name = None
-        tool_input = None
-        if choice.tool_calls:
-            call = choice.tool_calls[0]
-            tool_name = call.function.name
+        tool_calls = []
+        for call in choice.tool_calls or []:
             try:
-                tool_input = json.loads(call.function.arguments)
+                args = json.loads(call.function.arguments)
             except json.JSONDecodeError:
-                tool_input = {}
-        return LLMResult(
-            reply_text=(choice.content or "").strip(),
-            tool_name=tool_name,
-            tool_input=tool_input,
-        )
+                args = {}
+            tool_calls.append({"name": call.function.name, "input": args})
+        return LLMResult(reply_text=(choice.content or "").strip(), tool_calls=tool_calls)
 
 
 class GeminiProvider:
@@ -195,7 +186,7 @@ class GeminiProvider:
     def is_configured(self):
         return bool(self.api_key)
 
-    def chat(self, system_prompt, messages, tool):
+    def chat(self, system_prompt, messages, tools):
         # الباكج القديم google-generativeai صار deprecated رسمياً (ولا
         # تحديثات/إصلاحات جايّة)، فمبنيين على الـ SDK الموحّد الجديد google-genai.
         from google import genai
@@ -211,10 +202,11 @@ class GeminiProvider:
         gemini_tool = types.Tool(
             function_declarations=[
                 types.FunctionDeclaration(
-                    name=tool["name"],
-                    description=tool["description"],
-                    parameters_json_schema=tool["parameters"],
+                    name=t["name"],
+                    description=t["description"],
+                    parameters_json_schema=t["parameters"],
                 )
+                for t in tools
             ]
         )
         # Gemini بيستخدم role="model" مش "assistant"
@@ -239,20 +231,14 @@ class GeminiProvider:
         except Exception as exc:  # SDK Google بيرمي أنواع استثناءات متعددة
             raise LLMError(str(exc)) from exc
 
-        tool_name = None
-        tool_input = None
-        calls = response.function_calls
-        if calls:
-            tool_name = calls[0].name
-            tool_input = dict(calls[0].args) if calls[0].args else {}
+        tool_calls = [
+            {"name": c.name, "input": dict(c.args) if c.args else {}}
+            for c in (response.function_calls or [])
+        ]
 
         try:
             reply_text = (response.text or "").strip()
         except Exception:
             reply_text = ""
 
-        return LLMResult(
-            reply_text=reply_text,
-            tool_name=tool_name,
-            tool_input=tool_input,
-        )
+        return LLMResult(reply_text=reply_text, tool_calls=tool_calls)
