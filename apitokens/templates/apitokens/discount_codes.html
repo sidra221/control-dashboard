@@ -1,0 +1,74 @@
+{% extends "apitokens/base.html" %}
+
+{% block title %}{{ T.discounts_title_prefix }}{{ merchant.label }} — Control{% endblock %}
+{% block page_title %}{{ T.discounts_title_prefix }}{{ merchant.label }}{% endblock %}
+{% block page_sub %}{{ T.discounts_sub }}{% endblock %}
+{% block header_links %}
+  <a class="back" href="{% url 'apitokens:catalog' merchant.pk %}">{{ T.manual_catalog_link }}</a>
+  <a class="back" href="{% url 'apitokens:shopify-connect' merchant.pk %}">{{ T.shopify_link_short }}</a>
+  <a class="back" href="{% url 'apitokens:dashboard' %}">{{ T.back_to_tokens }}</a>
+{% endblock %}
+
+{% block content %}
+  <div class="card">
+    <h2>{{ T.add_discount_code }}</h2>
+    <form class="discount-form" method="post">
+      {% csrf_token %}
+      <input type="hidden" name="action" value="add">
+      <div class="field">
+        <label for="code">{{ T.discount_code_label }}</label>
+        <input type="text" id="code" name="code" placeholder="SAVE10" required>
+      </div>
+      <div class="field">
+        <label for="description">{{ T.discount_description_label }}</label>
+        <input type="text" id="description" name="description" placeholder="{{ T.discount_description_placeholder }}">
+      </div>
+      <button type="submit" class="btn-primary">{{ T.add_discount_btn }}</button>
+    </form>
+  </div>
+
+  <div class="card">
+    <h2>{{ T.current_discount_codes }} ({{ codes|length }})</h2>
+    {% if codes %}
+    <div class="table-scroll">
+    <table>
+      <thead>
+        <tr>
+          <th>{{ T.th_code }}</th>
+          <th>{{ T.th_description }}</th>
+          <th>{{ T.th_status }}</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for c in codes %}
+        <tr>
+          <td><code>{{ c.code }}</code></td>
+          <td>{{ c.description }}</td>
+          <td>
+            <span class="badge {% if c.is_active %}active{% else %}inactive{% endif %}">
+              {% if c.is_active %}{{ T.status_connected }}{% else %}{{ T.status_inactive }}{% endif %}
+            </span>
+          </td>
+          <td>
+            <form method="post">
+              {% csrf_token %}
+              <input type="hidden" name="action" value="toggle">
+              <input type="hidden" name="code_id" value="{{ c.pk }}">
+              <button type="submit" class="btn-toggle">{% if c.is_active %}{{ T.btn_stop }}{% else %}{{ T.btn_activate }}{% endif %}</button>
+            </form>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    </div>
+    {% else %}
+    <p class="empty"><span class="ico">🏷️</span>{{ T.empty_discount_codes }}</p>
+    {% endif %}
+  </div>
+{% endblock %}
+
+{% block extra_style %}
+  form.discount-form { display: flex; flex-direction: column; gap: 14px; max-width: 420px; }
+{% endblock %}

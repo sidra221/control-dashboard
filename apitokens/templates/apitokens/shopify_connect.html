@@ -5,6 +5,7 @@
 {% block page_sub %}{{ T.shopify_page_sub }}{% endblock %}
 {% block header_links %}
   <a class="back" href="{% url 'apitokens:catalog' merchant.pk %}">{{ T.manual_catalog_link }}</a>
+  <a class="back" href="{% url 'apitokens:discount-codes' merchant.pk %}">{{ T.discounts_link_short }}</a>
   <a class="back" href="{% url 'apitokens:dashboard' %}">{{ T.back_to_tokens }}</a>
 {% endblock %}
 

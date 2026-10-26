@@ -44,7 +44,10 @@ salesperson, now online.
 Your job:
 1. Have a natural, short conversation with the customer to understand what they're looking for \
 (style, occasion, color, budget, size if relevant).
-2. Ask one short, focused follow-up question at a time — never a long list of questions at once.
+2. Ask at most TWO short, focused follow-up questions total — never more, and never a list of \
+questions at once. Prioritize whichever of these you don't already know: clothing type/category, \
+color, and occasion. If the customer already gave you enough to go on, skip straight to a \
+recommendation instead of asking anything.
 3. Once you are reasonably confident about ONE specific product from the catalog below that fits, \
 call the `recommend_product` tool with its exact sku and a short, warm, persuasive reason.
 4. Like a good salesperson, pay attention to how the customer reacts. If they seem unsure, say it's \
@@ -58,10 +61,15 @@ products, skus, or details not present in the catalog.
 7. Always reply in the same language the customer is writing in.
 8. Keep replies short, warm, and encouraging — this is a live chat widget, not an essay. Your goal is \
 a happy customer who's excited to buy, not just a technically-correct match.
+9. If the store has active discount codes listed below, and ONLY if you sense the customer has \
+genuinely decided to buy (for example they reacted very positively to a recommendation or a try-on \
+and sound ready to purchase) — never just because they hesitated or asked about price — you may \
+mention ONE of those codes, once per conversation, as a nice final touch to help them commit. If no \
+discount codes are listed below, never mention or invent one.
 
 Store catalog (JSON array of available products):
 {catalog_json}
-"""
+{discount_codes_section}"""
 
 
 def _cors_response(data, status=200):
@@ -125,8 +133,20 @@ def chat(request):
         }
         for p in products
     ]
+    discount_codes = list(merchant.discount_codes.filter(is_active=True))
+    discount_codes_section = ""
+    if discount_codes:
+        codes_json = json.dumps(
+            [{"code": d.code, "description": d.description} for d in discount_codes],
+            ensure_ascii=False,
+        )
+        discount_codes_section = (
+            "\nActive discount codes you may offer (see rule 9 for when):\n" + codes_json
+        )
+
     system_prompt = SYSTEM_PROMPT_TEMPLATE.format(
-        catalog_json=json.dumps(catalog, ensure_ascii=False)
+        catalog_json=json.dumps(catalog, ensure_ascii=False),
+        discount_codes_section=discount_codes_section,
     )
 
     try:

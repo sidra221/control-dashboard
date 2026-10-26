@@ -34,6 +34,7 @@ TRANSLATIONS = {
     "th_status": {"ar": "الحالة", "en": "Status"},
     "th_created": {"ar": "تاريخ الإنشاء", "en": "Created at"},
     "th_catalog": {"ar": "الكتالوج", "en": "Catalog"},
+    "th_discounts": {"ar": "أكواد الخصم", "en": "Discount codes"},
     "status_active": {"ar": "فعّال", "en": "Active"},
     "status_inactive": {"ar": "موقوف", "en": "Stopped"},
     "shopify_connected": {"ar": "Shopify ✓", "en": "Shopify ✓"},
@@ -100,6 +101,20 @@ TRANSLATIONS = {
     "update_resync_btn": {"ar": "تحديث وإعادة مزامنة", "en": "Update and resync"},
     "connect_sync_btn": {"ar": "ربط ومزامنة", "en": "Connect and sync"},
 
+    # ===== discount_codes.html =====
+    "discounts_link_short": {"ar": "أكواد الخصم ←", "en": "Discount codes ←"},
+    "discounts_title_prefix": {"ar": "أكواد خصم — ", "en": "Discount codes — "},
+    "discounts_sub": {"ar": "أكواد يقدر المساعد الذكي يعرضها على زبون قرّر يشتري", "en": "Codes the AI assistant can offer a customer who's decided to buy"},
+    "add_discount_code": {"ar": "إضافة كود خصم", "en": "Add a discount code"},
+    "discount_code_label": {"ar": "الكود", "en": "Code"},
+    "discount_description_label": {"ar": "الوصف", "en": "Description"},
+    "discount_description_placeholder": {"ar": "مثلاً: خصم 10% على كل المنتجات", "en": "e.g. 10% off everything"},
+    "add_discount_btn": {"ar": "إضافة", "en": "Add"},
+    "current_discount_codes": {"ar": "الأكواد الحالية", "en": "Current codes"},
+    "th_code": {"ar": "الكود", "en": "Code"},
+    "th_description": {"ar": "الوصف", "en": "Description"},
+    "empty_discount_codes": {"ar": "ما في أكواد خصم لسا — ضيف أول كود من الفورم فوق", "en": "No discount codes yet — add the first one from the form above"},
+
     # ===== view messages (views.py) =====
     "err_label_required": {"ar": "لازم تكتب اسم للتعريف", "en": "You must enter a name"},
     "err_quota_invalid": {"ar": "عدد الصور لازم يكون رقم أكبر من صفر", "en": "Image quota must be a number greater than zero"},
@@ -118,6 +133,8 @@ TRANSLATIONS = {
     "err_missing_connect_fields": {"ar": "لازم تعبي نطاق المتجر، الـ Access Token، والـ API Secret", "en": "You must fill in the shop domain, Access Token, and API Secret"},
     "msg_connect_sync_success": {"ar": "تم الربط والمزامنة الأولى بنجاح — الكتالوج هلأ حي", "en": "Connected and synced successfully — the catalog is now live"},
     "err_connect_sync_partial": {"ar": "تم حفظ الربط بس صار خطأ أثناء التسجيل/المزامنة: %(exc)s", "en": "Connection saved, but an error occurred during registration/sync: %(exc)s"},
+    "err_discount_code_required": {"ar": "لازم تكتب الكود", "en": "You must enter the code"},
+    "msg_discount_code_added": {"ar": "تم إضافة كود الخصم", "en": "Discount code added"},
 
     # ===== period choices (ApiToken.Period) =====
     "period_daily": {"ar": "يومياً", "en": "Daily"},

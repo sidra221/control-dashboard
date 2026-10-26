@@ -14,7 +14,7 @@ from django.utils import timezone
 from django.views.decorators.http import require_http_methods
 
 from .i18n import LANGUAGES, t
-from .models import ApiToken, Product, ShopifyConnection
+from .models import ApiToken, DiscountCode, Product, ShopifyConnection
 from .services import shopify as shopify_service
 
 REQUIRED_COLUMNS = {"sku", "title", "price", "image_url"}
@@ -257,3 +257,35 @@ def _sync_products(merchant, connection):
 
     connection.last_synced_at = timezone.now()
     connection.save(update_fields=["last_synced_at"])
+
+
+@staff_member_required
+def discount_codes(request, pk):
+    merchant = get_object_or_404(ApiToken, pk=pk)
+    lang = request.session.get("lang", "ar")
+
+    if request.method == "POST":
+        action = request.POST.get("action", "add")
+
+        if action == "toggle":
+            code_obj = get_object_or_404(
+                DiscountCode, pk=request.POST.get("code_id"), merchant=merchant
+            )
+            code_obj.is_active = not code_obj.is_active
+            code_obj.save(update_fields=["is_active"])
+            return redirect("apitokens:discount-codes", pk=pk)
+
+        code = request.POST.get("code", "").strip()
+        description = request.POST.get("description", "").strip()
+        if not code:
+            messages.error(request, t("err_discount_code_required", lang))
+        else:
+            DiscountCode.objects.create(merchant=merchant, code=code, description=description)
+            messages.success(request, t("msg_discount_code_added", lang))
+        return redirect("apitokens:discount-codes", pk=pk)
+
+    return render(
+        request,
+        "apitokens/discount_codes.html",
+        {"merchant": merchant, "codes": merchant.discount_codes.all()},
+    )

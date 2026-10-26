@@ -165,3 +165,29 @@ class ShopifyConnection(models.Model):
 
     def __str__(self):
         return f"{self.shop_domain} ({self.merchant.label})"
+
+
+class DiscountCode(models.Model):
+    """كود خصم يقدر المساعد الذكي يعرضه على زبون حاسم إنه رح يشتري —
+    إدارته يدوية بالداشبورد، وصلاحيته الفعلية (نسبة الخصم، تاريخ الانتهاء...)
+    محسوبة ومفعّلة عند التاجر بمتجره الحقيقي، احنا بس منعرضه بالمحادثة.
+    """
+
+    merchant = models.ForeignKey(
+        ApiToken, on_delete=models.CASCADE, related_name="discount_codes",
+    )
+    code = models.CharField("الكود", max_length=64)
+    description = models.CharField(
+        "الوصف", max_length=255, blank=True,
+        help_text="مثلاً: خصم 10% على كل المنتجات",
+    )
+    is_active = models.BooleanField("فعّال", default=True)
+    created_at = models.DateTimeField("تاريخ الإضافة", auto_now_add=True)
+
+    class Meta:
+        verbose_name = "كود خصم"
+        verbose_name_plural = "أكواد الخصم"
+        ordering = ["-created_at"]
+
+    def __str__(self):
+        return f"{self.code} ({self.merchant.label})"

@@ -19,6 +19,7 @@
   }
 
   var history = [];
+  var hasEngaged = false;
 
   var host = document.createElement("div");
   host.id = "sw-widget-host";
@@ -40,6 +41,15 @@
     "  transition: transform .15s ease;",
     "}",
     ".bubble:hover { transform: scale(1.06); }",
+    ".nudge {",
+    "  position: fixed; bottom: 86px; " + SIDE + ": 14px; z-index: 999998;",
+    "  max-width: 220px; background: #1a1d29; color: #fff; font-size: 12.5px; line-height: 1.5;",
+    "  padding: 10px 14px; border-radius: 12px; box-shadow: 0 8px 24px -6px rgba(0,0,0,.35);",
+    "  font-family: 'Tajawal', system-ui, -apple-system, 'Segoe UI', Tahoma, Arial, sans-serif;",
+    "  display: none; cursor: pointer; direction: rtl; text-align: right;",
+    "}",
+    ".nudge.open { display: block; animation: sw-nudge-in .25s ease; }",
+    "@keyframes sw-nudge-in { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }",
     ".panel {",
     "  position: fixed; bottom: 86px; " + SIDE + ": 20px; z-index: 999999;",
     "  width: 340px; max-width: calc(100vw - 40px); height: 480px; max-height: calc(100vh - 120px);",
@@ -111,6 +121,17 @@
   bubble.title = "تحتاج مساعدة باختيار إطلالتك؟";
   root.appendChild(bubble);
 
+  var NUDGE_MESSAGES = [
+    "تقدر تشوف شكل أي قطعة عليك الحين قبل ما تطلبها — جرب القياس الافتراضي! 😍",
+    "ليش تطلب وانت مو متأكد؟ جرب تلبس القطعة افتراضياً أول وشوف شكلها عليك! ✨",
+    "خلك ذكي بتسوقك — جرب شكل الملابس عليك قبل لا تشتري! 🛍️",
+  ];
+  var nudgeIndex = 0;
+  var nudgeHideTimer = null;
+  var nudge = document.createElement("div");
+  nudge.className = "nudge";
+  root.appendChild(nudge);
+
   var panel = document.createElement("div");
   panel.className = "panel";
   panel.innerHTML =
@@ -144,15 +165,44 @@
     lightbox.classList.remove("open");
   });
 
+  function openPanel() {
+    hasEngaged = true;
+    if (nudgeHideTimer) {
+      clearTimeout(nudgeHideTimer);
+    }
+    nudge.classList.remove("open");
+    panel.classList.add("open");
+    if (history.length === 0) {
+      addBotMessage(
+        "أهلاً فيك! 👋 منساعدك تلاقي إطلالتك المثالية، وفيك كمان تجرب أي قطعة عليك " +
+          "افتراضياً بس برفع صورتك — شو بتدوّر عليه اليوم؟"
+      );
+    }
+  }
+
   bubble.addEventListener("click", function () {
-    panel.classList.toggle("open");
-    if (panel.classList.contains("open") && history.length === 0) {
-      addBotMessage("أهلاً! بدك مساعدة تلاقي إطلالتك المثالية؟ احكيلي شو بتدوّر عليه 💜");
+    if (panel.classList.contains("open")) {
+      panel.classList.remove("open");
+    } else {
+      openPanel();
     }
   });
+  nudge.addEventListener("click", openPanel);
   closeBtn.addEventListener("click", function () {
     panel.classList.remove("open");
   });
+
+  setInterval(function () {
+    if (hasEngaged || panel.classList.contains("open")) {
+      return;
+    }
+    nudge.textContent = NUDGE_MESSAGES[nudgeIndex % NUDGE_MESSAGES.length];
+    nudgeIndex++;
+    nudge.classList.add("open");
+    nudgeHideTimer = setTimeout(function () {
+      nudge.classList.remove("open");
+    }, 6000);
+  }, 30000);
 
   function scrollToBottom() {
     msgsEl.scrollTop = msgsEl.scrollHeight;
@@ -348,6 +398,7 @@
           return;
         }
         addTryonResultCard(data.image_url, null);
+        addBotMessage("شو رأيك فيها؟ عجبتك الإطلالة؟ 😊");
       })
       .catch(function () {
         loadingEl.remove();
