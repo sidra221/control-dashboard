@@ -231,18 +231,23 @@ def chat(request):
     except llm.LLMError:
         return _cors_response({"ok": False, "error": "assistant_unavailable"}, status=502)
 
-    # بعض المزوّدات (OpenAI تحديداً) أحياناً بيوصف منتج أو بديل بالنص العادي
-    # (أحياناً بالاسم، أحياناً بس باللون/الوصف) بدل ما يستخدم أداة
-    # recommend_product، رغم تعليمات واضحة بالبرومبت — هاد بيمنع ظهور كارت
-    # المنتج وزر تجربة اللبس نهائياً. بنكتشفها بعلامتين: ذكر اسم منتج حرفياً
-    # من الكتالوج، أو صياغة "ما عنا/ما في تمام... بس عندي..." المعتادة
-    # لقاعدة البديل الأقرب. لما نكتشف هيك، منعيد الطلب مع إجبار الأداة،
-    # ومنحافظ على نص الرد الأصلي (غالباً كويس ومنطقي) ونلزق عليه التوصية.
-    NO_EXACT_MATCH_PHRASES = ("ما عنا", "ما عندنا", "ما في", "لا يوجد", "ليس لدينا", "للأسف")
-    looks_like_unfinished_recommendation = any(
-        p.title.lower() in result.reply_text.lower() for p in products
-    ) or any(phrase in result.reply_text for phrase in NO_EXACT_MATCH_PHRASES)
-    if not result.tool_calls and looks_like_unfinished_recommendation:
+    # بعض المزوّدات (OpenAI تحديداً) أحياناً بتذكر منتج أو كود خصم بالنص
+    # العادي بدل ما تستخدم الأداة المناسبة، رغم تعليمات واضحة بالبرومبت —
+    # هاد بيمنع ظهور كارت المنتج/زر التجربة أو حقل discount_offer نهائياً.
+    # لما نكتشف هيك، منعيد الطلب مع إجبار نفس الأداة، ومنحافظ على نص الرد
+    # الأصلي (غالباً كويس ومنطقي) ونلزق عليه نتيجة الأداة.
+    force_tool = None
+    if not result.tool_calls:
+        if any(d.code in result.reply_text for d in discount_codes):
+            force_tool = "offer_discount_code"
+        else:
+            no_exact_match_phrases = ("ما عنا", "ما عندنا", "ما في", "لا يوجد", "ليس لدينا", "للأسف")
+            if any(p.title.lower() in result.reply_text.lower() for p in products) or any(
+                phrase in result.reply_text for phrase in no_exact_match_phrases
+            ):
+                force_tool = "recommend_product"
+
+    if force_tool:
         original_reply_text = result.reply_text
         try:
             forced_result = llm.chat_with_retry(
@@ -250,7 +255,7 @@ def chat(request):
                 system_prompt,
                 clean_messages + [{"role": "assistant", "content": original_reply_text}],
                 tools,
-                force_tool="recommend_product",
+                force_tool=force_tool,
             )
             result = llm.LLMResult(reply_text=original_reply_text, tool_calls=forced_result.tool_calls)
         except llm.LLMError:
@@ -285,9 +290,14 @@ def chat(request):
 
     reply_text = result.reply_text
     if not reply_text:
-        # لو الموديل رجع بس tool_use بدون نص (أو sku مش موجود بالكتالوج فطلع
-        # recommendation فاضي)، منضمن إنه الزبون ما يستنى رد فاضي بالشات.
-        reply_text = recommendation["reason"] if recommendation else "ممكن تعيد سؤالك بطريقة تانية؟"
+        # لو الموديل رجع بس tool_use بدون نص، منضمن إنه الزبون ما يستنى رد
+        # فاضي أو رد عام مالوش علاقة بالسياق بالشات.
+        if recommendation:
+            reply_text = recommendation["reason"]
+        elif discount_offer:
+            reply_text = f"خلينا نسهّلها عليك — استخدم كود {discount_offer['code']} وخود {discount_offer['description']}! 🎁"
+        else:
+            reply_text = "ممكن تعيد سؤالك بطريقة تانية؟"
 
     return _cors_response(
         {
