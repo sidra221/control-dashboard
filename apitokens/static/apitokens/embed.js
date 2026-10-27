@@ -170,13 +170,14 @@
   });
 
   function openPanel() {
+    var isFirstOpen = !hasEngaged;
     hasEngaged = true;
     if (nudgeHideTimer) {
       clearTimeout(nudgeHideTimer);
     }
     nudge.classList.remove("open");
     panel.classList.add("open");
-    if (history.length === 0) {
+    if (isFirstOpen) {
       addBotMessage(
         "أهلاً! 👋 وصلت مكانك الصح — احكيلي شو في بالك، وبدلّك على أحلى خيار. وإذا حبيت، " +
           "فيك كمان تشوف شكل القطعة عليك قبل ما تقرر 😊"
