@@ -218,6 +218,53 @@ class WidgetChatBackendLogicTests(TestCase):
         data = resp.json()
         self.assertIsNone(data["discount_offer"])
 
+    # ---------- H-01: purchase link ----------
+
+    @patch("apitokens.widget_views.llm.chat_with_retry")
+    @patch("apitokens.widget_views.llm.get_provider")
+    def test_purchase_intent_resurfaces_real_product_link(self, mock_provider, mock_chat):
+        """الزبون بيسأل "كيف بطلبه؟" عن منتج انعرض قبل، والموديل رد بنص بدون
+        أداة — لازم السيستم يجبر recommend_product ويرجّع الرابط الحقيقي."""
+        self.dress_black.product_url = "https://shop.example.com/products/dress-black"
+        self.dress_black.save()
+        mock_provider.return_value = FakeProvider()
+        stalled = fake_result(reply_text="الفستان الأسود مثالي إلك!")
+        forced = fake_result(tool_calls=[{
+            "name": "recommend_product",
+            "input": {"sku": "DRESS-BLACK", "reason": "تقدر تطلبه من الزر هون 👇"},
+        }])
+        mock_chat.side_effect = [stalled, forced]
+        resp = self.post([
+            {"role": "user", "content": "بدي فستان أسود"},
+            {"role": "assistant", "content": "عندي هاد الفستان الأسود."},
+            {"role": "user", "content": "تمام، كيف بطلبه؟"},
+        ])
+        data = resp.json()
+        self.assertEqual(mock_chat.call_args_list[1].kwargs.get("force_tool"), "recommend_product")
+        self.assertEqual(data["recommendations"][0]["sku"], "DRESS-BLACK")
+        self.assertEqual(
+            data["recommendations"][0]["product_url"],
+            "https://shop.example.com/products/dress-black",
+        )
+
+    @patch("apitokens.widget_views.llm.chat_with_retry")
+    @patch("apitokens.widget_views.llm.get_provider")
+    def test_product_url_always_from_db_not_model(self, mock_provider, mock_chat):
+        """حتى لو الموديل حاول يمرّر رابط من عنده، الرابط بالرد لازم يكون
+        رابط المنتج الحقيقي من الداتابيز."""
+        self.shirt_blue.product_url = "https://shop.example.com/products/shirt-blue"
+        self.shirt_blue.save()
+        mock_provider.return_value = FakeProvider()
+        mock_chat.return_value = fake_result(tool_calls=[{
+            "name": "recommend_product",
+            "input": {"sku": "SHIRT-BLUE", "reason": "x", "product_url": "https://evil.example.com"},
+        }])
+        resp = self.post([{"role": "user", "content": "ابعتلي الرابط"}])
+        self.assertEqual(
+            resp.json()["recommendations"][0]["product_url"],
+            "https://shop.example.com/products/shirt-blue",
+        )
+
     # ---------- gift try-on button label (already-shipped behavior, covered for regression safety) ----------
 
     @patch("apitokens.widget_views.llm.chat_with_retry")

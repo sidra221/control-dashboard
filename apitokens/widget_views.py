@@ -134,9 +134,15 @@ specific stated requirement genuinely has no match. Here the customer didn't nec
 something specific that failed; just present the next option with enthusiasm, e.g. "شو رأيك بهاد؟" or \
 "جربي هالخيار". But if they instead sound lukewarm or unconvinced about a product you ALREADY showed or \
 that they just tried on — don't call `recommend_product` again for that same sku, the card is already \
-there — instead try to close the sale on that same item (see rule 9) rather than pivoting away. Never \
-recommend the same sku twice in one conversation. Keep offering good alternatives until the customer is \
-happy or the catalog genuinely has nothing else close to what they want.
+there — instead try to close the sale on that same item (see rule 9) rather than pivoting away. One \
+exception to "never recommend the same sku twice": if the customer asks how to buy/order/complete the \
+purchase of a product you already showed (e.g. "كيف بطلبه؟", "ابعتلي الرابط", "بدي اشتريه", "كمل الدفع", \
+"ضيفيه للسلة"), call `recommend_product` again for that exact same sku — this isn't a new suggestion, \
+it's how the system surfaces their real purchase link/button, and the customer needs it visible again. \
+In the `reason` for this case, point them straight at it (e.g. "تقدر تطلبه مباشرة من الزر/الرابط هون 👇") \
+instead of re-describing the product. Outside that one case, never recommend the same sku twice in one \
+conversation. Keep offering good alternatives until the customer is happy or the catalog genuinely has \
+nothing else close to what they want.
 5. Only ever recommend a product that exists in the catalog below, using its exact sku. Never invent \
 products, skus, or details not present in the catalog.
 6. If nothing matches exactly, NEVER just say the store doesn't have it and leave it there, and NEVER \
@@ -332,9 +338,15 @@ def chat(request):
     # هاد بيمنع ظهور كارت المنتج/زر التجربة أو حقل discount_offer نهائياً.
     # لما نكتشف هيك، منعيد الطلب مع إجبار نفس الأداة، ومنحافظ على نص الرد
     # الأصلي (غالباً كويس ومنطقي) ونلزق عليه نتيجة الأداة.
+    purchase_intent_markers = (
+        "كيف بطلبه", "كيف اطلبه", "كيف أطلبه", "كيف بطلب", "الرابط", "بدي اشتريه", "بدي أشتريه",
+        "كيف اشتريه", "كمل الدفع", "اكمل الدفع", "أكمل الدفع", "للسلة", "بدي اطلبه",
+    )
     force_tool = None
     if not result.tool_calls:
-        if any(d.code in result.reply_text for d in discount_codes):
+        if any(m in clean_messages[-1]["content"] for m in purchase_intent_markers):
+            force_tool = "recommend_product"
+        elif any(d.code in result.reply_text for d in discount_codes):
             force_tool = "offer_discount_code"
         else:
             no_exact_match_phrases = ("ما عنا", "ما عندنا", "ما في", "لا يوجد", "ليس لدينا", "للأسف")
