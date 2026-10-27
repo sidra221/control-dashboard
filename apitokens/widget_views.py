@@ -15,6 +15,9 @@ MAX_MESSAGES = 30
 MAX_PHOTO_BYTES = 8 * 1024 * 1024
 MAX_MESSAGE_CHARS = 2000
 
+TRYON_BUTTON_LABEL_SELF = "جرّب شكلك فيه 📸"
+TRYON_BUTTON_LABEL_GIFT = "جرّب شكله على صاحب الهدية 📸"
+
 RECOMMEND_TOOL = {
     "name": "recommend_product",
     "description": (
@@ -44,6 +47,13 @@ RECOMMEND_TOOL = {
                     "already established this is for someone else (a gift, etc.), this invitation MUST "
                     "refer to that person specifically, not to the customer — never say 'your photo' or "
                     "'how it looks on you' when it's not for them."
+                ),
+            },
+            "for_someone_else": {
+                "type": "boolean",
+                "description": (
+                    "True if this product is for someone other than the customer (a gift, a family "
+                    "member, etc.), false if it's for the customer themselves. Defaults to false."
                 ),
             },
         },
@@ -103,14 +113,20 @@ pivoting away. Never recommend the same sku twice in one conversation. Keep offe
 until the customer is happy or the catalog genuinely has nothing else close to what they want.
 5. Only ever recommend a product that exists in the catalog below, using its exact sku. Never invent \
 products, skus, or details not present in the catalog.
-6. If nothing matches exactly, NEVER just say the store doesn't have it and leave it there — be honest \
-that there's no exact match, but in that SAME reply, directly call `recommend_product` for the closest \
-real alternative in the catalog (a different but related color, a similar style, a set or piece that \
-shares part of what they asked for) — exactly like a good in-store salesperson would say "we don't have \
-that exact one, but here's something close" while already holding it up, not asking "want to see it?" \
-and waiting for permission first. Only skip recommending an alternative if the catalog truly has \
-nothing even loosely related to what they want.
-7. Always reply in the same language the customer is writing in.
+6. If nothing matches exactly, NEVER just say the store doesn't have it and leave it there, and NEVER \
+ask a yes/no permission question like "هل تودين الاطلاع على فستان آخر؟" or "حابة تشوفيه؟" — instead, in \
+that SAME reply, directly call `recommend_product` for the closest real alternative in the catalog, \
+already treating it as the thing you're showing them, not something you're offering to maybe show \
+later. Concrete example — customer asks for a green dress and none exists: the WRONG reply is "ما عنا \
+أخضر، بس عنا أخضر حكيم، حابة تشوفيه؟" (a question). The RIGHT reply calls `recommend_product` for the \
+sage-green dress right away with a reason like "ما عنا أخضر حالياً بالضبط، بس عندي هاد الفستان بالأخضر \
+الحكيم وهو كتير مميز ومطلوب — خودي نظرة!" (stated as fact, shown immediately, never a question). Only \
+skip recommending an alternative if the catalog truly has nothing even loosely related to what they want.
+7. Always reply in the same language the customer is writing in. In Arabic specifically, match the \
+grammatical gender the customer themselves reveals in their own words (e.g. "حابة"/"متأكدة" is \
+feminine self-reference, "حابب"/"متأكد" is masculine) and address them with that same gender from then \
+on — never assume a gender with no signal from their own words. Before any such signal appears, default \
+to the standard generic masculine form rather than guessing feminine.
 8. Keep replies short, warm, and encouraging — this is a live chat widget, not an essay. Your goal is \
 a happy customer who's excited to buy, not just a technically-correct match. Never use markdown \
 formatting — no **bold**, no # headings, no bullet or numbered lists. This is a plain-text chat bubble, \
@@ -215,6 +231,31 @@ def chat(request):
     except llm.LLMError:
         return _cors_response({"ok": False, "error": "assistant_unavailable"}, status=502)
 
+    # بعض المزوّدات (OpenAI تحديداً) أحياناً بيوصف منتج أو بديل بالنص العادي
+    # (أحياناً بالاسم، أحياناً بس باللون/الوصف) بدل ما يستخدم أداة
+    # recommend_product، رغم تعليمات واضحة بالبرومبت — هاد بيمنع ظهور كارت
+    # المنتج وزر تجربة اللبس نهائياً. بنكتشفها بعلامتين: ذكر اسم منتج حرفياً
+    # من الكتالوج، أو صياغة "ما عنا/ما في تمام... بس عندي..." المعتادة
+    # لقاعدة البديل الأقرب. لما نكتشف هيك، منعيد الطلب مع إجبار الأداة،
+    # ومنحافظ على نص الرد الأصلي (غالباً كويس ومنطقي) ونلزق عليه التوصية.
+    NO_EXACT_MATCH_PHRASES = ("ما عنا", "ما عندنا", "ما في", "لا يوجد", "ليس لدينا", "للأسف")
+    looks_like_unfinished_recommendation = any(
+        p.title.lower() in result.reply_text.lower() for p in products
+    ) or any(phrase in result.reply_text for phrase in NO_EXACT_MATCH_PHRASES)
+    if not result.tool_calls and looks_like_unfinished_recommendation:
+        original_reply_text = result.reply_text
+        try:
+            forced_result = llm.chat_with_retry(
+                provider,
+                system_prompt,
+                clean_messages + [{"role": "assistant", "content": original_reply_text}],
+                tools,
+                force_tool="recommend_product",
+            )
+            result = llm.LLMResult(reply_text=original_reply_text, tool_calls=forced_result.tool_calls)
+        except llm.LLMError:
+            pass  # نضل مع الرد الأصلي بدل ما نفشّل الطلب كله
+
     recommendation = None
     discount_offer = None
     for call in result.tool_calls:
@@ -224,6 +265,7 @@ def chat(request):
             reason = call_input.get("reason", "")
             product = next((p for p in products if p.sku == sku), None)
             if product is not None:
+                for_someone_else = bool(call_input.get("for_someone_else"))
                 recommendation = {
                     "sku": product.sku,
                     "title": product.title,
@@ -231,6 +273,9 @@ def chat(request):
                     "image_url": product.image_url,
                     "product_url": product.product_url,
                     "reason": reason,
+                    "tryon_button_label": (
+                        TRYON_BUTTON_LABEL_GIFT if for_someone_else else TRYON_BUTTON_LABEL_SELF
+                    ),
                 }
         elif call["name"] == "offer_discount_code":
             code_value = call_input.get("code", "")

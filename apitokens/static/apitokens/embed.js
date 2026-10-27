@@ -275,7 +275,7 @@
 
     var tryBtn = document.createElement("button");
     tryBtn.className = "tryon";
-    tryBtn.textContent = "جرّب شكلك فيه 📸";
+    tryBtn.textContent = rec.tryon_button_label || "جرّب شكلك فيه 📸";
     tryBtn.addEventListener("click", function () {
       if (savedPhoto) {
         runTryon(rec.sku, savedPhoto);

@@ -37,7 +37,9 @@ class LLMResult:
     tool_calls: list = field(default_factory=list)  # [{"name": str, "input": dict}, ...]
 
 
-def chat_with_retry(provider, system_prompt, messages, tools, max_attempts=2, backoff_seconds=1):
+def chat_with_retry(
+    provider, system_prompt, messages, tools, force_tool=None, max_attempts=2, backoff_seconds=1
+):
     """مزوّدات الذكاء الاصطناعي (خصوصاً الطبقة المجانية) بترجع أخطاء مؤقتة
     (503/overloaded) بشكل شائع — منعيد المحاولة قبل ما نرجّع خطأ حقيقي
     للزبون. هاد مشترك لكل المزوّدات بدل ما يتكرر بكل وحدة لحالها.
@@ -45,11 +47,15 @@ def chat_with_retry(provider, system_prompt, messages, tools, max_attempts=2, ba
     attempt واحد إضافي بس (مش 3): لما الموديل يكون "overloaded" فعلياً عادةً
     بتضل هيك لثواني/دقايق، فثالث محاولة غالباً بتفشل كمان وبس بتزود وقت
     الانتظار قبل ما الزبون ياخد أي رد.
+
+    force_tool: اسم أداة لازم الموديل يستدعيها هالمرة (بدل ما يترك له
+    الخيار) — مستخدم لما نكتشف إنه رد بنص عادي بدل ما يستخدم الأداة
+    (صار فعلياً مع OpenAI رغم تعليمات واضحة بالبرومبت).
     """
     last_error = None
     for attempt in range(max_attempts):
         try:
-            return provider.chat(system_prompt, messages, tools)
+            return provider.chat(system_prompt, messages, tools, force_tool=force_tool)
         except LLMError as exc:
             last_error = exc
             logger.warning(
@@ -87,7 +93,7 @@ class AnthropicProvider:
     def is_configured(self):
         return bool(self.api_key)
 
-    def chat(self, system_prompt, messages, tools):
+    def chat(self, system_prompt, messages, tools, force_tool=None):
         import anthropic
 
         # max_retries=0: عنا retry loop خاص فينا (chat_with_retry) فوق كل
@@ -101,6 +107,7 @@ class AnthropicProvider:
             {"name": t["name"], "description": t["description"], "input_schema": t["parameters"]}
             for t in tools
         ]
+        tool_choice = {"type": "tool", "name": force_tool} if force_tool else None
         try:
             response = client.messages.create(
                 model=self.model,
@@ -108,6 +115,7 @@ class AnthropicProvider:
                 system=system_prompt,
                 messages=messages,
                 tools=anthropic_tools,
+                **({"tool_choice": tool_choice} if tool_choice else {}),
             )
         except anthropic.APIError as exc:
             raise LLMError(str(exc)) from exc
@@ -134,7 +142,7 @@ class OpenAIProvider:
     def is_configured(self):
         return bool(self.api_key)
 
-    def chat(self, system_prompt, messages, tools):
+    def chat(self, system_prompt, messages, tools, force_tool=None):
         import openai
 
         # max_retries=0: نفس السبب المذكور بـ AnthropicProvider — عنا retry
@@ -157,11 +165,13 @@ class OpenAIProvider:
             }
             for t in tools
         ]
+        tool_choice = {"type": "function", "function": {"name": force_tool}} if force_tool else "auto"
         try:
             response = client.chat.completions.create(
                 model=self.model,
                 messages=openai_messages,
                 tools=openai_tools,
+                tool_choice=tool_choice,
                 max_tokens=500,
             )
         except openai.APIError as exc:
@@ -186,7 +196,7 @@ class GeminiProvider:
     def is_configured(self):
         return bool(self.api_key)
 
-    def chat(self, system_prompt, messages, tools):
+    def chat(self, system_prompt, messages, tools, force_tool=None):
         # الباكج القديم google-generativeai صار deprecated رسمياً (ولا
         # تحديثات/إصلاحات جايّة)، فمبنيين على الـ SDK الموحّد الجديد google-genai.
         from google import genai
@@ -218,6 +228,14 @@ class GeminiProvider:
             for m in messages
         ]
 
+        tool_config = None
+        if force_tool:
+            tool_config = types.ToolConfig(
+                function_calling_config=types.FunctionCallingConfig(
+                    mode="ANY", allowed_function_names=[force_tool],
+                )
+            )
+
         try:
             response = client.models.generate_content(
                 model=self.model,
@@ -225,6 +243,7 @@ class GeminiProvider:
                 config=types.GenerateContentConfig(
                     system_instruction=system_prompt,
                     tools=[gemini_tool],
+                    tool_config=tool_config,
                     max_output_tokens=500,
                 ),
             )
