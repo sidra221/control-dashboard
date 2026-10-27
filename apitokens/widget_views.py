@@ -1,4 +1,5 @@
 import json
+import re
 from datetime import timedelta
 
 from django.conf import settings
@@ -14,6 +15,20 @@ from .services import kieai, llm
 MAX_MESSAGES = 30
 MAX_PHOTO_BYTES = 8 * 1024 * 1024
 MAX_MESSAGE_CHARS = 2000
+MAX_RECOMMENDATIONS_PER_TURN = 3
+
+# يلتقط رقم بعد كلمة بتدل على ميزانية صريحة (مش أي رقم عشوائي قرب كلمة
+# "دولار" — هيك بنتجنب نلتقط سعر منافس أو سعر منتج عادي عن طريق الخطأ
+# كأنه ميزانية الزبون).
+BUDGET_PATTERN = re.compile(
+    r"(?:ميزانيتي|ميزانيه|ميزانيتى|مش\s*اكتر\s*من|مو\s*اكتر\s*من|ما\s*بدي\s*ادفع\s*اكتر\s*من|"
+    r"اقل\s*من|أقل\s*من|لا\s*يتجاوز|ما\s*يتجاوز|ضمن|budget)\D{0,15}?(\d+(?:\.\d+)?)",
+    re.IGNORECASE,
+)
+
+# علامات لغوية ضيّقة ومحدّدة لكلام الخصم — نطاق صغير ومقصود (خصم/كود/%)
+# حتى ما نحجب رسائل طبيعية ما إلها علاقة بالخصومات أبداً.
+DISCOUNT_FABRICATION_MARKERS = ("خصم", "كود", "%")
 
 TRYON_BUTTON_LABEL_SELF = "جرّب شكلك فيه 📸"
 TRYON_BUTTON_LABEL_GIFT = "جرّب شكله على صاحب الهدية 📸"
@@ -67,12 +82,16 @@ RECOMMEND_TOOL = {
 DISCOUNT_TOOL = {
     "name": "offer_discount_code",
     "description": (
-        "Offer an active discount code to the customer. Call this ONLY when the customer has just "
-        "clearly signaled they've decided to buy right now (for example: \"قررت اشتريه\", \"بدي اشتريه "
-        "هلق\", or an equally unmistakable, enthusiastic commitment after a recommendation or a "
-        "try-on) — never for mere hesitation or price questions with no clear commitment. Call it at "
-        "most once per conversation, and only with a code that actually exists in the active codes "
-        "list."
+        "Offer one active, genuinely applicable discount code to the customer. Call this when you "
+        "recognize a real buying/closing moment: a clear decision to buy, a price objection, "
+        "hesitation after seeing a specific product, a competitor-price comparison, or any other "
+        "sign the customer is close to purchasing. Don't reveal a code to every browsing customer "
+        "up front — use it as a deliberate closing move, not a default greeting. If more than one "
+        "code is active, pick only the one whose own description genuinely fits this product/customer "
+        "(e.g. a code described as shirts-only should not be offered for a dress). Call it at most "
+        "once per conversation, and only with a code+description that actually exist in the active "
+        "codes list below — never invent a code, percentage, promotion, expiry date, or eligibility "
+        "condition not present in that list."
     ),
     "parameters": {
         "type": "object",
@@ -138,16 +157,34 @@ to the standard generic masculine form rather than guessing feminine.
 a happy customer who's excited to buy, not just a technically-correct match. Never use markdown \
 formatting — no **bold**, no # headings, no bullet or numbered lists. This is a plain-text chat bubble, \
 so write it as natural plain sentences, the way you'd actually text someone.
-9. Pay close attention to this rule, don't skip it: if the store has active discount codes listed \
-below, use one to help close the sale once the customer has already seen or tried on a SPECIFIC \
-product and is reacting to it — whether they sound fully decided (e.g. "قررت اشتريه", "بدي اشتريه هلق") \
-OR they sound lukewarm / not fully convinced about that same product (e.g. "ماشي الحال", "مش متأكدة", \
-an unenthusiastic "so-so" reaction after a recommendation or a try-on). In the lukewarm case, use the \
-code AS your argument to win them over on that same item — that's exactly what it's for — rather than \
-just moving on to a different product. Call the `offer_discount_code` tool with that code's exact \
-value, at most once per conversation. Don't call it before the customer has engaged with a specific \
-product at all (a generic upfront "do you have discounts?" with nothing shown yet doesn't count). If no \
-discount codes are listed below, never call this tool or invent a code.
+9. Pay close attention to this rule, don't skip it. If the store has active discount codes listed \
+below, decide deliberately when to reveal one — don't blurt it out to every browsing customer, and \
+don't wait only for an explicit "I've decided." Recognize real closing/buying moments: a clear \
+decision (e.g. "قررت اشتريه", "بدي اشتريه هلق"), a price objection ("غالي كتير"), lukewarm hesitation \
+about a specific product already shown ("ماشي الحال", "مش متأكدة"), a competitor-price comparison, or \
+any other unmistakable sign they're close to buying. In the hesitation/objection case, use the code AS \
+your argument to win them over on that same item rather than pivoting to a different product. If more \
+than one code is active, read each one's own description and offer only the one that genuinely applies \
+to this product or customer — never assume a code applies to everything. Call `offer_discount_code` \
+with that code's exact value, at most once per conversation, and never before the customer has engaged \
+with a specific product (a generic upfront "do you have discounts?" with nothing shown yet doesn't \
+count). Never invent a code, percentage, promotion, expiry date, or eligibility condition that isn't \
+actually in the active codes list. If no discount code genuinely applies — including when none are \
+listed below at all — never call this tool or invent one; instead keep selling naturally: address the \
+objection with the product's real value, or offer a genuinely different real alternative. A price \
+objection or hesitation is never, by itself, a reason to end the conversation.
+10. This store's system has no size chart, no stock/inventory data, no shipping or delivery-time \
+data, and no return/exchange policy on file — none of that exists for you to check. If asked about any \
+of these, say so honestly and naturally in one short line (e.g. "ما عندي معلومات عن المقاسات/التوصيل \
+حالياً" or "ما بقدر أضمنلك هاد" — never invent a size, a stock count, a delivery date, or a return \
+guarantee), then keep helping with what you DO know — the product itself, styling, or a suitable \
+alternative. Don't sound robotic or treat the question as a conversation-ender; pivot straight back to \
+being useful in the same breath.
+11. When you give more than one recommendation in the same reply (the customer asked for "options," \
+"the best two," etc.), every single one must still satisfy every constraint already confirmed in this \
+conversation — same color/style family, same category, and within any budget the customer stated. \
+Never include a second item just to offer variety if it breaks a constraint that's already locked in; \
+it's better to show one correct item than two where one is wrong.
 
 Store catalog (JSON array of available products):
 {catalog_json}
@@ -160,6 +197,58 @@ def _cors_response(data, status=200):
     response["Access-Control-Allow-Headers"] = "Content-Type, X-Api-Token"
     response["Access-Control-Allow-Methods"] = "POST, OPTIONS"
     return response
+
+
+def _extract_budget_ceiling(messages):
+    """بتدور على آخر رقم ميزانية صريح ذكره الزبون (مش أي رقم عشوائي) —
+    آخر وحد بالترتيب لأنه التفضيل الأحدث لازم يغلب القديم.
+    """
+    ceiling = None
+    for m in messages:
+        if m["role"] != "user":
+            continue
+        match = BUDGET_PATTERN.search(m["content"])
+        if match:
+            ceiling = float(match.group(1))
+    return ceiling
+
+
+def _process_tool_calls(tool_calls, products, discount_codes):
+    """بتعالج استدعاءات الأدوات يلي رجعت من الموديل لقائمة توصيات
+    (بدون تكرار نفس الـ sku، وبنفس ترتيب الموديل) + عرض خصم واحد كحد أقصى.
+    """
+    recommendations = []
+    seen_skus = set()
+    discount_offer = None
+    for call in tool_calls:
+        call_input = call.get("input") or {}
+        if call["name"] == "recommend_product":
+            sku = call_input.get("sku", "")
+            if sku in seen_skus:
+                continue
+            product = next((p for p in products if p.sku == sku), None)
+            if product is not None:
+                seen_skus.add(sku)
+                for_someone_else = bool(call_input.get("for_someone_else"))
+                recommendations.append(
+                    {
+                        "sku": product.sku,
+                        "title": product.title,
+                        "price": str(product.price),
+                        "image_url": product.image_url,
+                        "product_url": product.product_url,
+                        "reason": call_input.get("reason", ""),
+                        "tryon_button_label": (
+                            TRYON_BUTTON_LABEL_GIFT if for_someone_else else TRYON_BUTTON_LABEL_SELF
+                        ),
+                    }
+                )
+        elif call["name"] == "offer_discount_code" and discount_offer is None:
+            code_value = call_input.get("code", "")
+            code_obj = next((d for d in discount_codes if d.code == code_value), None)
+            if code_obj is not None:
+                discount_offer = {"code": code_obj.code, "description": code_obj.description}
+    return recommendations[:MAX_RECOMMENDATIONS_PER_TURN], discount_offer
 
 
 @csrf_exempt
@@ -268,39 +357,49 @@ def chat(request):
         except llm.LLMError:
             pass  # نضل مع الرد الأصلي بدل ما نفشّل الطلب كله
 
-    recommendation = None
-    discount_offer = None
-    for call in result.tool_calls:
-        call_input = call.get("input") or {}
-        if call["name"] == "recommend_product":
-            sku = call_input.get("sku", "")
-            reason = call_input.get("reason", "")
-            product = next((p for p in products if p.sku == sku), None)
-            if product is not None:
-                for_someone_else = bool(call_input.get("for_someone_else"))
-                recommendation = {
-                    "sku": product.sku,
-                    "title": product.title,
-                    "price": str(product.price),
-                    "image_url": product.image_url,
-                    "product_url": product.product_url,
-                    "reason": reason,
-                    "tryon_button_label": (
-                        TRYON_BUTTON_LABEL_GIFT if for_someone_else else TRYON_BUTTON_LABEL_SELF
-                    ),
-                }
-        elif call["name"] == "offer_discount_code":
-            code_value = call_input.get("code", "")
-            code_obj = next((d for d in discount_codes if d.code == code_value), None)
-            if code_obj is not None:
-                discount_offer = {"code": code_obj.code, "description": code_obj.description}
-
+    recommendations, discount_offer = _process_tool_calls(result.tool_calls, products, discount_codes)
     reply_text = result.reply_text
+
+    # يحافظ على ميزانية الزبون لو ذكرها صراحة: بيشيل أي توصية فوق السقف،
+    # إلا إذا هيك رح يصفّي كل التوصيات — ساعتها منفضّل نضل مع خيار وحد
+    # (ولو فوق الميزانية شوي) عن ما نرجّع رد فاضي بالكامل للزبون.
+    budget_ceiling = _extract_budget_ceiling(clean_messages)
+    if budget_ceiling is not None and len(recommendations) > 1:
+        within_budget = [r for r in recommendations if float(r["price"]) <= budget_ceiling]
+        if within_budget:
+            recommendations = within_budget
+
+    # لو الموديل ذكر كلام خصم (خصم/كود/%) بالنص العادي بدون ما ينتج
+    # discount_offer حقيقي من كود فعلي موجود — هاد اختلاق، مش مجرد نسيان
+    # استخدام الأداة (هيك مغطّى فوق بـ force_tool). منعيد الطلب مرة وحدة
+    # مع تصحيح صريح إنه ما في خصم فعلي، ومنستخدم نتيجة هالمحاولة كاملة
+    # (نص ورد وأدوات) بدل الرد الأصلي المختلق.
+    if discount_offer is None and any(marker in reply_text for marker in DISCOUNT_FABRICATION_MARKERS):
+        corrected_system_prompt = system_prompt + (
+            "\n\nCORRECTION — read before replying: your previous reply mentioned a discount, "
+            "code, or percentage-off, but no such offer actually applies to this customer right "
+            "now. Rewrite your reply to their last message WITHOUT mentioning any discount, code, "
+            "or percentage — address what they actually asked using the product's real value, or "
+            "a genuine alternative, instead."
+        )
+        try:
+            corrected = llm.chat_with_retry(provider, corrected_system_prompt, clean_messages, tools)
+            recommendations, discount_offer = _process_tool_calls(
+                corrected.tool_calls, products, discount_codes
+            )
+            if budget_ceiling is not None and len(recommendations) > 1:
+                within_budget = [r for r in recommendations if float(r["price"]) <= budget_ceiling]
+                if within_budget:
+                    recommendations = within_budget
+            reply_text = corrected.reply_text or reply_text
+        except llm.LLMError:
+            pass  # نضل مع الرد الأصلي بدل ما نفشّل الطلب كله
+
     if not reply_text:
         # لو الموديل رجع بس tool_use بدون نص، منضمن إنه الزبون ما يستنى رد
         # فاضي أو رد عام مالوش علاقة بالسياق بالشات.
-        if recommendation:
-            reply_text = recommendation["reason"]
+        if recommendations:
+            reply_text = recommendations[0]["reason"]
         elif discount_offer:
             reply_text = f"خلينا نسهّلها عليك — استخدم كود {discount_offer['code']} وخود {discount_offer['description']}! 🎁"
         else:
@@ -310,7 +409,8 @@ def chat(request):
         {
             "ok": True,
             "reply": reply_text,
-            "recommendation": recommendation,
+            "recommendation": recommendations[0] if recommendations else None,
+            "recommendations": recommendations,
             "discount_offer": discount_offer,
         }
     )

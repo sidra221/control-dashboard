@@ -373,7 +373,9 @@
           addBotMessage(data.reply);
           history.push({ role: "assistant", content: data.reply });
         }
-        if (data.recommendation) {
+        if (data.recommendations && data.recommendations.length) {
+          data.recommendations.forEach(addRecommendationCard);
+        } else if (data.recommendation) {
           addRecommendationCard(data.recommendation);
         }
         if (data.discount_offer) {
