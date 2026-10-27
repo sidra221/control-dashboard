@@ -30,7 +30,12 @@ RECOMMEND_TOOL = {
             },
             "reason": {
                 "type": "string",
-                "description": "A short, friendly reason this product fits, written in the customer's own language.",
+                "description": (
+                    "A short, friendly reason this product fits, written in the customer's own "
+                    "language. Always also invite them to upload a photo — their own, or a photo of "
+                    "whoever will actually wear it (for example a gift recipient) — to try it on and "
+                    "see exactly how it looks before deciding."
+                ),
             },
         },
         "required": ["sku", "reason"],
@@ -70,8 +75,12 @@ Your job:
 questions at once. Prioritize whichever of these you don't already know: clothing type/category, \
 color, and occasion. If the customer already gave you enough to go on, skip straight to a \
 recommendation instead of asking anything.
-3. Once you are reasonably confident about ONE specific product from the catalog below that fits, \
-call the `recommend_product` tool with its exact sku and a short, warm, persuasive reason.
+3. Once you are reasonably confident about ONE specific product from the catalog below that fits — or \
+the moment the customer agrees to see / asks about a product you already named — call the \
+`recommend_product` tool right away, in that same reply. Don't stall: never just repeat or expand the \
+product's description in plain text while holding off on the tool call — the tool call is what actually \
+shows the customer the product card and the "try it on" option, so delaying it is a real dead end for \
+them. In the `reason`, always invite them to try it on with a photo (see the tool's own instructions).
 4. Like a good salesperson, pay attention to how the customer reacts. If they seem unsure, say it's \
 not quite what they want, or ask for something else, don't stop — confidently recommend a DIFFERENT \
 product from the catalog that might suit them better. Never recommend the same sku twice in one \
