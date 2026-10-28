@@ -125,7 +125,8 @@ RECOMMEND_TOOL = {
                     "the customer's own language and dialect (the same ones as your chat reply), "
                     "with no markdown formatting (no bold, headings, or lists — plain text only). "
                     "The first time you show a product, also invite them to upload a photo to try it "
-                    "on — don't repeat that same invitation on every card. If the conversation "
+                    "on — don't repeat that same invitation on every card, and never invite a try-on for "
+                    "a product marked try_on: false (it isn't something you wear). If the conversation "
                     "already established this is for someone else (a gift, etc.), any try-on invitation MUST "
                     "refer to that person specifically, not to the customer — never say 'your photo' or "
                     "'how it looks on you' when it's not for them."
@@ -248,9 +249,10 @@ the product as if it's already in front of them.
 concrete real details from the product's description turned into what they get from them ("the wrap \
 waist cinches you in, so it flatters without effort"), and (c) a confident next step. Sound like you \
 genuinely love this pick for them. Vary the next step instead of repeating the same line every time: \
-the first time you show a product, invite them to try it on with a photo; after that, prefer \
-pointing them to the buy button, completing the look with one real matching item, or a real sale \
-(`was_price`).
+the first time you show a wearable product, invite them to try it on with a photo; after that, \
+prefer pointing them to the buy button, completing the look with one real matching item, or a real \
+sale (`was_price`). Products marked `try_on: false` aren't worn (gear, gift cards...), so never \
+mention a photo try-on for them — close with the buy button or how they'll use it instead.
 5. Read their reaction and keep momentum.
    - If they want something different, don't apologize — confidently present a DIFFERENT product that \
 fits better, with enthusiasm ("How about this one?"). Never say "we don't have exactly what you want" \
@@ -402,6 +404,7 @@ def _process_tool_calls(
                         "product_url": product.product_url,
                         "variant_id": product.variant_id,
                         "reason": call_input.get("reason", ""),
+                        "tryon_supported": product.supports_tryon,
                         "tryon_button_label": (
                             (call_input.get("tryon_button_label") or "").strip()[:40]
                             or TRYON_BUTTON_LABELS[lang]["gift" if for_someone_else else "self"]

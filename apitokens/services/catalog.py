@@ -179,5 +179,7 @@ def catalog_for_prompt(products, shown_skus=()):
             row["description"] = desc + ("…" if len(p.description) > len(desc) else "")
         if p.options:
             row["available_options"] = p.options
+        if not p.supports_tryon:
+            row["try_on"] = False
         rows.append(row)
     return rows

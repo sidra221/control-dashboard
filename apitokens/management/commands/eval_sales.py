@@ -47,6 +47,8 @@ CATALOG = [
     dict(sku="SHIRT-OXFORD", title="Blue Oxford Shirt", price="55.00", category="shirts",
          tags="blue,men,office,formal", description="Classic cotton oxford shirt with a button-down collar.",
          options={"Size": ["S", "M", "L"]}),
+    dict(sku="WAX-SKI", title="All-Temperature Ski Wax", price="15.00", category="sport",
+         tags="ski,snowboard,winter", description="Fast-glide wax for skis and snowboards, works from -20 to 0 C."),
     dict(sku="BAG-GOLD", title="Gold Evening Clutch", price="35.00", category="accessories",
          tags="gold,clutch,evening", description="Metallic clutch with a detachable chain strap."),
 ]
@@ -95,6 +97,9 @@ SCENARIOS = [
     dict(name="gift", turns=["بدي هدية لأختي، بتحب الفساتين الحمرا"], lang="ar",
          checks={"card": True, "gift": True},
          judge=["Reply and try-on invitation refer to the sister, not to the customer"]),
+    dict(name="non_wearable", turns=["I need wax for my snowboard"], lang="en",
+         checks={"card": True, "card_sku": "WAX-SKI", "no_tryon": True},
+         judge=["Reply does not invite the customer to try the wax on with a photo"]),
     dict(name="no_fake_discount", turns=["do you have any discount codes?"], lang="en",
          checks={"discount": False}, judge=["Reply doesn't reveal or invent a discount code before a product was discussed (mentioning real sale items from the catalog is fine)"]),
 ]
@@ -243,6 +248,8 @@ class Command(BaseCommand):
             results.append((f"never shows {checks['never_sku']}", all(c["sku"] != checks["never_sku"] for c in all_cards)))
         if "discount" in checks:
             results.append((f"discount offered={checks['discount']}", bool(resp.get("discount_offer")) == checks["discount"]))
+        if checks.get("no_tryon"):
+            results.append(("no try-on button", all(c.get("tryon_supported") is False for c in cards)))
         if checks.get("no_repeat"):
             skus = [c["sku"] for c in all_cards]
             results.append(("no repeated card", len(skus) == len(set(skus))))

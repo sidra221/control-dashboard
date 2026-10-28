@@ -51,6 +51,16 @@ CSRF_TRUSTED_ORIGINS = [
 SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
 USE_X_FORWARDED_HOST = True
 
+if not DEBUG:
+    # الداشبورد بالإنتاج على HTTPS بس — الكوكيز ما بتنبعت على http عادي.
+    SESSION_COOKIE_SECURE = True
+    CSRF_COOKIE_SECURE = True
+    # 30 يوم، وبدون includeSubDomains حتى ما نأثر على باقي مواقع الدومين.
+    SECURE_HSTS_SECONDS = int(os.environ.get("DJANGO_HSTS_SECONDS", "2592000"))
+    # التحويل من http لـ https بيصير بـ nginx. لو فعّلناه بجانغو كمان، أي خدمة
+    # داخلية بتحكي مع gunicorn مباشرة على 127.0.0.1 (مثلاً n8n) رح تاخد 301.
+    SILENCED_SYSTEM_CHECKS = ["security.W008"]
+
 INSTALLED_APPS = [
     "django.contrib.admin",
     "django.contrib.auth",

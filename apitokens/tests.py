@@ -673,6 +673,31 @@ class WidgetChatShopifyReadyTests(TestCase):
         self.assertIn("بيعيش معك سنين", data["reply"])
 
 
+class TryOnSupportTests(TestCase):
+    def setUp(self):
+        self.merchant = ApiToken.objects.create(label="T", image_quota=1)
+
+    def make(self, title, category="", tags=""):
+        return Product(merchant=self.merchant, sku="X", title=title, category=category, tags=tags,
+                       price="1", image_url="https://e.com/x.jpg")
+
+    def test_wearables_support_tryon(self):
+        for title in ["Black Satin Evening Gown", "Men Check Shirt", "Gold Clutch", "فستان سهرة",
+                      "Winter Jacket", "Running Sneakers", "Corset With Black Skirt"]:
+            self.assertTrue(self.make(title).supports_tryon, title)
+
+    def test_gear_and_gift_cards_do_not(self):
+        for title, category, tags in [("The Complete Snowboard", "snowboard", "Premium, Snow"),
+                                      ("Selling Plans Ski Wax", "accessories", "Accessory, Sport"),
+                                      ("Gift Card", "giftcard", ""), ("Laptop stand", "", "")]:
+            self.assertFalse(self.make(title, category, tags).supports_tryon, title)
+
+    def test_catalog_marks_non_wearables(self):
+        rows = catalog_service.catalog_for_prompt([self.make("The Complete Snowboard"), self.make("Red Dress")])
+        self.assertEqual(rows[0].get("try_on"), False)
+        self.assertNotIn("try_on", rows[1])
+
+
 class CatalogSelectionTests(TestCase):
     def setUp(self):
         self.merchant = ApiToken.objects.create(label="Big", image_quota=1)

@@ -359,6 +359,7 @@
 
     var tryBtn = document.createElement("button");
     tryBtn.className = "tryon";
+    if (rec.tryon_supported === false) tryBtn.style.display = "none";
     tryBtn.textContent = rec.tryon_button_label || "جرّب شكلك فيه 📸";
     tryBtn.addEventListener("click", function () {
       if (savedPhoto) {

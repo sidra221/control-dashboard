@@ -1,3 +1,4 @@
+import re
 import secrets
 
 from django.conf import settings
@@ -110,6 +111,23 @@ class ApiToken(models.Model):
         }
 
 
+# أشياء بتنلبس أو بتنحمل على الجسم — بس هي بتنفع معها تجربة اللبس بالصورة.
+# (سنوبورد، شمع تزلج، بطاقة هدية... ما إلها معنى نجربها على صورة الزبون.)
+WEARABLE_PATTERN = re.compile(
+    r"\b(dress(es)?|gown|frock|shirts?|t-?shirts?|tee|tops?|blouses?|jackets?|coats?|hoodies?|"
+    r"sweaters?|sweatshirts?|jumpers?|cardigans?|pants|trousers|jeans|shorts|skirts?|suits?|blazers?|"
+    r"vests?|abayas?|thobes?|kaftans?|caftans?|jumpsuits?|corsets?|lingerie|swimwear|swimsuits?|"
+    r"bikinis?|polos?|kimonos?|robes?|pajamas?|leggings|clothing|apparel|outfits?|"
+    r"hats?|caps?|beanies?|scarf|scarves|hijabs?|gloves|sunglasses|glasses|eyewear|"
+    r"bags?|handbags?|clutch(es)?|purses?|backpacks?|totes?|shoes?|sneakers?|boots?|heels|sandals?|"
+    r"loafers?|watch(es)?|necklaces?|earrings?|bracelets?|jewel(le)?ry|belts?|ties?)\b"
+    r"|فستان|فساتين|قميص|قمصان|تيشيرت|بلوزة|جاكيت|جاكيتات|معطف|جاكيت|هودي|كنزة|بنطلون|بنطال|جينز|"
+    r"شورت|تنورة|بدلة|عباية|عبايات|ثوب|قفطان|جلابية|بيجامة|حجاب|شال|طاقية|قبعة|نظارة|شنطة|حقيبة|"
+    r"حذاء|أحذية|جزمة|صندل|ساعة|عقد|حلق|اسوارة|أسوارة|إكسسوار|ملابس|لبس",
+    re.IGNORECASE,
+)
+
+
 class Product(models.Model):
     """منتج واحد من كتالوج التاجر (ApiToken). لو التاجر بيرفع CSV يدوي، رفع
     ملف جديد بيعوّض كل منتجاته. لو مربوط بـ Shopify (انظر ShopifyConnection)،
@@ -161,6 +179,11 @@ class Product(models.Model):
     @property
     def tag_list(self):
         return [t.strip() for t in self.tags.split(",") if t.strip()]
+
+    @property
+    def supports_tryon(self):
+        """هل بينفع الزبون يجرّب هالمنتج على صورته؟ (ملابس وإكسسوارات بس)"""
+        return bool(WEARABLE_PATTERN.search(f"{self.title} {self.category} {self.tags}"))
 
 
 class ShopifyConnection(models.Model):
