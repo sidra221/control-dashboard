@@ -12,6 +12,7 @@ urlpatterns = [
     path("api/", include("apitokens.api_urls")),
     path("widget/chat/", widget_views.chat, name="widget-chat"),
     path("widget/tryon/", widget_views.tryon, name="widget-tryon"),
+    path("widget/event/", widget_views.event, name="widget-event"),
     path(
         "webhooks/shopify/<str:token>/",
         shopify_webhooks.product_webhook,

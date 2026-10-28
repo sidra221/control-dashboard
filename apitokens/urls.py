@@ -11,4 +11,5 @@ urlpatterns = [
     path("<int:pk>/catalog/", views.catalog, name="catalog"),
     path("<int:pk>/shopify/", views.shopify_connect, name="shopify-connect"),
     path("<int:pk>/discounts/", views.discount_codes, name="discount-codes"),
+    path("<int:pk>/conversations/", views.conversations, name="conversations"),
 ]

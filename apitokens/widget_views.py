@@ -1,21 +1,28 @@
 import json
+import logging
 import re
 from datetime import timedelta
 
 from django.conf import settings
-from django.db import transaction
+from django.db import DatabaseError, transaction
 from django.http import JsonResponse
 from django.utils import timezone
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_http_methods
 
-from .models import ApiToken, Product
+from .models import ApiToken, Conversation, Product
+from .services import catalog as catalog_service
 from .services import kieai, llm
+
+logger = logging.getLogger(__name__)
 
 MAX_MESSAGES = 30
 MAX_PHOTO_BYTES = 8 * 1024 * 1024
 MAX_MESSAGE_CHARS = 2000
 MAX_RECOMMENDATIONS_PER_TURN = 3
+MAX_SHOWN_SKUS = 50
+SESSION_ID_PATTERN = re.compile(r"^[A-Za-z0-9_-]{8,64}$")
+WIDGET_EVENTS = {"buy_click": "buy_clicks", "add_to_cart": "add_to_carts"}
 
 # يلتقط رقم بعد كلمة بتدل على ميزانية صريحة (مش أي رقم عشوائي قرب كلمة
 # "دولار" — هيك بنتجنب نلتقط سعر منافس أو سعر منتج عادي عن طريق الخطأ
@@ -28,7 +35,17 @@ BUDGET_PATTERN = re.compile(
 
 # علامات لغوية ضيّقة ومحدّدة لكلام الخصم — نطاق صغير ومقصود (خصم/كود/%)
 # حتى ما نحجب رسائل طبيعية ما إلها علاقة بالخصومات أبداً.
-DISCOUNT_FABRICATION_MARKERS = ("خصم", "كود", "%")
+DISCOUNT_FABRICATION_MARKERS = ("خصم", "كود", "%", "discount", "coupon", "promo code")
+
+# الزبون بدو يشتري منتج سبق وانعرض — هون بس منسمح بإعادة عرض نفس الكرت
+# (لأنه هو اللي فيه زر/رابط الشراء).
+PURCHASE_INTENT_MARKERS = (
+    "كيف بطلبه", "كيف اطلبه", "كيف أطلبه", "كيف بطلب", "الرابط", "بدي اشتريه", "بدي أشتريه",
+    "كيف اشتريه", "كمل الدفع", "اكمل الدفع", "أكمل الدفع", "للسلة", "بدي اطلبه", "ابي اطلبه",
+    "أبي أطلبه", "عايز اطلبه", "عايزة اطلبه", "كيف اطلب", "how do i buy", "how to buy",
+    "how do i order", "how to order", "checkout", "add to cart", "add it to", "send me the link",
+    "the link", "buy it", "order it", "i'll take it",
+)
 
 # نصوص بيولّدها الكود نفسه (مش الموديل) — منختار نسختها حسب لغة آخر رسالة
 # من الزبون حتى ما يطلعله زر أو رد بالعربي وهو عم يحكي إنجليزي.
@@ -46,12 +63,36 @@ FALLBACK_REPHRASE_REPLY = {
 }
 
 ARABIC_CHAR_PATTERN = re.compile(r"[؀-ۿ]")
+# عربي مكتوب بحروف لاتينية: أرقام بدل حروف (3=ع، 7=ح، 2=ء...) جوا الكلمة، أو كلمات شائعة.
+ARABIZI_DIGIT_PATTERN = re.compile(r"[a-z][2356789]|[2356789][a-z]", re.IGNORECASE)
+# 2nd، 3rd، 4k، 5pm... — أرقام إنجليزية عادية مش Arabizi
+ENGLISH_NUMBER_WORD = re.compile(r"^\d+(st|nd|rd|th|s|k|m|x|pm|am|cm|kg|g|ml|l|gb|mb)?$")
+ARABIZI_WORDS = {
+    "baddi", "badde", "bade", "biddi", "shu", "shou", "kifak", "kifik", "marhaba", "mar7aba",
+    "ahlan", "wesh", "wsh", "abi", "abgha", "3ayez", "3ayza", "ayez", "mesh", "msh", "keda",
+    "ezayak", "habibi", "yalla", "inshallah", "mafi", "fi", "3ndkon", "3andkon", "3ndak",
+    "fostan", "ma3", "kteer", "ktir", "halla2", "hala", "zay", "bkam", "addesh", "ade",
+}
+
+
+def _is_arabic_text(text):
+    """عربي بحروف عربية، أو Arabizi (عربي بحروف لاتينية)."""
+    if ARABIC_CHAR_PATTERN.search(text):
+        return True
+    words = re.findall(r"[a-z0-9']+", text.lower())
+    score = 0
+    for w in words:
+        if ARABIZI_DIGIT_PATTERN.search(w) and not ENGLISH_NUMBER_WORD.match(w):
+            score += 2  # رقم مكان حرف (3ndkon، a7mar) — إشارة قوية
+        elif w in ARABIZI_WORDS:
+            score += 1
+    return score >= 2 or (score == 1 and len(words) <= 2)
 
 
 def _customer_lang(messages):
-    """عربي إذا آخر رسالة من الزبون فيها حروف عربية، وإلا إنجليزي."""
+    """عربي إذا آخر رسالة من الزبون عربية (بأي حروف)، وإلا إنجليزي."""
     last_user = next((m["content"] for m in reversed(messages) if m["role"] == "user"), "")
-    return "ar" if ARABIC_CHAR_PATTERN.search(last_user) else "en"
+    return "ar" if _is_arabic_text(last_user) else "en"
 
 RECOMMEND_TOOL = {
     "name": "recommend_product",
@@ -78,8 +119,10 @@ RECOMMEND_TOOL = {
                 "description": (
                     "A short, persuasive, benefit-led reason this product fits, written strictly in "
                     "the customer's own language and dialect (the same ones as your chat reply), "
-                    "with no markdown formatting (no bold, headings, or lists — plain text only). Always also invite them to upload a photo to try it on. If the conversation "
-                    "already established this is for someone else (a gift, etc.), this invitation MUST "
+                    "with no markdown formatting (no bold, headings, or lists — plain text only). "
+                    "The first time you show a product, also invite them to upload a photo to try it "
+                    "on — don't repeat that same invitation on every card. If the conversation "
+                    "already established this is for someone else (a gift, etc.), any try-on invitation MUST "
                     "refer to that person specifically, not to the customer — never say 'your photo' or "
                     "'how it looks on you' when it's not for them."
                 ),
@@ -129,8 +172,17 @@ DISCOUNT_TOOL = {
                 "type": "string",
                 "description": "The exact discount code, copied exactly from the active codes list.",
             },
+            "pitch": {
+                "type": "string",
+                "description": (
+                    "Your full closing message that goes with the code, strictly in the customer's own "
+                    "language and dialect, plain text: acknowledge their hesitation in a few words, one "
+                    "concrete sentence on the product's real value, then present the code as the reason "
+                    "to go ahead now. Never just the code alone."
+                ),
+            },
         },
-        "required": ["code"],
+        "required": ["code", "pitch"],
     },
 }
 
@@ -155,22 +207,25 @@ dialect. Typical cues: Gulf uses words like "abi", "wesh", "zain", "7eil"; Egypt
 MSA. Talk like a friendly local salesperson from their own region, not like a textbook. The same \
 applies to other languages (casual vs. formal English, Brazilian vs. European Portuguese, etc.).
 - Keep each reply in ONE script and never mix Arabic and Latin letters inside it. If they write Arabic \
-in Latin letters and numbers (Arabizi, e.g. "kifak", "3ndkon"), reply fully in clean, readable Arabizi \
-in their dialect.
+in Latin letters and numbers (Arabizi, e.g. "kifak", "3ndkon", "baddi"), they are speaking Arabic: \
+reply in their dialect written in normal Arabic script (every word in Arabic letters, no Latin words).
 - If they switch language or dialect mid-conversation, switch with them from that message on.
 - Any example phrase in these instructions only illustrates the intent. Never copy it literally — \
 express the same idea naturally in the customer's own language and dialect.
 - Grammatical gender (Arabic and other gendered languages): match the gender the customer reveals \
 about themselves in their own words (e.g. a feminine vs. masculine form of "I'd like" or "I'm sure"), \
 and keep addressing them that way. Never guess a gender with no signal; until one appears, use the \
-standard generic masculine form. What they're shopping for is NOT a signal (a man can buy a dress as a \
-gift) — only how they refer to themselves counts.
+gender-neutral wording (phrasing that avoids gendered verb forms, or polite plural/impersonal forms); \
+if that's impossible in their language, use the standard generic masculine. What they're shopping for \
+is NOT a signal (a man can buy a dress as a gift) — only how they refer to themselves counts.
 
 HOW YOU SELL
 1. Discover fast. Have a short, natural conversation to learn what they want: type of item, style, \
 occasion, color, budget, size if relevant. Ask at most TWO short follow-up questions in total — never \
 more, and never several questions in one message. Prioritize whichever you don't know yet: category, \
-color, occasion. If they've already given you enough, skip the questions and recommend right away.
+color, occasion. If they've already given you enough — or the catalog has one item that clearly fits \
+what they said — recommend it right away and ask any follow-up AFTER showing it. Showing a good \
+product beats asking a question.
 2. Gifts and other people. If they say it's for someone else (a gift, a family member, anyone other \
 than themselves), remember it for the REST of the conversation: every mention of trying it on or how \
 it will look must refer to that person (by name or relation if given), never to the customer, until \
@@ -183,17 +238,25 @@ try-on button, so never describe a product in plain text while holding off on th
 with a yes/no permission question like "Would you like to see it?" — just show it. The card appears \
 together with your message, so never announce it ("let me show you", "one moment") — just talk about \
 the product as if it's already in front of them.
-4. Sell the benefit, not the spec. In your reply and in the `reason`, connect the product to what they \
-told you: the occasion, the feeling, how it will look and how they'll feel wearing it. Be specific and \
-vivid, in one or two short sentences, with real confidence ("this is exactly what you described" \
-energy). Always invite them to try it on with a photo (see the tool's own instructions).
+4. Sell the benefit, not the spec. Every pitch has three beats, in one to three short sentences: \
+(a) a hook tied to THEIR situation (the occasion, the person, the feeling they want), (b) one or two \
+concrete real details from the product's description turned into what they get from them ("the wrap \
+waist cinches you in, so it flatters without effort"), and (c) a confident next step. Sound like you \
+genuinely love this pick for them. Vary the next step instead of repeating the same line every time: \
+the first time you show a product, invite them to try it on with a photo; after that, prefer \
+pointing them to the buy button, completing the look with one real matching item, or a real sale \
+(`was_price`).
 5. Read their reaction and keep momentum.
    - If they want something different, don't apologize — confidently present a DIFFERENT product that \
 fits better, with enthusiasm ("How about this one?"). Never say "we don't have exactly what you want" \
 when you're simply pivoting; that wording belongs only to rule 7.
-   - If they sound lukewarm or unsure about a product you ALREADY showed (or that they just tried on), \
-don't show the same product again and don't drop it — work to close the sale on that item: \
-reassure, highlight the benefit that matters most to them, and use rule 10 if a discount applies.
+   - If they react to, or ask about, a product you ALREADY showed (a question about its size, price, \
+fabric, or "it's nice but..."), answer in your plain-text reply and do NOT call `recommend_product` \
+for it — its card is already on screen. If they sound lukewarm or unsure, don't drop it: close the \
+sale on that item — reassure, highlight the benefit that matters most to them, and use rule 10 if a \
+discount applies.
+   - The products already shown in this conversation are listed at the end of these instructions. \
+Never call `recommend_product` for one of them again, except in the purchase case right below.
    - Exception to "never show the same sku twice": if they ask how to buy, order, check out, get the \
 link, or add a product you already showed to the cart, call `recommend_product` again for that exact \
 sku — this is how the system surfaces their purchase link/button. In the `reason`, point them straight \
@@ -213,16 +276,25 @@ to see it?" (a question). RIGHT is calling `recommend_product` for the sage-gree
 with a reason like "We don't have pure green right now, but this sage-green one is gorgeous and would \
 look stunning for your occasion — have a look!" Only skip an alternative if nothing in the catalog is \
 even loosely related.
-8. Handle objections with value. On price, doubt or comparison with another store: acknowledge it \
-briefly, then answer with the product's real value (quality, versatility, how well it fits their need), \
-or offer a genuinely cheaper real alternative from the catalog. An objection is never a reason to end \
-the conversation or give up on the sale.
+8. Handle objections with value. On price, doubt or comparison with another store, your reply must: \
+acknowledge it in a few words (empathy, not apology), then give the product's real value in one \
+concrete sentence (quality, versatility, how many occasions it covers, a real sale), then the closer — \
+a discount code if rule 10 allows one, otherwise a genuinely cheaper real alternative. Never answer an \
+objection with only a code. An objection is never a reason to end the conversation or give up.
+8b. If they ask about discounts or offers before choosing anything, don't reveal a code yet: tell them \
+warmly you'll get them the best deal once they find the right piece, mention any real sale items \
+(`was_price`), and ask what they're looking for.
 
 HONESTY (never break these — a persuasive salesperson never lies)
 9. Only recommend products that exist in the catalog below, using their exact sku. Never invent \
-products, skus, prices, materials, features or other details that aren't in the catalog. Never claim \
-an item is a bestseller, popular, trending, low in stock or ending soon — the store gives you no such \
-data. Build urgency and desire only from real benefits, never from invented scarcity.
+products, skus, prices, materials, features or other details that aren't in the catalog. Every \
+product in the catalog is in stock right now. `available_options` lists the sizes/colors/etc. that are \
+actually available — use it to answer size or color questions precisely, and never offer an option \
+that isn't listed. `was_price` is the product's real original price: when present the item is genuinely \
+on sale and you may use that real saving as a selling point. Use the `description` for real details \
+(fabric, fit, features). Never claim an item is a bestseller, popular, trending, low in stock or ending \
+soon — the store gives you no such data. Build urgency and desire only from real benefits and real \
+sales, never from invented scarcity.
 10. Discount codes. If the store has active discount codes listed below, reveal one deliberately as a \
 closing move — not to every browsing customer, and not only after an explicit "I've decided". Real \
 closing moments include: a clear decision to buy, a price objection ("too expensive"), lukewarm \
@@ -236,11 +308,17 @@ with nothing shown yet doesn't count). Never invent a code, percentage, promotio
 eligibility condition that isn't in the active codes list. If no code applies — including when none are \
 listed at all — never call this tool or mention a discount; keep selling with value or a real \
 alternative instead.
-11. The store has no size chart, no stock/inventory data, no shipping or delivery-time data, and no \
-return/exchange policy on file. If asked about any of these, say honestly in one short line that you \
-don't have that information right now (never invent a size, stock count, delivery date or return \
-guarantee), then immediately pivot back to being useful — the product itself, styling advice, or a \
-suitable alternative. Don't sound robotic and don't treat it as the end of the conversation.
+11. Shipping, delivery times, returns/exchanges, payment methods and size guidance: answer ONLY from \
+the "Store information" section below (and each product's `available_options`). Summarize what it says \
+briefly in the customer's language, then steer back to the product. If the answer isn't there (or there \
+is no such section), say honestly in one short line that you don't have that detail right now — never \
+invent a delivery date, fee, return guarantee or size measurement — and immediately pivot back to being \
+useful. Don't sound robotic and don't treat it as the end of the conversation.
+11b. Every informational answer (shipping, returns, sizes, fabric, how to buy) still ends with a short, \
+confident nudge toward the sale, tied to what they asked — e.g. after sizes: the size that's available \
+and that it's ready to order from the button; after returns: that this makes trying it risk-free; \
+after "how do I buy": that it's one tap away and a word on why it's a great pick. One short sentence, \
+never pushy.
 12. When you recommend more than one product in the same reply (they asked for "options", "the best \
 two", etc.), every one must satisfy every constraint already confirmed in the conversation — same \
 color/style family, same category, and within any stated budget. Never add a second item just for \
@@ -252,9 +330,10 @@ three short sentences. Write the way a friendly salesperson texts a customer. Ne
 **bold**, no # headings, no bullet or numbered lists — plain sentences only. A well-placed emoji is \
 fine; don't overdo it.
 
-Store catalog (JSON array of available products):
+Store catalog — the in-stock products most relevant to this conversation (JSON array). Prices are \
+in {currency}. If the customer asks for something that isn't here, recommend the closest item that is.
 {catalog_json}
-{discount_codes_section}"""
+{store_info_section}{discount_codes_section}{shown_section}"""
 
 
 def _cors_response(data, status=200):
@@ -279,18 +358,25 @@ def _extract_budget_ceiling(messages):
     return ceiling
 
 
-def _process_tool_calls(tool_calls, products, discount_codes, lang="ar"):
+def _process_tool_calls(
+    tool_calls, products, discount_codes, lang="ar", blocked_skus=(), currency=""
+):
     """بتعالج استدعاءات الأدوات يلي رجعت من الموديل لقائمة توصيات
     (بدون تكرار نفس الـ sku، وبنفس ترتيب الموديل) + عرض خصم واحد كحد أقصى.
+    blocked_skus: منتجات سبق وانعرضت بالمحادثة — ما منعيد كرتها.
     """
     recommendations = []
-    seen_skus = set()
+    seen_skus = set(blocked_skus)
     discount_offer = None
+    blocked_reason = ""
     for call in tool_calls:
         call_input = call.get("input") or {}
         if call["name"] == "recommend_product":
             sku = call_input.get("sku", "")
             if sku in seen_skus:
+                # الموديل أحياناً بيحط جوابه كله بالـ reason تبع كرت مكرر —
+                # منشيل الكرت بس منحتفظ بالنص حتى ما يضيع الرد.
+                blocked_reason = blocked_reason or call_input.get("reason", "")
                 continue
             product = next((p for p in products if p.sku == sku), None)
             if product is not None:
@@ -301,8 +387,13 @@ def _process_tool_calls(tool_calls, products, discount_codes, lang="ar"):
                         "sku": product.sku,
                         "title": product.title,
                         "price": str(product.price),
+                        "compare_at_price": (
+                            str(product.compare_at_price) if product.compare_at_price else None
+                        ),
+                        "currency": currency,
                         "image_url": product.image_url,
                         "product_url": product.product_url,
+                        "variant_id": product.variant_id,
                         "reason": call_input.get("reason", ""),
                         "tryon_button_label": (
                             (call_input.get("tryon_button_label") or "").strip()[:40]
@@ -315,7 +406,75 @@ def _process_tool_calls(tool_calls, products, discount_codes, lang="ar"):
             code_obj = next((d for d in discount_codes if d.code == code_value), None)
             if code_obj is not None:
                 discount_offer = {"code": code_obj.code, "description": code_obj.description}
-    return recommendations[:MAX_RECOMMENDATIONS_PER_TURN], discount_offer
+                blocked_reason = blocked_reason or (call_input.get("pitch") or "").strip()
+    return recommendations[:MAX_RECOMMENDATIONS_PER_TURN], discount_offer, blocked_reason
+
+
+def _apply_budget(recommendations, budget_ceiling):
+    # يحافظ على ميزانية الزبون لو ذكرها صراحة: بيشيل أي توصية فوق السقف،
+    # إلا إذا هيك رح يصفّي كل التوصيات — ساعتها منفضّل نضل مع خيار وحد
+    # (ولو فوق الميزانية شوي) عن ما نرجّع رد فاضي بالكامل للزبون.
+    if budget_ceiling is not None and len(recommendations) > 1:
+        within_budget = [r for r in recommendations if float(r["price"]) <= budget_ceiling]
+        if within_budget:
+            return within_budget
+    return recommendations
+
+
+def _script_mismatch(customer_text, reply_text):
+    """True لو الزبون كتب بحروف عربية والرد ما فيه ولا حرف عربي، أو العكس."""
+    customer_arabic = _is_arabic_text(customer_text)
+    reply_arabic = bool(ARABIC_CHAR_PATTERN.search(reply_text))
+    if not any(ch.isalpha() for ch in customer_text):
+        return False  # إيموجي أو أرقام بس — ما في لغة نقارن فيها
+    return customer_arabic != reply_arabic
+
+
+def _has_purchase_intent(text):
+    lowered = text.lower()
+    return any(marker in lowered for marker in PURCHASE_INTENT_MARKERS)
+
+
+def _clean_session_id(value):
+    value = (value or "").strip() if isinstance(value, str) else ""
+    return value if SESSION_ID_PATTERN.match(value) else ""
+
+
+def _log_conversation(merchant, session_id, messages, reply_text, recommendations, discount_offer):
+    """تسجيل المحادثة للقياس — فشله (مثلاً قاعدة بيانات مقفولة) ما لازم أبداً
+    يمنع الزبون من استلام الرد."""
+    if not session_id:
+        return
+    try:
+        _save_conversation(merchant, session_id, messages, reply_text, recommendations, discount_offer)
+    except DatabaseError:
+        logger.exception("conversation_log_failed merchant=%s", merchant.pk)
+
+
+def _save_conversation(merchant, session_id, messages, reply_text, recommendations, discount_offer):
+    conversation, _ = Conversation.objects.get_or_create(merchant=merchant, session_id=session_id)
+    conversation.messages = messages + [{"role": "assistant", "content": reply_text}]
+    skus = list(conversation.recommended_skus)
+    for rec in recommendations:
+        if rec["sku"] not in skus:
+            skus.append(rec["sku"])
+    conversation.recommended_skus = skus
+    if discount_offer and not conversation.discount_code:
+        conversation.discount_code = discount_offer["code"]
+    conversation.save()
+
+
+def _authenticate(request):
+    """برجّع (merchant, None) أو (None, response) جاهز للرجوع."""
+    token_value = request.headers.get("X-Api-Token", "").strip()
+    if not token_value:
+        return None, _cors_response({"ok": False, "error": "missing_token"}, status=401)
+    merchant = ApiToken.objects.filter(token=token_value).first()
+    if merchant is None:
+        return None, _cors_response({"ok": False, "error": "invalid_token"}, status=401)
+    if not merchant.is_active:
+        return None, _cors_response({"ok": False, "error": "token_disabled"}, status=403)
+    return merchant, None
 
 
 @csrf_exempt
@@ -324,15 +483,9 @@ def chat(request):
     if request.method == "OPTIONS":
         return _cors_response({}, status=200)
 
-    token_value = request.headers.get("X-Api-Token", "").strip()
-    if not token_value:
-        return _cors_response({"ok": False, "error": "missing_token"}, status=401)
-
-    merchant = ApiToken.objects.filter(token=token_value).first()
-    if merchant is None:
-        return _cors_response({"ok": False, "error": "invalid_token"}, status=401)
-    if not merchant.is_active:
-        return _cors_response({"ok": False, "error": "token_disabled"}, status=403)
+    merchant, error_response = _authenticate(request)
+    if error_response:
+        return error_response
 
     try:
         body = json.loads(request.body or "{}")
@@ -356,21 +509,15 @@ def chat(request):
     if clean_messages[-1]["role"] != "user":
         return _cors_response({"ok": False, "error": "last_message_must_be_user"}, status=400)
 
+    session_id = _clean_session_id(body.get("session_id"))
+    raw_shown = body.get("shown_skus") if isinstance(body.get("shown_skus"), list) else []
+    shown_skus = [str(s)[:64] for s in raw_shown if isinstance(s, (str, int))][:MAX_SHOWN_SKUS]
+
     provider = llm.get_provider()
     if not provider.is_configured():
         return _cors_response({"ok": False, "error": "assistant_not_configured"}, status=503)
 
-    products = list(merchant.products.all())
-    catalog = [
-        {
-            "sku": p.sku,
-            "title": p.title,
-            "category": p.category,
-            "tags": p.tag_list,
-            "price": str(p.price),
-        }
-        for p in products
-    ]
+    products = catalog_service.select_products(merchant, clean_messages, shown_skus)
     discount_codes = list(merchant.discount_codes.filter(is_active=True))
     discount_codes_section = ""
     tools = [RECOMMEND_TOOL]
@@ -380,13 +527,32 @@ def chat(request):
             ensure_ascii=False,
         )
         discount_codes_section = (
-            "\nActive discount codes (see rule 10 for when to offer one):\n" + codes_json
+            "\nActive discount codes (see rule 10 for when to offer one):\n" + codes_json + "\n"
         )
         tools.append(DISCOUNT_TOOL)
 
+    store_info_section = ""
+    if merchant.store_info.strip():
+        store_info_section = (
+            "\nStore information (shipping, returns, payments, sizing — written by the store; "
+            "it may be in any language, always answer in the customer's):\n"
+            + merchant.store_info.strip()[:6000] + "\n"
+        )
+    shown_section = ""
+    if shown_skus:
+        shown_section = (
+            "\nProducts already shown in this conversation (don't show them again unless the "
+            "customer wants to buy one): " + ", ".join(shown_skus) + "\n"
+        )
+
     system_prompt = SYSTEM_PROMPT_TEMPLATE.format(
-        catalog_json=json.dumps(catalog, ensure_ascii=False),
+        catalog_json=json.dumps(
+            catalog_service.catalog_for_prompt(products, shown_skus), ensure_ascii=False
+        ),
+        currency=merchant.currency or "the store's currency",
+        store_info_section=store_info_section,
         discount_codes_section=discount_codes_section,
+        shown_section=shown_section,
     )
 
     try:
@@ -394,26 +560,28 @@ def chat(request):
     except llm.LLMError:
         return _cors_response({"ok": False, "error": "assistant_unavailable"}, status=502)
 
-    # بعض المزوّدات (OpenAI تحديداً) أحياناً بتذكر منتج أو كود خصم بالنص
-    # العادي بدل ما تستخدم الأداة المناسبة، رغم تعليمات واضحة بالبرومبت —
-    # هاد بيمنع ظهور كارت المنتج/زر التجربة أو حقل discount_offer نهائياً.
-    # لما نكتشف هيك، منعيد الطلب مع إجبار نفس الأداة، ومنحافظ على نص الرد
-    # الأصلي (غالباً كويس ومنطقي) ونلزق عليه نتيجة الأداة.
-    purchase_intent_markers = (
-        "كيف بطلبه", "كيف اطلبه", "كيف أطلبه", "كيف بطلب", "الرابط", "بدي اشتريه", "بدي أشتريه",
-        "كيف اشتريه", "كمل الدفع", "اكمل الدفع", "أكمل الدفع", "للسلة", "بدي اطلبه",
-    )
+    last_user_text = clean_messages[-1]["content"]
+    purchase_intent = _has_purchase_intent(last_user_text)
+    # منتج سبق وانعرض ما منعيد كرته — إلا لما الزبون بدو يشتريه (الكرت فيه زر الشراء).
+    blocked_skus = () if purchase_intent else shown_skus
+
+    # بعض الموديلات أحياناً بتذكر منتج أو كود خصم بالنص العادي بدل ما تستخدم
+    # الأداة المناسبة، رغم تعليمات واضحة بالبرومبت — هاد بيمنع ظهور كارت
+    # المنتج/زر التجربة أو حقل discount_offer نهائياً. لما نكتشف هيك، منعيد
+    # الطلب مع إجبار نفس الأداة، ومنحافظ على نص الرد الأصلي ونلزق عليه نتيجة الأداة.
     force_tool = None
     if not result.tool_calls:
-        if any(m in clean_messages[-1]["content"] for m in purchase_intent_markers):
+        if purchase_intent:
             force_tool = "recommend_product"
         elif any(d.code in result.reply_text for d in discount_codes):
             force_tool = "offer_discount_code"
         else:
             no_exact_match_phrases = ("ما عنا", "ما عندنا", "ما في", "لا يوجد", "ليس لدينا", "للأسف")
-            if any(p.title.lower() in result.reply_text.lower() for p in products) or any(
-                phrase in result.reply_text for phrase in no_exact_match_phrases
-            ):
+            if any(
+                p.title.lower() in result.reply_text.lower()
+                for p in products
+                if p.sku not in blocked_skus
+            ) or any(phrase in result.reply_text for phrase in no_exact_match_phrases):
                 force_tool = "recommend_product"
 
     if force_tool:
@@ -431,26 +599,25 @@ def chat(request):
             pass  # نضل مع الرد الأصلي بدل ما نفشّل الطلب كله
 
     lang = _customer_lang(clean_messages)
-    recommendations, discount_offer = _process_tool_calls(
-        result.tool_calls, products, discount_codes, lang
+    recommendations, discount_offer, blocked_reason = _process_tool_calls(
+        result.tool_calls, products, discount_codes, lang, blocked_skus, merchant.currency
     )
     reply_text = result.reply_text
 
-    # يحافظ على ميزانية الزبون لو ذكرها صراحة: بيشيل أي توصية فوق السقف،
-    # إلا إذا هيك رح يصفّي كل التوصيات — ساعتها منفضّل نضل مع خيار وحد
-    # (ولو فوق الميزانية شوي) عن ما نرجّع رد فاضي بالكامل للزبون.
     budget_ceiling = _extract_budget_ceiling(clean_messages)
-    if budget_ceiling is not None and len(recommendations) > 1:
-        within_budget = [r for r in recommendations if float(r["price"]) <= budget_ceiling]
-        if within_budget:
-            recommendations = within_budget
+    recommendations = _apply_budget(recommendations, budget_ceiling)
 
-    # لو الموديل ذكر كلام خصم (خصم/كود/%) بالنص العادي بدون ما ينتج
-    # discount_offer حقيقي من كود فعلي موجود — هاد اختلاق، مش مجرد نسيان
-    # استخدام الأداة (هيك مغطّى فوق بـ force_tool). منعيد الطلب مرة وحدة
-    # مع تصحيح صريح إنه ما في خصم فعلي، ومنستخدم نتيجة هالمحاولة كاملة
-    # (نص ورد وأدوات) بدل الرد الأصلي المختلق.
-    if discount_offer is None and any(marker in reply_text for marker in DISCOUNT_FABRICATION_MARKERS):
+    # لو الموديل ذكر كلام خصم بالنص العادي بدون ما ينتج discount_offer حقيقي
+    # من كود فعلي موجود — هاد اختلاق، مش مجرد نسيان استخدام الأداة (هيك مغطّى
+    # فوق بـ force_tool). منعيد الطلب مرة وحدة مع تصحيح صريح إنه ما في خصم
+    # فعلي، ومنستخدم نتيجة هالمحاولة كاملة بدل الرد الأصلي المختلق.
+    # استثناء: تخفيض حقيقي على منتج (was_price) مش اختلاق.
+    has_real_sale = any(r["compare_at_price"] for r in recommendations)
+    if (
+        discount_offer is None
+        and not has_real_sale
+        and any(marker in reply_text.lower() for marker in DISCOUNT_FABRICATION_MARKERS)
+    ):
         corrected_system_prompt = system_prompt + (
             "\n\nCORRECTION — read before replying: your previous reply mentioned a discount, "
             "code, or percentage-off, but no such offer actually applies to this customer right "
@@ -460,26 +627,47 @@ def chat(request):
         )
         try:
             corrected = llm.chat_with_retry(provider, corrected_system_prompt, clean_messages, tools)
-            recommendations, discount_offer = _process_tool_calls(
-                corrected.tool_calls, products, discount_codes, lang
+            recommendations, discount_offer, blocked_reason = _process_tool_calls(
+                corrected.tool_calls, products, discount_codes, lang, blocked_skus, merchant.currency
             )
-            if budget_ceiling is not None and len(recommendations) > 1:
-                within_budget = [r for r in recommendations if float(r["price"]) <= budget_ceiling]
-                if within_budget:
-                    recommendations = within_budget
+            recommendations = _apply_budget(recommendations, budget_ceiling)
             reply_text = corrected.reply_text or reply_text
         except llm.LLMError:
             pass  # نضل مع الرد الأصلي بدل ما نفشّل الطلب كله
+
+    # شبكة أمان للغة: زبون كاتب بحروف عربية لازم يجيه رد فيه حروف عربية، والعكس.
+    # (الموديلات الرخيصة نادراً بتغلط وبترد بلغة تانية.) منعيد مرة وحدة بتصحيح صريح.
+    if reply_text and _script_mismatch(last_user_text, reply_text):
+        corrected_system_prompt = system_prompt + (
+            "\n\nCORRECTION — your previous reply was written in the wrong language. The customer's "
+            "last message is: " + json.dumps(last_user_text, ensure_ascii=False) + ". Reply ONLY in "
+            "that exact language, dialect and script — including every tool `reason`."
+        )
+        try:
+            corrected = llm.chat_with_retry(provider, corrected_system_prompt, clean_messages, tools)
+            if corrected.reply_text and not _script_mismatch(last_user_text, corrected.reply_text):
+                new_recs, new_offer, blocked_reason = _process_tool_calls(
+                    corrected.tool_calls, products, discount_codes, lang, blocked_skus, merchant.currency
+                )
+                reply_text = corrected.reply_text
+                recommendations = _apply_budget(new_recs, budget_ceiling) or recommendations
+                discount_offer = new_offer or discount_offer
+        except llm.LLMError:
+            pass
 
     if not reply_text:
         # لو الموديل رجع بس tool_use بدون نص، منضمن إنه الزبون ما يستنى رد
         # فاضي أو رد عام مالوش علاقة بالسياق بالشات.
         if recommendations:
             reply_text = recommendations[0]["reason"]
+        elif blocked_reason:
+            reply_text = blocked_reason
         elif discount_offer:
             reply_text = FALLBACK_DISCOUNT_REPLY[lang].format(**discount_offer)
         else:
             reply_text = FALLBACK_REPHRASE_REPLY[lang]
+
+    _log_conversation(merchant, session_id, clean_messages, reply_text, recommendations, discount_offer)
 
     return _cors_response(
         {
@@ -490,6 +678,30 @@ def chat(request):
             "discount_offer": discount_offer,
         }
     )
+
+
+@csrf_exempt
+@require_http_methods(["POST", "OPTIONS"])
+def event(request):
+    """أحداث من الودجت لقياس البيع: ضغطة شراء، إضافة للسلة."""
+    if request.method == "OPTIONS":
+        return _cors_response({}, status=200)
+    merchant, error_response = _authenticate(request)
+    if error_response:
+        return error_response
+    try:
+        body = json.loads(request.body or "{}")
+    except json.JSONDecodeError:
+        return _cors_response({"ok": False, "error": "invalid_json"}, status=400)
+    field = WIDGET_EVENTS.get(body.get("type"))
+    session_id = _clean_session_id(body.get("session_id"))
+    if not field or not session_id:
+        return _cors_response({"ok": False, "error": "invalid_event"}, status=400)
+    conversation = Conversation.objects.filter(merchant=merchant, session_id=session_id).first()
+    if conversation is not None:
+        setattr(conversation, field, getattr(conversation, field) + 1)
+        conversation.save(update_fields=[field, "updated_at"])
+    return _cors_response({"ok": True})
 
 
 TRYON_PROMPT = (
@@ -560,6 +772,13 @@ def tryon(request):
     with transaction.atomic():
         merchant = ApiToken.objects.select_for_update().get(pk=merchant.pk)
         result = merchant.consume_quota(1)
+
+    session_id = _clean_session_id(request.POST.get("session_id"))
+    if session_id:
+        conversation = Conversation.objects.filter(merchant=merchant, session_id=session_id).first()
+        if conversation is not None:
+            conversation.tryons += 1
+            conversation.save(update_fields=["tryons", "updated_at"])
 
     return _cors_response(
         {

@@ -1,0 +1,57 @@
+{% extends "apitokens/base.html" %}
+
+{% block title %}{{ T.conversations_title_prefix }}{{ merchant.label }} — Control{% endblock %}
+{% block page_title %}{{ T.conversations_title_prefix }}{{ merchant.label }}{% endblock %}
+{% block page_sub %}{{ T.conversations_sub }}{% endblock %}
+{% block header_links %}
+  <a class="back" href="{% url 'apitokens:catalog' merchant.pk %}">{{ T.manual_catalog_link }}</a>
+  <a class="back" href="{% url 'apitokens:shopify-connect' merchant.pk %}">{{ T.shopify_link_short }}</a>
+  <a class="back" href="{% url 'apitokens:dashboard' %}">{{ T.back_to_tokens }}</a>
+{% endblock %}
+
+{% block content %}
+  <p class="card-note">{{ T.last_30_days }}</p>
+  <div class="stats">
+    <div class="stat"><div class="n">{{ stats.total }}</div><div class="l">{{ T.stat_conversations }}</div></div>
+    <div class="stat"><div class="n">{{ stats.with_recommendation }}</div><div class="l">{{ T.stat_with_recommendation }}</div></div>
+    <div class="stat"><div class="n">{{ stats.tryons }}</div><div class="l">{{ T.stat_tryons }}</div></div>
+    <div class="stat"><div class="n">{{ stats.intent }}</div><div class="l">{{ T.stat_purchase_intent }}</div></div>
+    <div class="stat"><div class="n">{{ stats.orders }}</div><div class="l">{{ T.stat_orders }}</div></div>
+    <div class="stat"><div class="n">{{ stats.revenue }}</div><div class="l">{{ T.stat_revenue }}</div></div>
+  </div>
+
+  <div class="card">
+    <h2>{{ T.recent_conversations }}</h2>
+    {% if conversations %}
+      {% for c in conversations %}
+      <details class="convo">
+        <summary>
+          <span>{{ c.updated_at|date:"Y-m-d H:i" }}</span>
+          <span>{{ c.messages|length }} {{ T.messages_count_suffix }}</span>
+          {% if c.recommended_skus %}<span class="badge active">{{ c.recommended_skus|length }} {{ T.products_shown_suffix }}</span>{% endif %}
+          {% if c.discount_code %}<span class="badge">🎁 {{ c.discount_code }}</span>{% endif %}
+          {% if c.add_to_carts or c.buy_clicks %}<span class="badge">🛒 {{ c.add_to_carts|add:c.buy_clicks }}</span>{% endif %}
+          {% if c.order_id %}<span class="badge active">✓ {{ c.order_total }} {{ c.order_currency }}</span>{% endif %}
+        </summary>
+        <div class="thread">
+          {% for m in c.messages %}
+            <div class="m {{ m.role }}">{{ m.content }}</div>
+          {% endfor %}
+        </div>
+      </details>
+      {% endfor %}
+    {% else %}
+      <p class="empty">{{ T.empty_conversations }}</p>
+    {% endif %}
+  </div>
+{% endblock %}
+
+{% block extra_style %}
+  .stats { grid-template-columns: repeat(3, 1fr); }
+  details.convo { border-top: 1px solid var(--line, #e5e5e5); padding: 10px 0; }
+  details.convo summary { cursor: pointer; display: flex; flex-wrap: wrap; gap: 10px; align-items: center; font-size: 13.5px; }
+  .thread { display: flex; flex-direction: column; gap: 6px; margin-top: 10px; }
+  .thread .m { max-width: 80%; padding: 8px 12px; border-radius: 12px; font-size: 13.5px; line-height: 1.6; white-space: pre-wrap; }
+  .thread .m.user { align-self: flex-start; background: var(--accent-soft, #eef0ff); }
+  .thread .m.assistant { align-self: flex-end; background: var(--surface-2, #f3f3f3); }
+{% endblock %}

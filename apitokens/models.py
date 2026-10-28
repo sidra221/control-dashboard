@@ -34,6 +34,18 @@ class ApiToken(models.Model):
     images_used = models.PositiveIntegerField("المستهلك بالفترة الحالية", default=0)
     period_start = models.DateTimeField("بداية الفترة الحالية", default=timezone.now)
     is_active = models.BooleanField("فعّال", default=True)
+    currency = models.CharField(
+        "العملة", max_length=8, blank=True, default="",
+        help_text="رمز العملة (مثلاً USD أو SAR) — بيتعبّى لحاله من Shopify",
+    )
+    store_info = models.TextField(
+        "معلومات المتجر للمساعد",
+        blank=True,
+        help_text=(
+            "الشحن، الإرجاع والاستبدال، دليل المقاسات، طرق الدفع... — المساعد بيعتمد عليها "
+            "بالرد على الزبون. لو المتجر مربوط بـ Shopify بتتعبّى لحالها من سياسات المتجر."
+        ),
+    )
     created_by = models.ForeignKey(
         settings.AUTH_USER_MODEL,
         on_delete=models.SET_NULL,
@@ -122,6 +134,20 @@ class Product(models.Model):
     product_url = models.URLField("رابط المنتج", max_length=500, blank=True)
     category = models.CharField("الفئة", max_length=120, blank=True)
     tags = models.CharField("الوسوم", max_length=500, blank=True)
+    compare_at_price = models.DecimalField(
+        "السعر قبل التخفيض", max_digits=10, decimal_places=2, null=True, blank=True,
+        help_text="سعر أعلى حقيقي من المتجر — لو موجود، المنتج عليه تخفيض فعلي",
+    )
+    # {"Size": ["S", "M"], "Color": ["Black"]} — بس القيم المتوفرة فعلياً
+    options = models.JSONField("الخيارات المتوفرة", default=dict, blank=True)
+    in_stock = models.BooleanField("متوفر", default=True)
+    variant_id = models.CharField(
+        "معرّف النسخة (Shopify)", max_length=64, blank=True, default="",
+        help_text="أول نسخة متوفرة — بتستخدم لإضافة المنتج للسلة مباشرة من الشات",
+    )
+    # متجه دلالي (embedding) لاختيار المنتجات الأقرب لطلب الزبون بالكتالوجات الكبيرة
+    embedding = models.JSONField(null=True, blank=True, editable=False)
+    embedding_source = models.CharField(max_length=64, blank=True, default="", editable=False)
     created_at = models.DateTimeField("تاريخ الإضافة", auto_now_add=True)
 
     class Meta:
@@ -150,7 +176,16 @@ class ShopifyConnection(models.Model):
         "نطاق متجر Shopify", max_length=255,
         help_text="مثال: my-store.myshopify.com",
     )
-    access_token = models.CharField("Admin API Access Token", max_length=255)
+    client_id = models.CharField(
+        "Client ID", max_length=255, blank=True, default="",
+        help_text="لتطبيقات Dev Dashboard (من 2026) — المفتاح بيتجدّد لحاله",
+    )
+    access_token = models.CharField("Admin API Access Token", max_length=255, blank=True)
+    token_expires_at = models.DateTimeField(null=True, blank=True)
+    primary_domain = models.CharField(
+        "النطاق الأساسي للمتجر", max_length=255, blank=True, default="",
+        help_text="الدومين اللي بيشوفه الزبون (مش myshopify) — لروابط المنتجات",
+    )
     api_secret = models.CharField(
         "API Secret", max_length=255,
         help_text="من إعدادات التطبيق الخاص بـ Shopify — بيستخدم للتحقق من الـ webhooks",
@@ -191,3 +226,42 @@ class DiscountCode(models.Model):
 
     def __str__(self):
         return f"{self.code} ({self.merchant.label})"
+
+
+class Conversation(models.Model):
+    """محادثة وحدة بالودجت — منسجّلها حتى التاجر يشوف شو صار، وحتى نقيس
+    أداء المساعد بالبيع (عرض منتجات، إضافة للسلة، طلبات فعلية من Shopify).
+    """
+
+    merchant = models.ForeignKey(
+        ApiToken, on_delete=models.CASCADE, related_name="conversations",
+    )
+    session_id = models.CharField(max_length=64, db_index=True)
+    messages = models.JSONField(default=list)
+    recommended_skus = models.JSONField(default=list)
+    discount_code = models.CharField(max_length=64, blank=True, default="")
+    tryons = models.PositiveIntegerField(default=0)
+    buy_clicks = models.PositiveIntegerField(default=0)
+    add_to_carts = models.PositiveIntegerField(default=0)
+    order_id = models.CharField(max_length=64, blank=True, default="")
+    order_total = models.DecimalField(max_digits=12, decimal_places=2, null=True, blank=True)
+    order_currency = models.CharField(max_length=8, blank=True, default="")
+    started_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = "محادثة"
+        verbose_name_plural = "المحادثات"
+        ordering = ["-updated_at"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["merchant", "session_id"], name="unique_conversation_per_session",
+            )
+        ]
+
+    def __str__(self):
+        return f"{self.merchant.label} — {self.session_id[:8]}"
+
+    @property
+    def converted(self):
+        return bool(self.order_id)

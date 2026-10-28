@@ -6,6 +6,7 @@
 {% block header_links %}
   <a class="back" href="{% url 'apitokens:catalog' merchant.pk %}">{{ T.manual_catalog_link }}</a>
   <a class="back" href="{% url 'apitokens:discount-codes' merchant.pk %}">{{ T.discounts_link_short }}</a>
+  <a class="back" href="{% url 'apitokens:conversations' merchant.pk %}">{{ T.conversations_link_short }}</a>
   <a class="back" href="{% url 'apitokens:dashboard' %}">{{ T.back_to_tokens }}</a>
 {% endblock %}
 
@@ -54,8 +55,13 @@
                value="{{ connection.shop_domain|default:'' }}" required>
       </div>
       <div class="field">
+        <label for="client_id">{{ T.client_id_label }}</label>
+        <input type="text" id="client_id" name="client_id" autocomplete="off"
+               value="{{ connection.client_id|default:'' }}">
+      </div>
+      <div class="field">
         <label for="access_token">{{ T.access_token_label }}</label>
-        <input type="password" id="access_token" name="access_token" placeholder="shpat_xxxxxxxx" required>
+        <input type="password" id="access_token" name="access_token" placeholder="shpat_xxxxxxxx" autocomplete="off">
       </div>
       <div class="field">
         <label for="api_secret">{{ T.api_secret_label }}</label>

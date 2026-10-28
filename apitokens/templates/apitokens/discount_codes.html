@@ -6,6 +6,7 @@
 {% block header_links %}
   <a class="back" href="{% url 'apitokens:catalog' merchant.pk %}">{{ T.manual_catalog_link }}</a>
   <a class="back" href="{% url 'apitokens:shopify-connect' merchant.pk %}">{{ T.shopify_link_short }}</a>
+  <a class="back" href="{% url 'apitokens:conversations' merchant.pk %}">{{ T.conversations_link_short }}</a>
   <a class="back" href="{% url 'apitokens:dashboard' %}">{{ T.back_to_tokens }}</a>
 {% endblock %}
 

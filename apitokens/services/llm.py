@@ -158,6 +158,12 @@ class OpenAIProvider:
             timeout=REQUEST_TIMEOUT_SECONDS,
             max_retries=0,
         )
+        # OpenAI نفسه: Responses API — الوحيدة اللي بتسمح للموديلات الحديثة
+        # (gpt-5+/luna) تفكّر قبل ما ترد وتستخدم الأدوات بنفس الوقت. المزوّدات
+        # المتوافقة (Groq) ما عندها هالـ API، فبتضل على chat/completions.
+        if self.base_url is None:
+            return self._chat_responses(client, openai, system_prompt, messages, tools, force_tool)
+
         openai_messages = [{"role": "system", "content": system_prompt}] + list(messages)
         openai_tools = [
             {
@@ -171,10 +177,6 @@ class OpenAIProvider:
             for t in tools
         ]
         tool_choice = {"type": "function", "function": {"name": force_tool}} if force_tool else "auto"
-        # الموديلات الأحدث (gpt-5 وما بعد) رافضة max_tokens وبتطلب
-        # max_completion_tokens، وهاد الحد بيشمل كمان توكنات التفكير الداخلي
-        # عند موديلات الـ reasoning — لهيك أكبر من حجم الرد نفسه بكتير.
-        extra = {"reasoning_effort": self.reasoning_effort} if self.reasoning_effort else {}
         try:
             response = client.chat.completions.create(
                 model=self.model,
@@ -182,7 +184,6 @@ class OpenAIProvider:
                 tools=openai_tools,
                 tool_choice=tool_choice,
                 max_completion_tokens=2000,
-                **extra,
             )
         except openai.APIError as exc:
             raise LLMError(str(exc)) from exc
@@ -196,6 +197,44 @@ class OpenAIProvider:
                 args = {}
             tool_calls.append({"name": call.function.name, "input": args})
         return LLMResult(reply_text=(choice.content or "").strip(), tool_calls=tool_calls)
+
+    def _chat_responses(self, client, openai, system_prompt, messages, tools, force_tool):
+        response_tools = [
+            {
+                "type": "function",
+                "name": t["name"],
+                "description": t["description"],
+                "parameters": t["parameters"],
+                "strict": False,
+            }
+            for t in tools
+        ]
+        tool_choice = {"type": "function", "name": force_tool} if force_tool else "auto"
+        extra = {"reasoning": {"effort": self.reasoning_effort}} if self.reasoning_effort else {}
+        try:
+            response = client.responses.create(
+                model=self.model,
+                instructions=system_prompt,
+                input=[{"role": m["role"], "content": m["content"]} for m in messages],
+                tools=response_tools,
+                tool_choice=tool_choice,
+                # بيشمل توكنات التفكير الداخلي، لهيك أكبر بكتير من حجم الرد نفسه.
+                max_output_tokens=4000,
+                store=False,
+                **extra,
+            )
+        except openai.APIError as exc:
+            raise LLMError(str(exc)) from exc
+
+        tool_calls = []
+        for item in response.output:
+            if item.type == "function_call":
+                try:
+                    args = json.loads(item.arguments)
+                except json.JSONDecodeError:
+                    args = {}
+                tool_calls.append({"name": item.name, "input": args})
+        return LLMResult(reply_text=(response.output_text or "").strip(), tool_calls=tool_calls)
 
 
 class GeminiProvider:

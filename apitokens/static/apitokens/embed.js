@@ -20,6 +20,48 @@
 
   var history = [];
   var hasEngaged = false;
+  // معرّف المحادثة: بيربط رسائلها وأحداثها (وطلب Shopify لو صار) ببعض بالسيرفر.
+  var SESSION_ID = (window.crypto && crypto.randomUUID ? crypto.randomUUID() : String(Date.now()) + Math.random())
+    .replace(/[^A-Za-z0-9_-]/g, "")
+    .slice(0, 64);
+  var shownSkus = [];
+  // جوا متجر Shopify فعلي: منقدر نضيف للسلة مباشرة ونعلّم السلة بمعرّف المحادثة.
+  var IS_SHOPIFY = !!(window.Shopify && window.Shopify.shop);
+  var cartTagged = false;
+  var UI = {
+    ar: { add: "أضف للسلة 🛒", added: "انضاف للسلة ✓ — كمّل الطلب", addFailed: "ما قدرنا نضيفه للسلة، جرّب من صفحة المنتج.", buy: "اشتري الآن" },
+    en: { add: "Add to cart 🛒", added: "Added to cart ✓ — checkout", addFailed: "Couldn't add it to the cart, try from the product page.", buy: "Buy now" },
+  };
+  function uiLang() {
+    var lastUser = "";
+    for (var i = history.length - 1; i >= 0; i--) {
+      if (history[i].role === "user") { lastUser = history[i].content; break; }
+    }
+    return /[\u0600-\u06FF]/.test(lastUser) || !lastUser ? "ar" : "en";
+  }
+
+  function trackEvent(type) {
+    fetch(API_BASE + "/widget/event/", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-Api-Token": STORE_KEY },
+      body: JSON.stringify({ type: type, session_id: SESSION_ID }),
+      keepalive: true,
+    }).catch(function () {});
+  }
+
+  function tagShopifyCart() {
+    if (!IS_SHOPIFY || cartTagged) return;
+    cartTagged = true;
+    var attrs = {};
+    attrs["_sw_conversation"] = SESSION_ID;
+    fetch("/cart/update.js", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ attributes: attrs }),
+    }).catch(function () {
+      cartTagged = false;
+    });
+  }
 
   var host = document.createElement("div");
   host.id = "sw-widget-host";
@@ -81,14 +123,18 @@
     ".card img { width: 100%; border-radius: 10px; display: block; margin-bottom: 8px; max-height: 180px; object-fit: cover; }",
     ".card .title { font-size: 13px; font-weight: 700; margin-bottom: 2px; }",
     ".card .price { font-size: 12.5px; color: #6b7083; margin-bottom: 8px; }",
+    ".card .price s { opacity: .7; margin-inline-start: 6px; }",
+    ".card .price .sale { color: #dc2626; font-weight: 700; }",
     ".card button, .card a.buy {",
     "  display: inline-block; text-decoration: none; text-align: center;",
     "  font-size: 12.5px; font-weight: 700; border-radius: 9px; padding: 8px 10px;",
     "  border: none; cursor: pointer; width: 100%; margin-top: 6px; font-family: inherit;",
     "}",
     ".card button.tryon { background: #eef0ff; color: #4f46e5; }",
-    ".card a.buy { background: linear-gradient(135deg, #6366f1, #4f46e5); color: #fff; }",
+    ".card a.buy, .card button.addcart { background: linear-gradient(135deg, #6366f1, #4f46e5); color: #fff; }",
     ".typing { align-self: flex-start; font-size: 12px; color: #9095ab; padding: 0 4px; }",
+    ".msg.writing::after { content: '▍'; margin-inline-start: 1px; opacity: .6; animation: sw-blink 1s steps(1) infinite; }",
+    "@keyframes sw-blink { 50% { opacity: 0; } }",
     ".inputrow { display: flex; gap: 8px; padding: 10px; border-top: 1px solid #e4e6ef; background: #fff; }",
     ".inputrow input[type=text] {",
     "  flex: 1; border: 1px solid #e4e6ef; border-radius: 10px; padding: 9px 12px; font-size: 13px;",
@@ -221,12 +267,37 @@
     scrollToBottom();
   }
 
-  function addBotMessage(text) {
+  // بيكتب رد البوت حرف حرف بدل ما يطلع دفعة وحدة. Array.from حتى ما
+  // ينكسر الإيموجي لنصّين، وسرعة الكتابة بتتأقلم مع طول الرد حتى الرد الطويل
+  // ما ياخد أكتر من ~3 ثواني. onDone بيتنادى بس يخلص (لعرض الكروت بعده).
+  var reduceMotion =
+    window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+  function addBotMessage(text, onDone) {
     var el = document.createElement("div");
     el.className = "msg bot";
-    el.textContent = text;
     msgsEl.appendChild(el);
-    scrollToBottom();
+    var chars = Array.from(text);
+    if (reduceMotion || chars.length === 0) {
+      el.textContent = text;
+      scrollToBottom();
+      if (onDone) onDone();
+      return;
+    }
+    el.classList.add("writing");
+    var delay = Math.max(8, Math.min(30, 3000 / chars.length));
+    var i = 0;
+    (function step() {
+      i++;
+      el.textContent = chars.slice(0, i).join("");
+      scrollToBottom();
+      if (i < chars.length) {
+        setTimeout(step, delay);
+      } else {
+        el.classList.remove("writing");
+        if (onDone) onDone();
+      }
+    })();
   }
 
   function addErrorMessage(text) {
@@ -271,7 +342,19 @@
     card.appendChild(title);
     var price = document.createElement("div");
     price.className = "price";
-    price.textContent = rec.price;
+    var priceText = rec.price + (rec.currency ? " " + rec.currency : "");
+    if (rec.compare_at_price) {
+      var now = document.createElement("span");
+      now.className = "sale";
+      now.textContent = priceText;
+      var was = document.createElement("s");
+      was.textContent = rec.compare_at_price;
+      price.appendChild(now);
+      price.appendChild(was);
+    } else {
+      price.textContent = priceText;
+    }
+    if (shownSkus.indexOf(rec.sku) === -1) shownSkus.push(rec.sku);
     card.appendChild(price);
 
     var tryBtn = document.createElement("button");
@@ -289,13 +372,45 @@
     });
     card.appendChild(tryBtn);
 
-    if (rec.product_url) {
+    var labels = UI[uiLang()];
+    if (IS_SHOPIFY && rec.variant_id) {
+      var addBtn = document.createElement("button");
+      addBtn.className = "addcart";
+      addBtn.textContent = labels.add;
+      addBtn.addEventListener("click", function () {
+        addBtn.disabled = true;
+        tagShopifyCart();
+        fetch("/cart/add.js", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ items: [{ id: Number(rec.variant_id), quantity: 1 }] }),
+        })
+          .then(function (r) {
+            if (!r.ok) throw new Error("add_failed");
+            trackEvent("add_to_cart");
+            var go = document.createElement("a");
+            go.className = "buy";
+            go.href = "/cart";
+            go.textContent = labels.added;
+            addBtn.replaceWith(go);
+          })
+          .catch(function () {
+            addBtn.disabled = false;
+            addErrorMessage(labels.addFailed);
+          });
+      });
+      card.appendChild(addBtn);
+    } else if (rec.product_url) {
       var buyLink = document.createElement("a");
       buyLink.className = "buy";
       buyLink.href = rec.product_url;
       buyLink.target = "_blank";
       buyLink.rel = "noopener";
-      buyLink.textContent = "اشتري الآن";
+      buyLink.textContent = labels.buy;
+      buyLink.addEventListener("click", function () {
+        tagShopifyCart();
+        trackEvent("buy_click");
+      });
       card.appendChild(buyLink);
     }
 
@@ -350,6 +465,7 @@
     inputEl.value = "";
     addUserMessage(text);
     history.push({ role: "user", content: text });
+    tagShopifyCart();
 
     sendBtn.disabled = true;
     var typingEl = addTyping();
@@ -357,29 +473,35 @@
     fetch(API_BASE + "/widget/chat/", {
       method: "POST",
       headers: { "Content-Type": "application/json", "X-Api-Token": STORE_KEY },
-      body: JSON.stringify({ messages: history }),
+      body: JSON.stringify({ messages: history, session_id: SESSION_ID, shown_skus: shownSkus }),
     })
       .then(function (r) {
         return r.json();
       })
       .then(function (data) {
         typingEl.remove();
-        sendBtn.disabled = false;
         if (!data.ok) {
+          sendBtn.disabled = false;
           addErrorMessage(friendlyError(data.error));
           return;
         }
+        // الكروت والخصم بيطلعوا بعد ما يخلص البوت كتابة الرد، متل محادثة حقيقية.
+        function showExtras() {
+          sendBtn.disabled = false;
+          if (data.recommendations && data.recommendations.length) {
+            data.recommendations.forEach(addRecommendationCard);
+          } else if (data.recommendation) {
+            addRecommendationCard(data.recommendation);
+          }
+          if (data.discount_offer) {
+            addDiscountMessage(data.discount_offer);
+          }
+        }
         if (data.reply) {
-          addBotMessage(data.reply);
           history.push({ role: "assistant", content: data.reply });
-        }
-        if (data.recommendations && data.recommendations.length) {
-          data.recommendations.forEach(addRecommendationCard);
-        } else if (data.recommendation) {
-          addRecommendationCard(data.recommendation);
-        }
-        if (data.discount_offer) {
-          addDiscountMessage(data.discount_offer);
+          addBotMessage(data.reply, showExtras);
+        } else {
+          showExtras();
         }
       })
       .catch(function () {
@@ -404,6 +526,7 @@
     var form = new FormData();
     form.append("sku", sku);
     form.append("photo", photo);
+    form.append("session_id", SESSION_ID);
 
     fetch(API_BASE + "/widget/tryon/", {
       method: "POST",

@@ -6,6 +6,7 @@
 {% block header_links %}
   <a class="back" href="{% url 'apitokens:shopify-connect' merchant.pk %}">{{ T.shopify_link_short }}</a>
   <a class="back" href="{% url 'apitokens:discount-codes' merchant.pk %}">{{ T.discounts_link_short }}</a>
+  <a class="back" href="{% url 'apitokens:conversations' merchant.pk %}">{{ T.conversations_link_short }}</a>
   <a class="back" href="{% url 'apitokens:dashboard' %}">{{ T.back_to_tokens }}</a>
 {% endblock %}
 
@@ -20,6 +21,26 @@
         <input type="file" id="feed_file" name="feed_file" accept=".csv" required>
       </div>
       <button type="submit" class="btn-primary">{{ T.upload_replace_btn }}</button>
+    </form>
+  </div>
+
+  <div class="card">
+    <h2>{{ T.store_info_title }}</h2>
+    <p class="card-note">{{ T.store_info_note }}</p>
+    <form class="store-info" method="post">
+      {% csrf_token %}
+      <input type="hidden" name="action" value="store_info">
+      <div class="field">
+        <label for="currency">{{ T.currency_label }}</label>
+        <input type="text" id="currency" name="currency" maxlength="8" placeholder="USD"
+               value="{{ merchant.currency }}">
+      </div>
+      <div class="field">
+        <label for="store_info">{{ T.store_info_label }}</label>
+        <textarea id="store_info" name="store_info" rows="8"
+                  placeholder="{{ T.store_info_placeholder }}">{{ merchant.store_info }}</textarea>
+      </div>
+      <button type="submit" class="btn-primary">{{ T.save_btn }}</button>
     </form>
   </div>
 
@@ -61,4 +82,9 @@
     <p class="empty"><span class="ico">🛍️</span>{{ T.empty_products }}</p>
     {% endif %}
   </div>
+{% endblock %}
+
+{% block extra_style %}
+  form.store-info { display: flex; flex-direction: column; gap: 14px; }
+  form.store-info textarea { width: 100%; font: inherit; padding: 10px; border-radius: 8px; border: 1px solid var(--line, #ddd); background: transparent; color: inherit; }
 {% endblock %}

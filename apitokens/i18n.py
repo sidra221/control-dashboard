@@ -62,6 +62,17 @@ TRANSLATIONS = {
     "th_tags": {"ar": "الوسوم", "en": "Tags"},
     "empty_products": {"ar": "ما في منتجات لسا — ارفع ملف الكتالوج فوق", "en": "No products yet — upload the catalog file above"},
 
+    "store_info_title": {"ar": "معلومات المتجر للمساعد", "en": "Store info for the assistant"},
+    "store_info_note": {
+        "ar": "الشحن والتوصيل، الإرجاع والاستبدال، دليل المقاسات، طرق الدفع — المساعد بيجاوب الزبون منها بدل ما يقول ما بعرف. لو المتجر مربوط بـ Shopify وهالخانة فاضية، بتتعبّى لحالها من سياسات المتجر.",
+        "en": "Shipping and delivery, returns and exchanges, size guide, payment methods — the assistant answers customers from this instead of saying it doesn't know. If the store is connected to Shopify and this is empty, it's filled from the store's policies.",
+    },
+    "currency_label": {"ar": "العملة", "en": "Currency"},
+    "store_info_label": {"ar": "المعلومات", "en": "Information"},
+    "store_info_placeholder": {"ar": "مثلاً: التوصيل خلال 2-4 أيام داخل المدينة، الإرجاع خلال 14 يوم...", "en": "e.g. Delivery in 2-4 days within the city, returns within 14 days..."},
+    "save_btn": {"ar": "حفظ", "en": "Save"},
+    "msg_store_info_saved": {"ar": "تم حفظ معلومات المتجر", "en": "Store info saved"},
+
     # ===== shopify_connect.html =====
     "shopify_page_title_prefix": {"ar": "ربط Shopify — ", "en": "Connect Shopify — "},
     "shopify_page_sub": {"ar": "كتالوج حي يتحدّث لحاله من متجر Shopify الحقيقي", "en": "A live catalog that updates itself from the real Shopify store"},
@@ -81,23 +92,30 @@ TRANSLATIONS = {
     "connect_shopify_store": {"ar": "ربط متجر Shopify", "en": "Connect a Shopify store"},
     "shopify_setup_note": {
         "ar": (
-            'قبل ما تعبي الفورم، لازم تنشئ "تطبيق خاص" (Custom App) من إعدادات متجر الـ Shopify:<br>'
-            "1) من لوحة تحكم المتجر: Settings ← Apps and sales channels ← Develop apps ← Create an app.<br>"
-            "2) من تبويب Configuration، فعّل صلاحية <code>read_products</code> على الأقل من Admin API scopes واحفظ.<br>"
-            "3) دوس Install app، وبعدها من تبويب API credentials انسخ الـ <strong>Admin API access token</strong> (بيبين مرة وحدة بس).<br>"
-            "4) من نفس الصفحة انسخ الـ <strong>API secret key</strong> (موجود جنب الـ API key تبع التطبيق)."
+            "<strong>متجر جديد (الطريقة الحالية من 2026):</strong><br>"
+            "1) افتح <code>dev.shopify.com</code> بنفس حساب صاحب المتجر وأنشئ تطبيق (Create app).<br>"
+            "2) بالإعدادات فعّل الصلاحيات: <code>read_products</code> (إجباري)، "
+            "<code>read_orders</code> (لقياس الطلبات اللي جابها المساعد)، و<code>read_legal_policies</code> (لسياسات الشحن والإرجاع).<br>"
+            "3) اعمل Release للنسخة، وبعدين Install app على المتجر.<br>"
+            "4) من Settings انسخ الـ <strong>Client ID</strong> والـ <strong>Client secret</strong> وحطهم تحت.<br>"
+            "<strong>متجر قديم عنده Custom App قبل 2026:</strong> حط الـ Admin API access token بدل الـ Client ID، "
+            "والـ API secret key بخانة الـ Secret."
         ),
         "en": (
-            'Before filling the form, create a "Custom App" from the Shopify store settings:<br>'
-            "1) From the store admin: Settings → Apps and sales channels → Develop apps → Create an app.<br>"
-            "2) In the Configuration tab, enable at least the <code>read_products</code> scope under Admin API scopes and save.<br>"
-            "3) Click Install app, then copy the <strong>Admin API access token</strong> from the API credentials tab (shown only once).<br>"
-            "4) From the same page, copy the <strong>API secret key</strong> (next to the app's API key)."
+            "<strong>New store (the current method since 2026):</strong><br>"
+            "1) Open <code>dev.shopify.com</code> with the store owner's account and create an app.<br>"
+            "2) In its settings enable the scopes <code>read_products</code> (required), "
+            "<code>read_orders</code> (to measure orders the assistant brought in) and <code>read_legal_policies</code> (shipping/return policies).<br>"
+            "3) Release the version, then Install the app on the store.<br>"
+            "4) From Settings copy the <strong>Client ID</strong> and <strong>Client secret</strong> into the form below.<br>"
+            "<strong>Older store with a pre-2026 Custom App:</strong> put the Admin API access token instead of the Client ID, "
+            "and the API secret key in the Secret field."
         ),
     },
     "shop_domain_label": {"ar": "نطاق المتجر", "en": "Shop domain"},
-    "access_token_label": {"ar": "Admin API Access Token", "en": "Admin API Access Token"},
-    "api_secret_label": {"ar": "API Secret", "en": "API Secret"},
+    "client_id_label": {"ar": "Client ID", "en": "Client ID"},
+    "access_token_label": {"ar": "أو: Admin API Access Token (تطبيق قديم)", "en": "Or: Admin API Access Token (legacy app)"},
+    "api_secret_label": {"ar": "Client secret / API secret key", "en": "Client secret / API secret key"},
     "update_resync_btn": {"ar": "تحديث وإعادة مزامنة", "en": "Update and resync"},
     "connect_sync_btn": {"ar": "ربط ومزامنة", "en": "Connect and sync"},
 
@@ -115,6 +133,22 @@ TRANSLATIONS = {
     "th_description": {"ar": "الوصف", "en": "Description"},
     "empty_discount_codes": {"ar": "ما في أكواد خصم لسا — ضيف أول كود من الفورم فوق", "en": "No discount codes yet — add the first one from the form above"},
 
+    # ===== conversations.html =====
+    "conversations_link_short": {"ar": "المحادثات والمبيعات ←", "en": "Conversations & sales ←"},
+    "conversations_title_prefix": {"ar": "المحادثات — ", "en": "Conversations — "},
+    "conversations_sub": {"ar": "شو عم يحكي المساعد مع الزبائن، وقديش عم يبيع", "en": "What the assistant tells customers, and how much it sells"},
+    "last_30_days": {"ar": "آخر 30 يوم", "en": "Last 30 days"},
+    "stat_conversations": {"ar": "محادثة", "en": "Conversations"},
+    "stat_with_recommendation": {"ar": "انعرض فيها منتج", "en": "Showed a product"},
+    "stat_tryons": {"ar": "تجربة لبس", "en": "Try-ons"},
+    "stat_purchase_intent": {"ar": "ضغطة شراء / سلة", "en": "Buy / cart clicks"},
+    "stat_orders": {"ar": "طلب فعلي (Shopify)", "en": "Real orders (Shopify)"},
+    "stat_revenue": {"ar": "مبيعات من المساعد", "en": "Sales from the assistant"},
+    "recent_conversations": {"ar": "آخر المحادثات", "en": "Recent conversations"},
+    "messages_count_suffix": {"ar": "رسالة", "en": "messages"},
+    "products_shown_suffix": {"ar": "منتج انعرض", "en": "products shown"},
+    "empty_conversations": {"ar": "ما في محادثات لسا", "en": "No conversations yet"},
+
     # ===== view messages (views.py) =====
     "err_label_required": {"ar": "لازم تكتب اسم للتعريف", "en": "You must enter a name"},
     "err_quota_invalid": {"ar": "عدد الصور لازم يكون رقم أكبر من صفر", "en": "Image quota must be a number greater than zero"},
@@ -130,7 +164,8 @@ TRANSLATIONS = {
     "msg_shopify_disconnected": {"ar": "تم فصل الربط مع Shopify", "en": "Disconnected from Shopify"},
     "err_no_connection_to_resync": {"ar": "ما في ربط حالياً مشان نعيد المزامنة", "en": "No connection exists to resync"},
     "msg_resync_success": {"ar": "تمت إعادة المزامنة بنجاح", "en": "Resynced successfully"},
-    "err_missing_connect_fields": {"ar": "لازم تعبي نطاق المتجر، الـ Access Token، والـ API Secret", "en": "You must fill in the shop domain, Access Token, and API Secret"},
+    "err_missing_connect_fields": {"ar": "لازم تعبي نطاق المتجر، الـ Secret، والـ Client ID (أو الـ Access Token لتطبيق قديم)", "en": "Fill in the shop domain, the secret, and the Client ID (or the Access Token for a legacy app)"},
+    "warn_no_orders_scope": {"ar": "الربط تم، بس التطبيق ما عنده صلاحية read_orders — ما رح نقدر نقيس الطلبات اللي جابها المساعد", "en": "Connected, but the app lacks the read_orders scope — orders brought in by the assistant can't be measured"},
     "msg_connect_sync_success": {"ar": "تم الربط والمزامنة الأولى بنجاح — الكتالوج هلأ حي", "en": "Connected and synced successfully — the catalog is now live"},
     "err_connect_sync_partial": {"ar": "تم حفظ الربط بس صار خطأ أثناء التسجيل/المزامنة: %(exc)s", "en": "Connection saved, but an error occurred during registration/sync: %(exc)s"},
     "err_discount_code_required": {"ar": "لازم تكتب الكود", "en": "You must enter the code"},
