@@ -73,7 +73,11 @@ def get_provider():
     if provider == "anthropic":
         return AnthropicProvider(settings.ANTHROPIC_API_KEY, settings.ANTHROPIC_MODEL)
     if provider == "openai":
-        return OpenAIProvider(settings.OPENAI_API_KEY, settings.OPENAI_MODEL)
+        return OpenAIProvider(
+            settings.OPENAI_API_KEY,
+            settings.OPENAI_MODEL,
+            reasoning_effort=settings.OPENAI_REASONING_EFFORT,
+        )
     if provider == "gemini":
         return GeminiProvider(settings.GEMINI_API_KEY, settings.GEMINI_MODEL)
     if provider == "groq":
@@ -134,10 +138,11 @@ class OpenAIProvider:
     """بتخدم OpenAI، وكمان أي مزوّد متوافق مع OpenAI API (مثل Groq) عبر
     تمرير base_url — الـ endpoint نفسه بالضبط، بس سيرفر مختلف."""
 
-    def __init__(self, api_key, model, base_url=None):
+    def __init__(self, api_key, model, base_url=None, reasoning_effort=""):
         self.api_key = api_key
         self.model = model
         self.base_url = base_url
+        self.reasoning_effort = reasoning_effort
 
     def is_configured(self):
         return bool(self.api_key)
@@ -166,13 +171,18 @@ class OpenAIProvider:
             for t in tools
         ]
         tool_choice = {"type": "function", "function": {"name": force_tool}} if force_tool else "auto"
+        # الموديلات الأحدث (gpt-5 وما بعد) رافضة max_tokens وبتطلب
+        # max_completion_tokens، وهاد الحد بيشمل كمان توكنات التفكير الداخلي
+        # عند موديلات الـ reasoning — لهيك أكبر من حجم الرد نفسه بكتير.
+        extra = {"reasoning_effort": self.reasoning_effort} if self.reasoning_effort else {}
         try:
             response = client.chat.completions.create(
                 model=self.model,
                 messages=openai_messages,
                 tools=openai_tools,
                 tool_choice=tool_choice,
-                max_tokens=500,
+                max_completion_tokens=2000,
+                **extra,
             )
         except openai.APIError as exc:
             raise LLMError(str(exc)) from exc
