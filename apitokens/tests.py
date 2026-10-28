@@ -218,6 +218,41 @@ class WidgetChatBackendLogicTests(TestCase):
         data = resp.json()
         self.assertIsNone(data["discount_offer"])
 
+    @patch("apitokens.widget_views.llm.chat_with_retry")
+    @patch("apitokens.widget_views.llm.get_provider")
+    def test_reply_text_mentions_offered_code(self, mock_provider, mock_chat):
+        """لو discount_offer حقيقي رجع بس النص ما ذكره، النص النهائي لازم
+        يتضمن الكود نفسه — الرد والعرض المنظّم ما بيتناقضوا."""
+        DiscountCode.objects.create(merchant=self.merchant, code="DRESS10", description="خصم 10% على الفساتين فقط")
+        mock_provider.return_value = FakeProvider()
+        mock_chat.return_value = fake_result(
+            reply_text="هاد الفستان بيستاهل!",
+            tool_calls=[
+                {"name": "recommend_product", "input": {"sku": "DRESS-BLACK", "reason": "x"}},
+                {"name": "offer_discount_code", "input": {"code": "DRESS10"}},
+            ],
+        )
+        data = self.post([{"role": "user", "content": "غالي شوي"}]).json()
+        self.assertEqual(data["discount_offer"]["code"], "DRESS10")
+        self.assertIn("DRESS10", data["reply"])
+
+    @patch("apitokens.widget_views.llm.chat_with_retry")
+    @patch("apitokens.widget_views.llm.get_provider")
+    def test_named_product_without_card_gets_card_and_keeps_discount(self, mock_provider, mock_chat):
+        """الموديل استدعى أداة الخصم وسمّى منتج بالنص بس ما استدعى
+        recommend_product — لازم يطلع الكارت، وما يضيع الخصم."""
+        DiscountCode.objects.create(merchant=self.merchant, code="SHIRTS15", description="خصم 15% على القمصان")
+        mock_provider.return_value = FakeProvider()
+        first = fake_result(
+            reply_text="شو رأيك بـ Blue Shirt؟ استخدم SHIRTS15",
+            tool_calls=[{"name": "offer_discount_code", "input": {"code": "SHIRTS15"}}],
+        )
+        forced = fake_result(tool_calls=[{"name": "recommend_product", "input": {"sku": "SHIRT-BLUE", "reason": "x"}}])
+        mock_chat.side_effect = [first, forced]
+        data = self.post([{"role": "user", "content": "بدي قميص بدالو"}]).json()
+        self.assertEqual([r["sku"] for r in data["recommendations"]], ["SHIRT-BLUE"])
+        self.assertEqual(data["discount_offer"]["code"], "SHIRTS15")
+
     # ---------- H-01: purchase link ----------
 
     @patch("apitokens.widget_views.llm.chat_with_retry")

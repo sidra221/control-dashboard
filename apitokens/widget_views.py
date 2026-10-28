@@ -57,6 +57,10 @@ FALLBACK_DISCOUNT_REPLY = {
     "ar": "خلينا نسهّلها عليك — استخدم كود {code} وخود {description}! 🎁",
     "en": "Let's make it easier for you — use code {code} for {description}! 🎁",
 }
+DISCOUNT_APPENDIX = {
+    "ar": "وعشان نسهّلها عليك: استخدم كود {code} ({description}) 🎁",
+    "en": "And to make it easier: use code {code} ({description}) 🎁",
+}
 FALLBACK_REPHRASE_REPLY = {
     "ar": "ممكن تعيد سؤالك بطريقة تانية؟",
     "en": "Could you rephrase that for me?",
@@ -155,9 +159,10 @@ DISCOUNT_TOOL = {
     "name": "offer_discount_code",
     "description": (
         "Offer one active, genuinely applicable discount code to the customer. Call this when you "
-        "recognize a real buying/closing moment: a clear decision to buy, a price objection, "
-        "hesitation after seeing a specific product, a competitor-price comparison, or any other "
-        "sign the customer is close to purchasing. Don't reveal a code to every browsing customer "
+        "recognize a closing moment where a discount actually helps: a price objection, hesitation "
+        "after seeing a specific product, a competitor-price comparison, or a customer close to "
+        "buying who asks for a better price. Don't call it for a customer who has already decided "
+        "to buy with no price concern — they don't need it. Don't reveal a code to every browsing customer "
         "up front — use it as a deliberate closing move, not a default greeting. If more than one "
         "code is active, pick only the one whose own description genuinely fits this product/customer "
         "(e.g. a code described as shirts-only should not be offered for a dress). Call it at most "
@@ -296,10 +301,12 @@ on sale and you may use that real saving as a selling point. Use the `descriptio
 soon — the store gives you no such data. Build urgency and desire only from real benefits and real \
 sales, never from invented scarcity.
 10. Discount codes. If the store has active discount codes listed below, reveal one deliberately as a \
-closing move — not to every browsing customer, and not only after an explicit "I've decided". Real \
-closing moments include: a clear decision to buy, a price objection ("too expensive"), lukewarm \
-hesitation about a specific product already shown ("it's okay", "not sure"), a comparison with a \
-competitor's price, or any other unmistakable sign they're close to buying. In the hesitation or \
+closing move — not to every browsing customer. Use it only where a discount actually helps: a price \
+objection ("too expensive"), lukewarm hesitation about a specific product already shown ("it's okay", \
+"not sure"), a comparison with a competitor's price, or a customer who's close to buying but asks for a \
+better price. A customer who has already decided to buy with no price concern ("I'll take it", "I want \
+to order it now") does NOT need a discount — don't give away margin there; just help them complete the \
+purchase (point them to the product's buy button). In the hesitation or \
 objection case, use the code AS your argument to win them over on that same item rather than pivoting \
 away. If several codes are active, offer only the one whose own description genuinely applies to this \
 product or customer. Call `offer_discount_code` with the exact code, at most once per conversation, \
@@ -569,8 +576,15 @@ def chat(request):
     # الأداة المناسبة، رغم تعليمات واضحة بالبرومبت — هاد بيمنع ظهور كارت
     # المنتج/زر التجربة أو حقل discount_offer نهائياً. لما نكتشف هيك، منعيد
     # الطلب مع إجبار نفس الأداة، ومنحافظ على نص الرد الأصلي ونلزق عليه نتيجة الأداة.
+    has_recommendation = any(c["name"] == "recommend_product" for c in result.tool_calls)
+    names_a_product = any(
+        p.title.lower() in result.reply_text.lower() for p in products if p.sku not in blocked_skus
+    )
     force_tool = None
-    if not result.tool_calls:
+    if result.tool_calls and not has_recommendation and names_a_product:
+        # استدعى أداة تانية (غالباً الخصم) وسمّى منتج بالنص بدون كرت.
+        force_tool = "recommend_product"
+    elif not result.tool_calls:
         if purchase_intent:
             force_tool = "recommend_product"
         elif any(d.code in result.reply_text for d in discount_codes):
@@ -594,7 +608,10 @@ def chat(request):
                 tools,
                 force_tool=force_tool,
             )
-            result = llm.LLMResult(reply_text=original_reply_text, tool_calls=forced_result.tool_calls)
+            result = llm.LLMResult(
+                reply_text=original_reply_text,
+                tool_calls=result.tool_calls + forced_result.tool_calls,
+            )
         except llm.LLMError:
             pass  # نضل مع الرد الأصلي بدل ما نفشّل الطلب كله
 
@@ -654,6 +671,11 @@ def chat(request):
                 discount_offer = new_offer or discount_offer
         except llm.LLMError:
             pass
+
+    # الرد النصي لازم يطابق العرض المنظّم: لو في discount_offer حقيقي بس
+    # الموديل ما ذكره بالنص، منضيف جملة مبنية من بيانات الكود الفعلية بس.
+    if discount_offer and reply_text and discount_offer["code"] not in reply_text:
+        reply_text = reply_text + "\n\n" + DISCOUNT_APPENDIX[lang].format(**discount_offer)
 
     if not reply_text:
         # لو الموديل رجع بس tool_use بدون نص، منضمن إنه الزبون ما يستنى رد

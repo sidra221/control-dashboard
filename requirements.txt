@@ -3,6 +3,6 @@ djangorestframework>=3.15
 gunicorn>=22.0
 psycopg2-binary>=2.9
 anthropic>=0.40
-openai>=1.50
+openai>=1.66  # Responses API + reasoning (gpt-5+/luna)
 requests>=2.31
 google-genai>=0.3
