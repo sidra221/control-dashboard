@@ -675,11 +675,6 @@ def chat(request):
         except llm.LLMError:
             pass
 
-    # الرد النصي لازم يطابق العرض المنظّم: لو في discount_offer حقيقي بس
-    # الموديل ما ذكره بالنص، منضيف جملة مبنية من بيانات الكود الفعلية بس.
-    if discount_offer and reply_text and discount_offer["code"] not in reply_text:
-        reply_text = reply_text + "\n\n" + DISCOUNT_APPENDIX[lang].format(**discount_offer)
-
     if not reply_text:
         # لو الموديل رجع بس tool_use بدون نص، منضمن إنه الزبون ما يستنى رد
         # فاضي أو رد عام مالوش علاقة بالسياق بالشات.
@@ -691,6 +686,13 @@ def chat(request):
             reply_text = FALLBACK_DISCOUNT_REPLY[lang].format(**discount_offer)
         else:
             reply_text = FALLBACK_REPHRASE_REPLY[lang]
+
+    # الرد النصي لازم يطابق العرض المنظّم: لو في discount_offer حقيقي بس
+    # الموديل ما ذكره بالنص، منضيف جملة مبنية من بيانات الكود الفعلية بس.
+    # بعد الـ fallback: لما الموديل يرجّع أدوات بلا نص، الرد بيتعبّى من reason
+    # البطاقة وما فيه الكود.
+    if discount_offer and reply_text and discount_offer["code"] not in reply_text:
+        reply_text = reply_text + "\n\n" + DISCOUNT_APPENDIX[lang].format(**discount_offer)
 
     _log_conversation(merchant, session_id, clean_messages, reply_text, recommendations, discount_offer)
 

@@ -238,6 +238,26 @@ class WidgetChatBackendLogicTests(TestCase):
 
     @patch("apitokens.widget_views.llm.chat_with_retry")
     @patch("apitokens.widget_views.llm.get_provider")
+    def test_code_mentioned_when_model_returns_tools_without_text(self, mock_provider, mock_chat):
+        """الموديل رجّع بطاقة + كود بلا أي نص: الرد بيتعبّى من reason البطاقة،
+        ولازم الكود ينذكر فيه كمان."""
+        DiscountCode.objects.create(merchant=self.merchant, code="DRESS10", description="خصم 10% على الفساتين فقط")
+        mock_provider.return_value = FakeProvider()
+        mock_chat.return_value = fake_result(
+            reply_text="",
+            tool_calls=[
+                {"name": "recommend_product", "input": {"sku": "DRESS-BLACK", "reason": "فستان أنيق لسهرتك"}},
+                {"name": "offer_discount_code", "input": {"code": "DRESS10"}},
+            ],
+        )
+        data = self.post([{"role": "user", "content": "غالي شوي"}]).json()
+        self.assertEqual(data["discount_offer"]["code"], "DRESS10")
+        self.assertIn("فستان أنيق لسهرتك", data["reply"])
+        self.assertIn("DRESS10", data["reply"])
+        self.assertEqual(data["reply"].count("DRESS10"), 1)
+
+    @patch("apitokens.widget_views.llm.chat_with_retry")
+    @patch("apitokens.widget_views.llm.get_provider")
     def test_named_product_without_card_gets_card_and_keeps_discount(self, mock_provider, mock_chat):
         """الموديل استدعى أداة الخصم وسمّى منتج بالنص بس ما استدعى
         recommend_product — لازم يطلع الكارت، وما يضيع الخصم."""
