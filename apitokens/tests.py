@@ -760,3 +760,164 @@ class CatalogSelectionTests(TestCase):
         with self.settings(OPENAI_API_KEY=""):
             picked = catalog_service.select_products(self.merchant, [{"role": "user", "content": "x"}])
         self.assertEqual(len(picked), catalog_service.SELECTED_CATALOG_SIZE)
+
+
+class PageProductTests(TestCase):
+    """الودجت بيبعت رابط الصفحة: لو صفحة منتج من الكتالوج منرجّع كرته."""
+
+    def setUp(self):
+        self.merchant = ApiToken.objects.create(label="Page", token="PAGETOKEN0001", image_quota=5, currency="SAR")
+        self.dress = Product.objects.create(
+            merchant=self.merchant, sku="DRESS-GREEN", title="Green Midi Dress", price="199.00",
+            image_url="https://example.com/d.jpg", category="dresses",
+            product_url="https://shop.example.com/products/green-midi-dress",
+        )
+        Product.objects.create(
+            merchant=self.merchant, sku="DRESS-GREEN-2", title="Green Midi Dress Long", price="250.00",
+            image_url="https://example.com/d2.jpg", category="dresses",
+            product_url="https://shop.example.com/products/green-midi-dress-long",
+        )
+        Product.objects.create(
+            merchant=self.merchant, sku="ABAYA-1", title="Black Abaya", price="300.00",
+            image_url="https://example.com/a.jpg", category="abayas",
+            product_url="https://salla.example.com/black-abaya/p123456",
+        )
+        Product.objects.create(
+            merchant=self.merchant, sku="GONE", title="Sold Out Dress", price="99.00",
+            image_url="https://example.com/g.jpg", category="dresses", in_stock=False,
+            product_url="https://shop.example.com/products/sold-out-dress",
+        )
+        other = ApiToken.objects.create(label="Other", token="OTHERTOKEN001", image_quota=5)
+        Product.objects.create(
+            merchant=other, sku="OTHER", title="Other Store Dress", price="10.00",
+            image_url="https://example.com/o.jpg", product_url="https://other.example.com/products/other-dress",
+        )
+        self.client = Client()
+
+    def lookup(self, page_url, token="PAGETOKEN0001"):
+        return self.client.post(
+            "/widget/page-product/", data=json.dumps({"page_url": page_url}),
+            content_type="application/json", HTTP_X_API_TOKEN=token,
+        ).json()
+
+    def test_exact_product_url(self):
+        data = self.lookup("https://shop.example.com/products/green-midi-dress")
+        self.assertEqual(data["product"]["sku"], "DRESS-GREEN")
+        self.assertEqual(data["product"]["product_url"], self.dress.product_url)
+        self.assertEqual(data["product"]["currency"], "SAR")
+        self.assertTrue(data["product"]["tryon_supported"])
+
+    def test_shopify_variants_of_same_page(self):
+        for url in (
+            "https://my-store.myshopify.com/products/green-midi-dress?variant=123#reviews",
+            "https://shop.example.com/collections/summer/products/green-midi-dress",
+            "https://shop.example.com/ar/products/green-midi-dress/",
+            "https://SHOP.example.com/products/Green-Midi-Dress",
+        ):
+            self.assertEqual(self.lookup(url)["product"]["sku"], "DRESS-GREEN", url)
+
+    def test_handle_prefix_does_not_match_longer_handle(self):
+        data = self.lookup("https://shop.example.com/products/green-midi-dress-long")
+        self.assertEqual(data["product"]["sku"], "DRESS-GREEN-2")
+
+    def test_non_shopify_path_match(self):
+        data = self.lookup("https://salla.example.com/black-abaya/p123456?utm_source=ig")
+        self.assertEqual(data["product"]["sku"], "ABAYA-1")
+
+    def test_non_product_pages_return_null(self):
+        for url in ("https://shop.example.com/", "https://shop.example.com/collections/summer",
+                    "https://shop.example.com/products/unknown-item", "", "not a url"):
+            data = self.lookup(url)
+            self.assertTrue(data["ok"])
+            self.assertIsNone(data["product"], url)
+
+    def test_out_of_stock_product_not_offered(self):
+        self.assertIsNone(self.lookup("https://shop.example.com/products/sold-out-dress")["product"])
+
+    def test_other_merchants_products_never_match(self):
+        self.assertIsNone(self.lookup("https://other.example.com/products/other-dress")["product"])
+
+    def test_requires_valid_token(self):
+        resp = self.client.post("/widget/page-product/", data="{}", content_type="application/json")
+        self.assertEqual(resp.status_code, 401)
+
+
+class PageProductChatTests(TestCase):
+    """المساعد بيعرف المنتج يلي الزبون فاتح صفحته، وما بيعيد كرته لما ما يعجبه."""
+
+    def setUp(self):
+        self.merchant = ApiToken.objects.create(label="PageChat", token="PAGECHAT00001", image_quota=5)
+        Product.objects.create(
+            merchant=self.merchant, sku="DRESS-GREEN", title="Green Midi Dress", price="199.00",
+            image_url="https://example.com/d.jpg", category="dresses",
+            product_url="https://shop.example.com/products/green-midi-dress",
+        )
+        Product.objects.create(
+            merchant=self.merchant, sku="DRESS-NAVY", title="Navy Midi Dress", price="189.00",
+            image_url="https://example.com/n.jpg", category="dresses",
+            product_url="https://shop.example.com/products/navy-midi-dress",
+        )
+        self.client = Client()
+
+    def post(self, text, page_url=None, shown_skus=()):
+        body = {"messages": [{"role": "user", "content": text}], "shown_skus": list(shown_skus)}
+        if page_url is not None:
+            body["page_url"] = page_url
+        return self.client.post(
+            "/widget/chat/", data=json.dumps(body), content_type="application/json",
+            HTTP_X_API_TOKEN=self.merchant.token,
+        ).json()
+
+    @patch("apitokens.widget_views.llm.chat_with_retry")
+    @patch("apitokens.widget_views.llm.get_provider")
+    def test_prompt_names_the_page_product(self, mock_provider, mock_chat):
+        mock_provider.return_value = FakeProvider()
+        mock_chat.return_value = fake_result(reply_text="أكيد")
+        self.post("كم سعره؟", page_url="https://shop.example.com/products/green-midi-dress?variant=1")
+        system_prompt = mock_chat.call_args[0][1]
+        self.assertIn("product page of DRESS-GREEN", system_prompt)
+        self.assertIn("Don't recommend DRESS-GREEN again", system_prompt)
+
+    @patch("apitokens.widget_views.llm.chat_with_retry")
+    @patch("apitokens.widget_views.llm.get_provider")
+    def test_no_page_section_off_product_pages(self, mock_provider, mock_chat):
+        mock_provider.return_value = FakeProvider()
+        mock_chat.return_value = fake_result(reply_text="أهلين")
+        self.post("هلا", page_url="https://shop.example.com/")
+        self.post("هلا")
+        for call in mock_chat.call_args_list:
+            self.assertNotIn("product page of", call[0][1])
+
+    @patch("apitokens.widget_views.llm.chat_with_retry")
+    @patch("apitokens.widget_views.llm.get_provider")
+    def test_disliked_page_product_not_reshown_alternative_is(self, mock_provider, mock_chat):
+        """الويدجت بيحط كرت منتج الصفحة بـ shown_skus — لو الموديل رجّعه مع بديل،
+        بيطلع البديل بس."""
+        mock_provider.return_value = FakeProvider()
+        mock_chat.return_value = fake_result(
+            reply_text="ولا يهمك، شوف هذا",
+            tool_calls=[
+                {"name": "recommend_product", "input": {"sku": "DRESS-GREEN", "reason": "x"}},
+                {"name": "recommend_product", "input": {"sku": "DRESS-NAVY", "reason": "لون أهدأ"}},
+            ],
+        )
+        data = self.post(
+            "ما عجبني لونه", page_url="https://shop.example.com/products/green-midi-dress",
+            shown_skus=["DRESS-GREEN"],
+        )
+        self.assertEqual([r["sku"] for r in data["recommendations"]], ["DRESS-NAVY"])
+
+
+class SaudiPhrasingTests(TestCase):
+    """الزبون السعودي بيعبّر عن نية الشراء والميزانية بكلمات غير الشامي."""
+
+    def test_saudi_purchase_intent(self):
+        from .widget_views import _has_purchase_intent
+        for text in ("أبيه", "ابغاه الحين", "أبي أشتريه", "كيف أشتريه؟"):
+            self.assertTrue(_has_purchase_intent(text), text)
+        self.assertFalse(_has_purchase_intent("أبي فستان أبيض"))
+
+    def test_saudi_budget(self):
+        from .widget_views import _extract_budget_ceiling
+        for text in ("أبي فستان في حدود 300", "ميزانيتي 250", "ما ابي ادفع اكثر من 400", "مو اكثر من 150"):
+            self.assertIsNotNone(_extract_budget_ceiling([{"role": "user", "content": text}]), text)

@@ -13,6 +13,7 @@ urlpatterns = [
     path("widget/chat/", widget_views.chat, name="widget-chat"),
     path("widget/tryon/", widget_views.tryon, name="widget-tryon"),
     path("widget/event/", widget_views.event, name="widget-event"),
+    path("widget/page-product/", widget_views.page_product, name="widget-page-product"),
     path(
         "webhooks/shopify/<str:token>/",
         shopify_webhooks.product_webhook,

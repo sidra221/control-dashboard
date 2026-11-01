@@ -29,7 +29,7 @@
   var IS_SHOPIFY = !!(window.Shopify && window.Shopify.shop);
   var cartTagged = false;
   var UI = {
-    ar: { add: "أضف للسلة 🛒", added: "انضاف للسلة ✓ — كمّل الطلب", addFailed: "ما قدرنا نضيفه للسلة، جرّب من صفحة المنتج.", buy: "اشتري الآن" },
+    ar: { add: "أضف للسلة 🛒", added: "انضاف للسلة ✓ — كمّل طلبك", addFailed: "ما قدرنا نضيفه للسلة، جرّب من صفحة المنتج.", buy: "اشترِه الحين" },
     en: { add: "Add to cart 🛒", added: "Added to cart ✓ — checkout", addFailed: "Couldn't add it to the cart, try from the product page.", buy: "Buy now" },
   };
   function uiLang() {
@@ -38,6 +38,25 @@
       if (history[i].role === "user") { lastUser = history[i].content; break; }
     }
     return /[\u0600-\u06FF]/.test(lastUser) || !lastUser ? "ar" : "en";
+  }
+
+  // لو الزبون فاتح صفحة منتج من الكتالوج، منفتح المحادثة على هالمنتج نفسه.
+  var pageProduct = null;
+  var pageProductReady = fetch(API_BASE + "/widget/page-product/", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "X-Api-Token": STORE_KEY },
+    body: JSON.stringify({ page_url: window.location.href }),
+  })
+    .then(function (r) {
+      return r.json();
+    })
+    .then(function (data) {
+      if (data && data.ok && data.product) pageProduct = data.product;
+    })
+    .catch(function () {});
+
+  function shortTitle(title) {
+    return title.length > 40 ? title.slice(0, 38) + "…" : title;
   }
 
   function trackEvent(type) {
@@ -168,13 +187,13 @@
     '<path d="M12 3C7.03 3 3 6.58 3 11c0 2.49 1.28 4.7 3.3 6.17-.11.93-.45 2.22-1.27 3.49a.5.5 0 00.56.76c1.84-.56 3.26-1.42 4.1-2.03.74.14 1.52.21 2.31.21 4.97 0 9-3.58 9-8s-4.03-8-9-8z" fill="#fff"/>' +
     '<path d="M12.3 7.6l.9 2.1 2.1.9-2.1.9-.9 2.1-.9-2.1-2.1-.9 2.1-.9.9-2.1z" fill="#4f46e5"/>' +
     "</svg>";
-  bubble.title = "تحتاج مساعدة باختيار إطلالتك؟";
+  bubble.title = "تحتاج مساعدة في اختيار إطلالتك؟";
   root.appendChild(bubble);
 
   var NUDGE_MESSAGES = [
-    "تقدر تشوف شكل أي قطعة عليك الحين قبل ما تطلبها — جرب القياس الافتراضي! 😍",
-    "ليش تطلب وانت مو متأكد؟ جرب تلبس القطعة افتراضياً أول وشوف شكلها عليك! ✨",
-    "خلك ذكي بتسوقك — جرب شكل الملابس عليك قبل لا تشتري! 🛍️",
+    "تقدر تشوف شكل أي قطعة عليك الحين قبل لا تطلبها — جرّب القياس الافتراضي! 😍",
+    "ليش تطلب وأنت مو متأكد؟ جرّب القطعة عليك افتراضياً أول وشوف شكلها! ✨",
+    "خلّك ذكي في تسوّقك — جرّب الملابس عليك قبل لا تشتري! 🛍️",
   ];
   var nudgeIndex = 0;
   var nudgeHideTimer = null;
@@ -224,10 +243,29 @@
     nudge.classList.remove("open");
     panel.classList.add("open");
     if (isFirstOpen) {
-      addBotMessage(
-        "أهلاً! 👋 وصلت مكانك الصح — احكيلي شو في بالك، وبدلّك على أحلى خيار. وإذا حبيت، " +
-          "فيك كمان تشوف شكل القطعة عليك قبل ما تقرر 😊"
-      );
+      // منستنى جواب صفحة المنتج شوي بس، حتى ما يتأخر الترحيب لو السيرفر بطيء.
+      var welcomed = false;
+      var welcome = function () {
+        if (welcomed) return;
+        welcomed = true;
+        if (!pageProduct) {
+          addBotMessage(
+            "هلا والله! 👋 وصلت للمكان الصح — قل لي وش في بالك، وأدلّك على أحلى خيار. وإذا تبي، " +
+              "تقدر بعد تشوف شكل القطعة عليك قبل لا تقرر 😊"
+          );
+          return;
+        }
+        var name = "«" + shortTitle(pageProduct.title) + "»";
+        var text = pageProduct.tryon_supported === false
+          ? "هلا والله! 👋 شكلك مهتم بـ" + name + ". تبي تعرف عنه أكثر، أو أطلع لك خيارات قريبة منه؟ أنا حاضر 👌"
+          : "هلا والله! 👋 شكل " + name + " عاجبك 😍 ودّك تشوف شكله عليك قبل لا تطلبه؟ ارفع صورتك وجرّبه، " +
+            "وإذا ما عجبك أطلع لك خيارات ثانية تناسبك 👌";
+        addBotMessage(text, function () {
+          addRecommendationCard(pageProduct);
+        });
+      };
+      pageProductReady.then(welcome);
+      setTimeout(welcome, 1500);
     }
   }
 
@@ -247,7 +285,15 @@
     if (hasEngaged || panel.classList.contains("open")) {
       return;
     }
-    nudge.textContent = NUDGE_MESSAGES[nudgeIndex % NUDGE_MESSAGES.length];
+    var messages = NUDGE_MESSAGES;
+    if (pageProduct && pageProduct.tryon_supported !== false) {
+      var name = "«" + shortTitle(pageProduct.title) + "»";
+      messages = [
+        "ودّك تشوف " + name + " عليك قبل لا تطلبه؟ جرّبه افتراضياً الحين! ✨",
+        "متردد في " + name + "؟ ارفع صورتك وشوف شكله عليك 😍",
+      ];
+    }
+    nudge.textContent = messages[nudgeIndex % messages.length];
     nudgeIndex++;
     nudge.classList.add("open");
     nudgeHideTimer = setTimeout(function () {
@@ -311,7 +357,7 @@
   function addTyping() {
     var el = document.createElement("div");
     el.className = "typing";
-    el.textContent = "عم يكتب...";
+    el.textContent = "يكتب...";
     msgsEl.appendChild(el);
     scrollToBottom();
     return el;
@@ -365,7 +411,7 @@
       if (savedPhoto) {
         runTryon(rec.sku, savedPhoto);
       } else {
-        addBotMessage("نصيحة: صورة نص الجسم أو كاملة بتعطي نتيجة أدق من صورة وجه مقرّبة جداً 📸");
+        addBotMessage("نصيحة: صورة نص الجسم أو كاملة تعطيك نتيجة أدق من صورة الوجه المقرّبة 📸");
         pendingSku = rec.sku;
         fileInput.value = "";
         fileInput.click();
@@ -424,8 +470,8 @@
     card.className = "card result";
     var img = document.createElement("img");
     img.src = imageUrl;
-    img.alt = "شكلك فيه — دوس للتكبير";
-    img.title = "دوس للتكبير";
+    img.alt = "شكلك فيه — اضغط للتكبير";
+    img.title = "اضغط للتكبير";
     img.addEventListener("click", function () {
       lightboxImg.src = imageUrl;
       lightbox.classList.add("open");
@@ -437,7 +483,7 @@
       buyLink.href = productUrl;
       buyLink.target = "_blank";
       buyLink.rel = "noopener";
-      buyLink.textContent = "عجبني، اشتريه الآن";
+      buyLink.textContent = "عجبني، أبي أشتريه";
       card.appendChild(buyLink);
     }
     msgsEl.appendChild(card);
@@ -445,18 +491,18 @@
   }
 
   var ERROR_MESSAGES = {
-    invalid_token: "في مشكلة بإعداد المتجر — تواصل مع صاحب المتجر.",
-    token_disabled: "الخدمة موقوفة مؤقتاً لهالمتجر.",
-    quota_exceeded: "نفذ رصيد الصور المسموح لهالفترة.",
-    assistant_not_configured: "المساعد الذكي مش جاهز بعد.",
-    assistant_unavailable: "في زحمة على المساعد الذكي هلق، جرّب بعد شوي 🙏",
-    tryon_not_configured: "خاصية تجربة اللبس مش جاهزة بعد.",
-    product_not_found: "المنتج مش موجود بالكتالوج.",
-    photo_too_large: "الصورة كبيرة كتير، جرّب صورة أصغر (أقل من 8 ميغا).",
+    invalid_token: "فيه مشكلة في إعداد المتجر — تواصل مع صاحب المتجر.",
+    token_disabled: "الخدمة موقوفة مؤقتاً لهذا المتجر.",
+    quota_exceeded: "خلص رصيد الصور المسموح لهذي الفترة.",
+    assistant_not_configured: "المساعد الذكي مو جاهز للحين.",
+    assistant_unavailable: "فيه ضغط على المساعد الذكي الحين، جرّب بعد شوي 🙏",
+    tryon_not_configured: "خاصية تجربة اللبس مو جاهزة للحين.",
+    product_not_found: "المنتج مو موجود في الكتالوج.",
+    photo_too_large: "الصورة كبيرة مرّة، جرّب صورة أصغر (أقل من 8 ميغا).",
   };
 
   function friendlyError(code) {
-    return ERROR_MESSAGES[code] || "صار في خطأ، جرّب كمان مرة.";
+    return ERROR_MESSAGES[code] || "صار خطأ، جرّب مرة ثانية.";
   }
 
   function sendMessage() {
@@ -474,7 +520,12 @@
     fetch(API_BASE + "/widget/chat/", {
       method: "POST",
       headers: { "Content-Type": "application/json", "X-Api-Token": STORE_KEY },
-      body: JSON.stringify({ messages: history, session_id: SESSION_ID, shown_skus: shownSkus }),
+      body: JSON.stringify({
+        messages: history,
+        session_id: SESSION_ID,
+        shown_skus: shownSkus,
+        page_url: window.location.href,
+      }),
     })
       .then(function (r) {
         return r.json();
@@ -508,7 +559,7 @@
       .catch(function () {
         typingEl.remove();
         sendBtn.disabled = false;
-        addErrorMessage("ما قدرنا نوصل للمساعد، جرّب كمان مرة.");
+        addErrorMessage("ما قدرنا نوصل للمساعد، جرّب مرة ثانية.");
       });
   }
 
@@ -520,7 +571,7 @@
   function runTryon(sku, photo) {
     var loadingEl = document.createElement("div");
     loadingEl.className = "typing";
-    loadingEl.textContent = "عم نركّب الإطلالة... ممكن ياخد كم ثانية ⏳";
+    loadingEl.textContent = "نجهّز إطلالتك... ممكن تاخذ كم ثانية ⏳";
     msgsEl.appendChild(loadingEl);
     scrollToBottom();
 
@@ -544,11 +595,11 @@
           return;
         }
         addTryonResultCard(data.image_url, null);
-        addBotMessage("شو رأيك فيها؟ عجبتك الإطلالة؟ 😊");
+        addBotMessage("وش رأيك؟ عجبتك الإطلالة؟ 😊");
       })
       .catch(function () {
         loadingEl.remove();
-        addErrorMessage("صار في خطأ وقت تركيب الإطلالة، جرّب كمان مرة.");
+        addErrorMessage("صار خطأ وقت تجهيز الإطلالة، جرّب مرة ثانية.");
       });
   }
 

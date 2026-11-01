@@ -2,6 +2,7 @@ import json
 import logging
 import re
 from datetime import timedelta
+from urllib.parse import unquote, urlsplit
 
 from django.conf import settings
 from django.db import DatabaseError, transaction
@@ -28,8 +29,8 @@ WIDGET_EVENTS = {"buy_click": "buy_clicks", "add_to_cart": "add_to_carts"}
 # "دولار" — هيك بنتجنب نلتقط سعر منافس أو سعر منتج عادي عن طريق الخطأ
 # كأنه ميزانية الزبون).
 BUDGET_PATTERN = re.compile(
-    r"(?:ميزانيتي|ميزانيه|ميزانيتى|مش\s*اكتر\s*من|مو\s*اكتر\s*من|ما\s*بدي\s*ادفع\s*اكتر\s*من|"
-    r"اقل\s*من|أقل\s*من|لا\s*يتجاوز|ما\s*يتجاوز|ضمن|budget)\D{0,15}?(\d+(?:\.\d+)?)",
+    r"(?:ميزانيتي|ميزانيه|ميزانيتى|مش\s*اكتر\s*من|مو\s*اكتر\s*من|مو\s*اكثر\s*من|ما\s*بدي\s*ادفع\s*اكتر\s*من|"
+    r"ما\s*ابي\s*ادفع\s*اكثر\s*من|ما\s*يزيد\s*عن|في\s*حدود|بحدود|اقل\s*من|أقل\s*من|لا\s*يتجاوز|ما\s*يتجاوز|ضمن|budget)\D{0,15}?(\d+(?:\.\d+)?)",
     re.IGNORECASE,
 )
 
@@ -42,7 +43,8 @@ DISCOUNT_FABRICATION_MARKERS = ("خصم", "كود", "%", "discount", "coupon", "
 PURCHASE_INTENT_MARKERS = (
     "كيف بطلبه", "كيف اطلبه", "كيف أطلبه", "كيف بطلب", "الرابط", "بدي اشتريه", "بدي أشتريه",
     "كيف اشتريه", "كمل الدفع", "اكمل الدفع", "أكمل الدفع", "للسلة", "بدي اطلبه", "ابي اطلبه",
-    "أبي أطلبه", "عايز اطلبه", "عايزة اطلبه", "كيف اطلب", "how do i buy", "how to buy",
+    "أبي أطلبه", "ابي اشتريه", "أبي أشتريه", "ابغى اطلبه", "أبغى أطلبه", "ابغاه", "أبغاه", "ابيه",
+    "أبيه", "كيف أشتريه", "عايز اطلبه", "عايزة اطلبه", "كيف اطلب", "how do i buy", "how to buy",
     "how do i order", "how to order", "checkout", "add to cart", "add it to", "send me the link",
     "the link", "buy it", "order it", "i'll take it",
 )
@@ -50,11 +52,11 @@ PURCHASE_INTENT_MARKERS = (
 # نصوص بيولّدها الكود نفسه (مش الموديل) — منختار نسختها حسب لغة آخر رسالة
 # من الزبون حتى ما يطلعله زر أو رد بالعربي وهو عم يحكي إنجليزي.
 TRYON_BUTTON_LABELS = {
-    "ar": {"self": "جرّب شكلك فيه 📸", "gift": "جرّب شكله على صاحب الهدية 📸"},
+    "ar": {"self": "جرّب شكلك فيه 📸", "gift": "جرّبه على صاحب الهدية 📸"},
     "en": {"self": "Try it on with your photo 📸", "gift": "See it on the gift recipient 📸"},
 }
 FALLBACK_DISCOUNT_REPLY = {
-    "ar": "خلينا نسهّلها عليك — استخدم كود {code} وخود {description}! 🎁",
+    "ar": "خلّنا نسهّلها عليك — استخدم كود {code} وخذ {description}! 🎁",
     "en": "Let's make it easier for you — use code {code} for {description}! 🎁",
 }
 DISCOUNT_APPENDIX = {
@@ -62,7 +64,7 @@ DISCOUNT_APPENDIX = {
     "en": "And to make it easier: use code {code} ({description}) 🎁",
 }
 FALLBACK_REPHRASE_REPLY = {
-    "ar": "ممكن تعيد سؤالك بطريقة تانية؟",
+    "ar": "ممكن تعيد سؤالك بطريقة ثانية؟",
     "en": "Could you rephrase that for me?",
 }
 
@@ -122,7 +124,7 @@ RECOMMEND_TOOL = {
                 "type": "string",
                 "description": (
                     "A short, persuasive, benefit-led reason this product fits, written strictly in "
-                    "the customer's own language and dialect (the same ones as your chat reply), "
+                    "the same language and dialect as your chat reply (Saudi dialect if Arabic), "
                     "with no markdown formatting (no bold, headings, or lists — plain text only). "
                     "The first time you show a product, also invite them to upload a photo to try it "
                     "on — don't repeat that same invitation on every card, and never invite a try-on for "
@@ -146,8 +148,8 @@ RECOMMEND_TOOL = {
                 "type": "string",
                 "description": (
                     "Very short label (2-6 words, may end with 📸) for the button that lets the customer "
-                    "upload a photo to try this product on, written strictly in the customer's own "
-                    "language and dialect. If it's for someone else, word it for trying it on that "
+                    "upload a photo to try this product on, written strictly in the same language "
+                    "and dialect as your chat reply (Saudi dialect if Arabic). If it's for someone else, word it for trying it on that "
                     "person, not the customer."
                 ),
             },
@@ -181,8 +183,8 @@ DISCOUNT_TOOL = {
             "pitch": {
                 "type": "string",
                 "description": (
-                    "Your full closing message that goes with the code, strictly in the customer's own "
-                    "language and dialect, plain text: acknowledge their hesitation in a few words, one "
+                    "Your full closing message that goes with the code, strictly in the same language "
+                    "and dialect as your chat reply (Saudi dialect if Arabic), plain text: acknowledge their hesitation in a few words, one "
                     "concrete sentence on the product's real value, then present the code as the reason "
                     "to go ahead now. Never just the code alone."
                 ),
@@ -204,20 +206,19 @@ says nothing about the language you reply in.
 - Reply ONLY in the language the customer is using in their latest message. Every word you write — the \
 chat reply AND the `reason` field of every tool call — must be in that language. Never mix in English \
 or any other language unless the customer does so themselves.
-- Match their dialect and register, not just the language. If they write Arabic, first identify their \
-dialect from their own words, then write EVERYTHING (chat reply and every `reason`) in that same \
-dialect with its everyday vocabulary — never drift into Modern Standard Arabic or into a different \
-dialect. Typical cues: Gulf uses words like "abi", "wesh", "zain", "7eil"; Egyptian "3ayez", "eh", \
-"keda", "awi", "ha-" for the future; Levantine "baddi", "shu", "halla2", "ktir", "b-" verbs; Iraqi \
-"aku", "shaku", "hwaya"; Maghrebi "bghit", "wash", "bzaf". Use MSA only if the customer writes in \
-MSA. Talk like a friendly local salesperson from their own region, not like a textbook. The same \
-applies to other languages (casual vs. formal English, Brazilian vs. European Portuguese, etc.).
+- ARABIC IS ALWAYS SAUDI: whenever the customer writes Arabic — any dialect, MSA or Arabizi — write \
+EVERYTHING (chat reply and every `reason`, label and pitch) in everyday Saudi dialect, like a friendly \
+salesperson in a Saudi store: e.g. "أبي/تبي"، "وش"، "الحين"، "زين"، "مرّة" (very)، "حيل"، "ودّك"، "يعطيك \
+العافية"، "قبل لا"، "عشان". Never write Levantine, Egyptian or other dialects ("بدي"، "شو"، "هلق"، "كتير"، \
+"عايز"، "إيه") and never drift into Modern Standard Arabic, even if the customer writes that way.
+- For other languages, match the customer's register (casual vs. formal English, Brazilian vs. \
+European Portuguese, etc.).
 - Keep each reply in ONE script and never mix Arabic and Latin letters inside it. If they write Arabic \
 in Latin letters and numbers (Arabizi, e.g. "kifak", "3ndkon", "baddi"), they are speaking Arabic: \
-reply in their dialect written in normal Arabic script (every word in Arabic letters, no Latin words).
-- If they switch language or dialect mid-conversation, switch with them from that message on.
+reply in Saudi dialect written in normal Arabic script (every word in Arabic letters, no Latin words).
+- If they switch language mid-conversation, switch with them from that message on (Arabic stays Saudi).
 - Any example phrase in these instructions only illustrates the intent. Never copy it literally — \
-express the same idea naturally in the customer's own language and dialect.
+express the same idea naturally in the customer's language (Saudi dialect if it's Arabic).
 - Grammatical gender (Arabic and other gendered languages): match the gender the customer reveals \
 about themselves in their own words (e.g. a feminine vs. masculine form of "I'd like" or "I'm sure"), \
 and keep addressing them that way. Never guess a gender with no signal; until one appears, use the \
@@ -367,6 +368,20 @@ def _extract_budget_ceiling(messages):
     return ceiling
 
 
+def _product_card(product, currency):
+    """حقول كرت المنتج يلي بيعرضها الودجت — كلها من قاعدة البيانات."""
+    return {
+        "sku": product.sku,
+        "title": product.title,
+        "price": str(product.price),
+        "compare_at_price": str(product.compare_at_price) if product.compare_at_price else None,
+        "currency": currency,
+        "image_url": product.image_url,
+        "product_url": product.product_url,
+        "variant_id": product.variant_id,
+    }
+
+
 def _process_tool_calls(
     tool_calls, products, discount_codes, lang="ar", blocked_skus=(), currency=""
 ):
@@ -393,16 +408,7 @@ def _process_tool_calls(
                 for_someone_else = bool(call_input.get("for_someone_else"))
                 recommendations.append(
                     {
-                        "sku": product.sku,
-                        "title": product.title,
-                        "price": str(product.price),
-                        "compare_at_price": (
-                            str(product.compare_at_price) if product.compare_at_price else None
-                        ),
-                        "currency": currency,
-                        "image_url": product.image_url,
-                        "product_url": product.product_url,
-                        "variant_id": product.variant_id,
+                        **_product_card(product, currency),
                         "reason": call_input.get("reason", ""),
                         "tryon_supported": product.supports_tryon,
                         "tryon_button_label": (
@@ -527,7 +533,11 @@ def chat(request):
     if not provider.is_configured():
         return _cors_response({"ok": False, "error": "assistant_not_configured"}, status=503)
 
-    products = catalog_service.select_products(merchant, clean_messages, shown_skus)
+    # المنتج يلي الزبون فاتح صفحته (المحادثة انفتحت عليه) — منثبّته بالكتالوج
+    # يلي بيوصل للموديل حتى لو المتجر كبير وما طلع بالبحث الدلالي.
+    page_product = _find_page_product(merchant, str(body.get("page_url") or "")[:2000])
+    pinned_skus = shown_skus + ([page_product.sku] if page_product else [])
+    products = catalog_service.select_products(merchant, clean_messages, pinned_skus)
     discount_codes = list(merchant.discount_codes.filter(is_active=True))
     discount_codes_section = ""
     tools = [RECOMMEND_TOOL]
@@ -553,6 +563,16 @@ def chat(request):
         shown_section = (
             "\nProducts already shown in this conversation (don't show them again unless the "
             "customer wants to buy one): " + ", ".join(shown_skus) + "\n"
+        )
+    if page_product:
+        shown_section += (
+            f"\nThe customer is browsing the product page of {page_product.sku} "
+            f"({page_product.title}), and the chat opened by showing them that product with a "
+            "try-on invitation. Treat it as the item they're asking about when they say \"it\" or "
+            "\"this\". If they say they don't like it or want something else, ask nothing more and "
+            "recommend 1-3 close alternatives (same kind of item and occasion, changing what they "
+            f"disliked) with recommend_product. Don't recommend {page_product.sku} again unless they "
+            "want to buy it.\n"
         )
 
     system_prompt = SYSTEM_PROMPT_TEMPLATE.format(
@@ -593,7 +613,9 @@ def chat(request):
         elif any(d.code in result.reply_text for d in discount_codes):
             force_tool = "offer_discount_code"
         else:
-            no_exact_match_phrases = ("ما عنا", "ما عندنا", "ما في", "لا يوجد", "ليس لدينا", "للأسف")
+            no_exact_match_phrases = (
+                "ما عنا", "ما عندنا", "ما في", "مو متوفر", "غير متوفر", "لا يوجد", "ليس لدينا", "للأسف",
+            )
             if any(
                 p.title.lower() in result.reply_text.lower()
                 for p in products
@@ -661,7 +683,7 @@ def chat(request):
         corrected_system_prompt = system_prompt + (
             "\n\nCORRECTION — your previous reply was written in the wrong language. The customer's "
             "last message is: " + json.dumps(last_user_text, ensure_ascii=False) + ". Reply ONLY in "
-            "that exact language, dialect and script — including every tool `reason`."
+            "that exact language and script (Saudi dialect if it's Arabic) — including every tool `reason`."
         )
         try:
             corrected = llm.chat_with_retry(provider, corrected_system_prompt, clean_messages, tools)
@@ -730,6 +752,68 @@ def event(request):
         conversation.save(update_fields=[field, "updated_at"])
     return _cors_response({"ok": True})
 
+
+
+# Shopify (وسلة لاحقاً) بيحطوا المنتج نفسه على أكتر من مسار: /products/x،
+# /collections/y/products/x، /ar/products/x — الـ handle هو الثابت بينهم.
+PRODUCT_HANDLE_PATTERN = re.compile(r"/products/([^/]+)")
+
+
+def _url_path(url):
+    try:
+        path = urlsplit(url or "").path
+    except ValueError:
+        return ""
+    return unquote(path).rstrip("/").lower()
+
+
+def _find_page_product(merchant, page_url):
+    """المنتج يلي الزبون فاتح صفحته، أو None. منطابق على المسار بس (بدون
+    الدومين) لأنه نفس المتجر ممكن ينفتح من دومينه الخاص أو من myshopify.com،
+    والمنتجات أصلاً محصورة بتاجر هالتوكن."""
+    path = _url_path(page_url)
+    if not path:
+        return None
+    products = merchant.products.filter(in_stock=True).exclude(product_url="")
+    handle_match = PRODUCT_HANDLE_PATTERN.search(path)
+    if handle_match:
+        handle = handle_match.group(1)
+        for product in products.filter(product_url__icontains=handle):
+            product_match = PRODUCT_HANDLE_PATTERN.search(_url_path(product.product_url))
+            if product_match and product_match.group(1) == handle:
+                return product
+        return None
+    return next((p for p in products if _url_path(p.product_url) == path), None)
+
+
+@csrf_exempt
+@require_http_methods(["POST", "OPTIONS"])
+def page_product(request):
+    """الودجت بيسأل عند التحميل: هالصفحة صفحة منتج من الكتالوج؟ لو إيه
+    منرجّع كرته حتى يفتح المحادثة عليه مباشرة."""
+    if request.method == "OPTIONS":
+        return _cors_response({}, status=200)
+    merchant, error_response = _authenticate(request)
+    if error_response:
+        return error_response
+    try:
+        body = json.loads(request.body or "{}")
+    except json.JSONDecodeError:
+        return _cors_response({"ok": False, "error": "invalid_json"}, status=400)
+    page_url = str(body.get("page_url") or "")[:2000]
+    product = _find_page_product(merchant, page_url)
+    if product is None:
+        return _cors_response({"ok": True, "product": None})
+    return _cors_response(
+        {
+            "ok": True,
+            "product": {
+                **_product_card(product, merchant.currency),
+                "tryon_supported": product.supports_tryon,
+                "tryon_button_label": TRYON_BUTTON_LABELS["ar"]["self"],
+            },
+        }
+    )
 
 TRYON_PROMPT = (
     "A photorealistic, high-quality photo of the exact same person from the first image, now "
