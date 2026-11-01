@@ -4,6 +4,10 @@
 {% block title %}Control — {{ T.dashboard_title }}{% endblock %}
 {% block page_title %}{{ T.dashboard_title }}{% endblock %}
 {% block page_sub %}{{ T.dashboard_sub }}{% endblock %}
+{% block header_links %}
+  <a class="back" href="{% url 'apitokens:salla' %}">{{ T.salla_link }}</a>
+  <a class="back" href="/admin/">{{ T.admin_back }}</a>
+{% endblock %}
 
 {% block content %}
   <div class="stats">
@@ -100,9 +104,13 @@
             <a class="btn-toggle" href="{% url 'apitokens:catalog' t.pk %}">{{ T.th_catalog }} ({{ t.product_count }})</a>
           </td>
           <td>
+            {% if t.salla_connection %}
+            <a class="btn-toggle" href="{% url 'apitokens:salla' %}">{{ T.salla_connected }}</a>
+            {% else %}
             <a class="btn-toggle" href="{% url 'apitokens:shopify-connect' t.pk %}">
               {% if t.shopify_connection %}{{ T.shopify_connected }}{% else %}{{ T.shopify_connect_link }}{% endif %}
             </a>
+            {% endif %}
           </td>
           <td>
             <a class="btn-toggle" href="{% url 'apitokens:discount-codes' t.pk %}">{{ T.th_discounts }}</a>

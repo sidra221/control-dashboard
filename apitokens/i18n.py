@@ -119,6 +119,45 @@ TRANSLATIONS = {
     "update_resync_btn": {"ar": "تحديث وإعادة مزامنة", "en": "Update and resync"},
     "connect_sync_btn": {"ar": "ربط ومزامنة", "en": "Connect and sync"},
 
+    # ===== salla.html =====
+    "salla_page_title": {"ar": "تطبيق سلة", "en": "Salla app"},
+    "salla_page_sub": {
+        "ar": "تُضاف المتاجر تلقائياً عند تثبيت التاجر للتطبيق من متجر تطبيقات سلة",
+        "en": "Stores are added automatically when a merchant installs the app from the Salla App Store",
+    },
+    "salla_link": {"ar": "تطبيق سلة ←", "en": "Salla app ←"},
+    "salla_connected": {"ar": "سلة ✓", "en": "Salla ✓"},
+    "salla_config_title": {"ar": "إعدادات التطبيق على الخادم", "en": "App settings on the server"},
+    "salla_config_note": {
+        "ar": "تُضبط هذه القيم في ملف ‎.env على الخادم، وتُنسخ من بوابة شركاء سلة (portal.salla.partners).",
+        "en": "Set these in the server's .env file, copied from the Salla Partners Portal (portal.salla.partners).",
+    },
+    "salla_config_set": {"ar": "مضبوط", "en": "Set"},
+    "salla_config_missing": {"ar": "غير مضبوط", "en": "Missing"},
+    "salla_portal_title": {"ar": "ما يُلصق في بوابة الشركاء", "en": "What to paste in the Partners Portal"},
+    "salla_webhook_label": {
+        "ar": "رابط الإشعارات (Webhook URL)، مع استراتيجية الأمان Signature:",
+        "en": "Webhook URL, with the Signature security strategy:",
+    },
+    "salla_snippet_label": {
+        "ar": "سكربت التطبيق (App Snippet)، يوضع قبل نهاية ‎<body>:",
+        "en": "App Snippet, placed before the end of <body>:",
+    },
+    "salla_stores_title": {"ar": "المتاجر المرتبطة", "en": "Connected stores"},
+    "salla_no_stores": {
+        "ar": "لا توجد متاجر مرتبطة بعد. يظهر المتجر هنا فور تثبيت التاجر للتطبيق.",
+        "en": "No connected stores yet. A store appears here as soon as a merchant installs the app.",
+    },
+    "th_store": {"ar": "المتجر", "en": "Store"},
+    "th_salla_id": {"ar": "رقم التاجر في سلة", "en": "Salla merchant ID"},
+    "th_connected_at": {"ar": "تاريخ الربط", "en": "Connected"},
+    "th_last_sync": {"ar": "آخر مزامنة", "en": "Last sync"},
+    "th_products": {"ar": "المنتجات", "en": "Products"},
+    "salla_never_synced": {"ar": "لم تتم بعد", "en": "Not yet"},
+    "salla_status_uninstalled": {"ar": "أُلغي التثبيت", "en": "Uninstalled"},
+    "msg_salla_resync_success": {"ar": "تمت المزامنة: %(count)s منتج", "en": "Synced: %(count)s products"},
+    "err_salla_resync_failed": {"ar": "تعذّرت المزامنة: %(exc)s", "en": "Sync failed: %(exc)s"},
+
     # ===== discount_codes.html =====
     "discounts_link_short": {"ar": "أكواد الخصم ←", "en": "Discount codes ←"},
     "discounts_title_prefix": {"ar": "أكواد خصم — ", "en": "Discount codes — "},

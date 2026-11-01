@@ -1,0 +1,104 @@
+{% extends "apitokens/base.html" %}
+
+{% block title %}{{ T.salla_page_title }} — Control{% endblock %}
+{% block page_title %}{{ T.salla_page_title }}{% endblock %}
+{% block page_sub %}{{ T.salla_page_sub }}{% endblock %}
+{% block header_links %}
+  <a class="back" href="{% url 'apitokens:dashboard' %}">{{ T.back_to_tokens }}</a>
+{% endblock %}
+
+{% block content %}
+
+  <div class="card">
+    <h2>{{ T.salla_stores_title }}</h2>
+    {% if connections %}
+    <div class="table-scroll">
+    <table>
+      <thead>
+        <tr>
+          <th>{{ T.th_store }}</th>
+          <th>{{ T.th_salla_id }}</th>
+          <th>{{ T.th_status }}</th>
+          <th>{{ T.th_connected_at }}</th>
+          <th>{{ T.th_last_sync }}</th>
+          <th>{{ T.th_products }}</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for c in connections %}
+        <tr>
+          <td>
+            {{ c.store_name|default:c.merchant.label }}
+            {% if c.store_domain %}<div class="card-note salla-domain"><code>{{ c.store_domain }}</code></div>{% endif %}
+          </td>
+          <td><code>{{ c.salla_merchant_id }}</code></td>
+          <td>
+            <span class="badge {% if c.is_active %}active{% else %}inactive{% endif %}">
+              {% if c.is_active %}{{ T.status_connected }}{% else %}{{ T.salla_status_uninstalled }}{% endif %}
+            </span>
+          </td>
+          <td>{{ c.created_at|date:"Y-m-d H:i" }}</td>
+          <td>{% if c.last_synced_at %}{{ c.last_synced_at|date:"Y-m-d H:i" }}{% else %}{{ T.salla_never_synced }}{% endif %}</td>
+          <td><a class="btn-toggle" href="{% url 'apitokens:catalog' c.merchant.pk %}">{{ c.product_count }}</a></td>
+          <td>
+            {% if c.is_active %}
+            <form method="post">
+              {% csrf_token %}
+              <input type="hidden" name="action" value="resync">
+              <input type="hidden" name="connection_id" value="{{ c.pk }}">
+              <button type="submit" class="btn-toggle">{{ T.sync_now }}</button>
+            </form>
+            {% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    </div>
+    {% else %}
+    <p class="card-note">{{ T.salla_no_stores }}</p>
+    {% endif %}
+  </div>
+
+  <div class="card">
+    <h2>{{ T.salla_config_title }}</h2>
+    <p class="card-note">{{ T.salla_config_note }}</p>
+    <ul class="salla-config">
+      {% for name, ok in config %}
+      <li>
+        <code>{{ name }}</code>
+        <span class="badge {% if ok %}active{% else %}inactive{% endif %}">
+          {% if ok %}{{ T.salla_config_set }}{% else %}{{ T.salla_config_missing }}{% endif %}
+        </span>
+      </li>
+      {% endfor %}
+    </ul>
+  </div>
+
+  <div class="card">
+    <h2>{{ T.salla_portal_title }}</h2>
+    <p class="card-note">{{ T.salla_webhook_label }}</p>
+    <div class="salla-copy">
+      <code>{{ webhook_url }}</code>
+      <button type="button" class="btn-copy" onclick="copyToken(this, '{{ webhook_url|escapejs }}')">{{ T.copy }}</button>
+    </div>
+    <p class="card-note">{{ T.salla_snippet_label }}</p>
+    <div class="salla-copy">
+      <pre class="salla-snippet" id="salla-snippet">{{ snippet }}</pre>
+      <button type="button" class="btn-copy" onclick="copyToken(this, document.getElementById('salla-snippet').textContent)">{{ T.copy }}</button>
+    </div>
+  </div>
+
+{% endblock %}
+
+{% block extra_style %}
+  .salla-config { list-style: none; padding: 0; margin: 0; display: grid; gap: 8px; }
+  .salla-config li { display: flex; align-items: center; justify-content: space-between; gap: 12px; max-width: 420px; }
+  .salla-copy { display: flex; align-items: flex-start; gap: 10px; margin-bottom: 16px; }
+  .salla-copy code, .salla-domain code { word-break: break-all; }
+  .salla-snippet {
+    flex: 1; min-width: 0; margin: 0; padding: 12px; overflow-x: auto; direction: ltr; text-align: left;
+    background: var(--bg-soft); border-radius: 8px; font-size: 12px; line-height: 1.5; max-height: 280px;
+  }
+{% endblock %}

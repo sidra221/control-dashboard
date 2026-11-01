@@ -14,8 +14,9 @@ from django.utils import timezone
 from django.views.decorators.http import require_http_methods
 
 from .i18n import LANGUAGES, t
-from .models import ApiToken, Conversation, DiscountCode, Product, ShopifyConnection
+from .models import ApiToken, Conversation, DiscountCode, Product, SallaConnection, ShopifyConnection
 from .services import catalog as catalog_service
+from .services import salla as salla_service
 from .services import shopify as shopify_service
 
 REQUIRED_COLUMNS = {"sku", "title", "price", "image_url"}
@@ -324,5 +325,46 @@ def conversations(request, pk):
             "merchant": merchant,
             "stats": stats,
             "conversations": Conversation.objects.filter(merchant=merchant)[:50],
+        },
+    )
+
+
+SALLA_SNIPPET_PATH = settings.BASE_DIR / "apitokens" / "static" / "apitokens" / "salla_snippet.js"
+
+
+@staff_member_required
+def salla_integration(request):
+    """تطبيق سلة: الإعدادات المطلوبة، رابط الإشعارات والسكربت للصقهم ببوابة
+    الشركاء، والمتاجر المربوطة (بتنضاف لحالها لما التاجر يركّب التطبيق)."""
+    lang = request.session.get("lang", "ar")
+    if request.method == "POST" and request.POST.get("action") == "resync":
+        connection = get_object_or_404(SallaConnection, pk=request.POST.get("connection_id"))
+        try:
+            count = catalog_service.sync_salla(connection.merchant, connection)
+            messages.success(request, t("msg_salla_resync_success", lang) % {"count": count})
+        except salla_service.SallaError as exc:
+            messages.error(request, t("err_salla_resync_failed", lang) % {"exc": exc})
+        return redirect("apitokens:salla")
+
+    config = [
+        ("SALLA_APP_ID", bool(settings.SALLA_APP_ID)),
+        ("SALLA_CLIENT_ID", bool(settings.SALLA_CLIENT_ID)),
+        ("SALLA_CLIENT_SECRET", bool(settings.SALLA_CLIENT_SECRET)),
+        ("SALLA_WEBHOOK_SECRET", bool(settings.SALLA_WEBHOOK_SECRET)),
+    ]
+    connections = (
+        SallaConnection.objects.select_related("merchant")
+        .annotate(product_count=Count("merchant__products"))
+        .order_by("-created_at")
+    )
+    return render(
+        request,
+        "apitokens/salla.html",
+        {
+            "config": config,
+            "config_ready": all(ok for _, ok in config),
+            "webhook_url": f"{settings.SITE_BASE_URL}/webhooks/salla/",
+            "snippet": SALLA_SNIPPET_PATH.read_text(encoding="utf-8"),
+            "connections": connections,
         },
     )

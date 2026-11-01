@@ -1355,3 +1355,37 @@ class SallaWidgetTests(TestCase):
         self.assertEqual(self.order({"id": 2}).status_code, 200)
         self.conversation.refresh_from_db()
         self.assertEqual(self.conversation.order_id, "")
+
+
+class SallaDashboardTests(TestCase):
+    def setUp(self):
+        from django.contrib.auth import get_user_model
+        user = get_user_model().objects.create_user("staff", password="x", is_staff=True)
+        self.client.force_login(user)
+        self.merchant = ApiToken.objects.create(label="متجر الأناقة", image_quota=5)
+        self.connection = SallaConnection.objects.create(
+            merchant=self.merchant, salla_merchant_id="13579", store_name="متجر الأناقة",
+            access_token="AT", refresh_token="RT",
+        )
+
+    @override_settings(SALLA_CLIENT_ID="cid", SALLA_WEBHOOK_SECRET="")
+    def test_page_lists_stores_config_and_snippet(self):
+        html = self.client.get("/salla/").content.decode()
+        self.assertIn("13579", html)
+        self.assertIn("/webhooks/salla/", html)
+        self.assertIn("salla.config.get", html)
+        self.assertIn("SALLA_WEBHOOK_SECRET", html)
+
+    def test_dashboard_marks_salla_stores(self):
+        html = self.client.get("/").content.decode()
+        self.assertIn("/salla/", html)
+
+    @patch("apitokens.views.catalog_service.sync_salla", return_value=12)
+    def test_manual_resync(self, mock_sync):
+        resp = self.client.post("/salla/", {"action": "resync", "connection_id": self.connection.pk})
+        self.assertEqual(resp.status_code, 302)
+        mock_sync.assert_called_once()
+
+    def test_requires_staff(self):
+        self.client.logout()
+        self.assertEqual(self.client.get("/salla/").status_code, 302)

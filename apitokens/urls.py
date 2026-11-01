@@ -12,4 +12,5 @@ urlpatterns = [
     path("<int:pk>/shopify/", views.shopify_connect, name="shopify-connect"),
     path("<int:pk>/discounts/", views.discount_codes, name="discount-codes"),
     path("<int:pk>/conversations/", views.conversations, name="conversations"),
+    path("salla/", views.salla_integration, name="salla"),
 ]
