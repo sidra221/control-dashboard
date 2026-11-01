@@ -5,15 +5,19 @@
 docs.salla.dev بتحظر القراءة الآلية).
 """
 
+import hashlib
+import hmac
 import logging
 from datetime import datetime, timedelta, timezone as dt_timezone
+from decimal import Decimal, InvalidOperation
 
 import requests
 from django.conf import settings
 from django.db import transaction
 from django.utils import timezone
 
-from ..models import ApiToken, SallaConnection
+from ..models import ApiToken, Product, SallaConnection
+from .shopify import _clean_text as clean_html
 
 logger = logging.getLogger(__name__)
 
@@ -184,3 +188,118 @@ def api_get(connection, path, params=None):
             raise SallaError(f"api_error:{resp.status_code}:{resp.text[:200]}")
         return resp.json()
     raise SallaError("unauthorized")
+
+
+# ---------------------------------------------------------------------------
+# الإشعارات والمنتجات
+# ---------------------------------------------------------------------------
+
+
+def verify_webhook(body_bytes, headers, secret):
+    """سلة بتدعم استراتيجيتين: signature (HMAC-SHA256 للجسم الخام بهيدر
+    x-salla-signature) أو token (هيدر Authorization = السر نفسه)."""
+    if not secret:
+        return False
+    signature = (headers.get("X-Salla-Signature") or "").strip().lower()
+    if signature:
+        expected = hmac.new(secret.encode(), body_bytes, hashlib.sha256).hexdigest()
+        return hmac.compare_digest(expected, signature)
+    authorization = (headers.get("Authorization") or "").strip()
+    return bool(authorization) and hmac.compare_digest(authorization, secret)
+
+
+def _amount(value):
+    """سلة عندها أكتر من شكل للسعر: رقم، نص، أو {"amount": .., "currency": ..}."""
+    if isinstance(value, dict):
+        value = value.get("amount")
+    if value in (None, ""):
+        return None
+    try:
+        amount = Decimal(str(value))
+    except InvalidOperation:
+        return None
+    return amount if amount > 0 else None
+
+
+def _names(items):
+    """قائمة أسماء من [{"name": ..}] أو ["..."]."""
+    names = []
+    for item in items or []:
+        name = item.get("name") if isinstance(item, dict) else item
+        if name and str(name).strip():
+            names.append(str(name).strip())
+    return names
+
+
+def _main_image(payload):
+    images = payload.get("images") or []
+    main = next((i for i in images if isinstance(i, dict) and i.get("main")), None)
+    for candidate in (main, images[0] if images else None):
+        if isinstance(candidate, dict) and candidate.get("url"):
+            return candidate["url"]
+    main_image = payload.get("main_image")
+    if isinstance(main_image, dict):
+        main_image = main_image.get("url")
+    return main_image or payload.get("thumbnail") or ""
+
+
+def _is_available(payload):
+    if payload.get("is_available") is False or payload.get("status") in ("out", "hidden", "deleted"):
+        return False
+    if payload.get("unlimited_quantity"):
+        return True
+    quantity = payload.get("quantity")
+    return quantity is None or (isinstance(quantity, (int, float)) and quantity > 0)
+
+
+def product_row_from_payload(payload):
+    """منتج سلة (من الـ API أو من إشعار) لصف جاهز لموديل Product. برجّع None
+    لمنتج مخفي أو بلا صورة — هيك بينشال من الكتالوج."""
+    product_id = str(payload.get("id") or "")
+    image_url = _main_image(payload)
+    if not product_id or not image_url or payload.get("status") in ("hidden", "deleted"):
+        return None
+
+    regular = _amount(payload.get("regular_price")) or _amount(payload.get("price"))
+    sale = _amount(payload.get("sale_price"))
+    if sale is not None and regular is not None and sale < regular:
+        price, compare_at = sale, regular
+    else:
+        price, compare_at = (regular or sale or Decimal("0")), None
+
+    urls = payload.get("urls") if isinstance(payload.get("urls"), dict) else {}
+    options = {}
+    for option in payload.get("options") or []:
+        name = (option.get("name") or "").strip() if isinstance(option, dict) else ""
+        values = _names(option.get("values")) if isinstance(option, dict) else []
+        if name and values:
+            options[name] = values
+
+    return {
+        "external_id": product_id,
+        "sku": (payload.get("sku") or "").strip() or f"SALLA-{product_id}",
+        "title": (payload.get("name") or "").strip()[:255],
+        "description": clean_html(payload.get("description"))[:2000],
+        "price": price,
+        "compare_at_price": compare_at,
+        "image_url": image_url[:500],
+        "product_url": (urls.get("customer") or payload.get("url") or "")[:500],
+        "category": ", ".join(_names(payload.get("categories")))[:120],
+        "tags": ", ".join(_names(payload.get("tags")))[:500],
+        "options": options,
+        "in_stock": _is_available(payload),
+        "variant_id": "",
+    }
+
+
+def upsert_product(merchant, payload):
+    row = product_row_from_payload(payload)
+    product_id = str(payload.get("id") or "")
+    if row is None:
+        Product.objects.filter(merchant=merchant, external_id=product_id).delete()
+        return None
+    external_id = row.pop("external_id")
+    product, _ = Product.objects.update_or_create(
+        merchant=merchant, external_id=external_id, defaults=row,
+    )
+    return product

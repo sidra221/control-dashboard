@@ -1,7 +1,7 @@
 from django.contrib import admin
 from django.urls import include, path
 
-from apitokens import shopify_webhooks, widget_views
+from apitokens import salla_webhooks, shopify_webhooks, widget_views
 
 admin.site.site_header = "Control — kie.ai Tokens"
 admin.site.site_title = "Control"
@@ -19,5 +19,6 @@ urlpatterns = [
         shopify_webhooks.product_webhook,
         name="shopify-webhook",
     ),
+    path("webhooks/salla/", salla_webhooks.webhook, name="salla-webhook"),
     path("", include("apitokens.urls")),
 ]

@@ -1131,3 +1131,104 @@ class SallaAuthTests(TestCase):
             mock_post.return_value.json.return_value = {"access_token": "AT2", "refresh_token": "RT2", "expires": 4102444800}
             self.assertEqual(salla.api_get(conn, "/products"), {"data": []})
             self.assertEqual(mock_post.call_count, 1)
+
+
+from django.test import override_settings  # noqa: E402
+
+
+@override_settings(SALLA_WEBHOOK_SECRET="whsec_test")
+class SallaWebhookTests(TestCase):
+    PRODUCT = {
+        "id": 123456, "name": "عباية سوداء مطرزة", "sku": "AB-1", "description": "<p>قماش <b>كريب</b> فاخر</p>",
+        "price": {"amount": 250, "currency": "SAR"}, "regular_price": {"amount": 300, "currency": "SAR"},
+        "sale_price": {"amount": 250, "currency": "SAR"}, "status": "sale", "quantity": 4,
+        "images": [{"url": "https://cdn.salla.sa/a2.jpg", "main": False}, {"url": "https://cdn.salla.sa/a1.jpg", "main": True}],
+        "urls": {"customer": "https://elegance.salla.sa/black-abaya/p123456"},
+        "categories": [{"name": "عبايات"}], "tags": [{"name": "سهرة"}],
+        "options": [{"name": "المقاس", "values": [{"name": "S"}, {"name": "M"}]}],
+    }
+
+    def setUp(self):
+        self.merchant = ApiToken.objects.create(label="متجر", image_quota=5)
+        self.connection = SallaConnection.objects.create(
+            merchant=self.merchant, salla_merchant_id="777", access_token="AT", refresh_token="RT",
+        )
+
+    def send(self, payload, signature=None, raw=None):
+        import hashlib
+        import hmac
+        body = raw if raw is not None else json.dumps(payload).encode()
+        if signature is None:
+            signature = hmac.new(b"whsec_test", body, hashlib.sha256).hexdigest()
+        return self.client.post(
+            "/webhooks/salla/", data=body, content_type="application/json",
+            HTTP_X_SALLA_SIGNATURE=signature,
+        )
+
+    def test_bad_signature_rejected(self):
+        resp = self.send({"event": "product.created", "merchant": 777, "data": self.PRODUCT}, signature="00ff")
+        self.assertEqual(resp.status_code, 401)
+        self.assertFalse(Product.objects.exists())
+
+    def test_token_strategy_accepted(self):
+        resp = self.client.post(
+            "/webhooks/salla/", data=json.dumps({"event": "product.created", "merchant": 777, "data": self.PRODUCT}),
+            content_type="application/json", HTTP_AUTHORIZATION="whsec_test",
+        )
+        self.assertEqual(resp.status_code, 200)
+        self.assertTrue(Product.objects.filter(external_id="123456").exists())
+
+    @override_settings(SALLA_WEBHOOK_SECRET="")
+    def test_unconfigured_secret_refuses_everything(self):
+        self.assertEqual(self.send({"event": "product.created"}, signature="x").status_code, 503)
+
+    def test_product_created_maps_fields(self):
+        self.assertEqual(self.send({"event": "product.created", "merchant": 777, "data": self.PRODUCT}).status_code, 200)
+        p = Product.objects.get(merchant=self.merchant, external_id="123456")
+        self.assertEqual((p.sku, p.title), ("AB-1", "عباية سوداء مطرزة"))
+        self.assertEqual((str(p.price), str(p.compare_at_price)), ("250.00", "300.00"))
+        self.assertEqual(p.image_url, "https://cdn.salla.sa/a1.jpg")
+        self.assertEqual(p.product_url, "https://elegance.salla.sa/black-abaya/p123456")
+        self.assertEqual(p.options, {"المقاس": ["S", "M"]})
+        self.assertEqual((p.category, p.tags), ("عبايات", "سهرة"))
+        self.assertNotIn("<", p.description)
+        self.assertTrue(p.in_stock)
+
+    def test_product_updated_twice_is_idempotent(self):
+        payload = {"event": "product.updated", "merchant": 777, "data": dict(self.PRODUCT, quantity=0)}
+        self.send(payload)
+        self.send(payload)
+        self.assertEqual(Product.objects.filter(external_id="123456").count(), 1)
+        self.assertFalse(Product.objects.get(external_id="123456").in_stock)
+
+    def test_plain_number_prices_and_no_sale(self):
+        data = dict(self.PRODUCT, price=199, regular_price=199, sale_price=0, sku="")
+        self.send({"event": "product.created", "merchant": 777, "data": data})
+        p = Product.objects.get(external_id="123456")
+        self.assertEqual((str(p.price), p.compare_at_price, p.sku), ("199.00", None, "SALLA-123456"))
+
+    def test_hidden_product_removed(self):
+        self.send({"event": "product.created", "merchant": 777, "data": self.PRODUCT})
+        self.send({"event": "product.updated", "merchant": 777, "data": dict(self.PRODUCT, status="hidden")})
+        self.assertFalse(Product.objects.filter(external_id="123456").exists())
+
+    def test_product_deleted(self):
+        self.send({"event": "product.created", "merchant": 777, "data": self.PRODUCT})
+        self.send({"event": "product.deleted", "merchant": 777, "data": {"id": 123456}})
+        self.assertFalse(Product.objects.filter(external_id="123456").exists())
+
+    def test_unknown_or_uninstalled_store_ignored_with_200(self):
+        self.assertEqual(self.send({"event": "product.created", "merchant": 999, "data": self.PRODUCT}).status_code, 200)
+        self.assertFalse(Product.objects.exists())
+
+    def test_authorize_and_uninstall_events(self):
+        with patch("apitokens.services.salla.requests.get") as mock_get:
+            mock_get.return_value.json.return_value = {"merchant": {"name": "متجر جديد", "domain": "https://new.salla.sa"}}
+            resp = self.send({"event": "app.store.authorize", "merchant": 555, "data": {
+                "access_token": "A", "refresh_token": "R", "expires": 4102444800, "scope": "products.read"}})
+        self.assertEqual(resp.status_code, 200)
+        conn = SallaConnection.objects.get(salla_merchant_id="555")
+        self.assertEqual(conn.merchant.label, "متجر جديد")
+        self.send({"event": "app.uninstalled", "merchant": 555, "data": {}})
+        conn.refresh_from_db()
+        self.assertFalse(conn.is_active)
