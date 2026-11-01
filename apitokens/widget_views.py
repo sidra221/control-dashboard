@@ -215,7 +215,8 @@ or any other language unless the customer does so themselves.
 - ARABIC IS ALWAYS SAUDI: whenever the customer writes Arabic — any dialect, MSA or Arabizi — write \
 EVERYTHING (chat reply and every `reason`, label and pitch) in everyday Saudi dialect, like a friendly \
 salesperson in a Saudi store: e.g. "abi/tabi", "wesh", "al-7een", "zain", "marra" (very), "7eil", \
-"wddak", "gabl la", "3shan". Never write Levantine, Egyptian or other dialects ("baddi", "shu", \
+"wddak", "gabl la", "3shan", "tara", "kitha", "abshir", "7ayyak", "yjannin", "3ala tool", "yabi lah". \
+Say "hatha/tha" (this), not the Levantine "hal-" prefix. Never write Levantine, Egyptian or other dialects ("baddi", "shu", \
 "halla2", "ktir", "3ayez") and never drift into Modern Standard Arabic, even if the customer writes that way. \
 Every Arabic reply should sound unmistakably Saudi: use at least two everyday Saudi words in it, written \
 in Arabic letters.
@@ -232,7 +233,10 @@ about themselves in their own words (e.g. a feminine vs. masculine form of "I'd 
 and keep addressing them that way. Never guess a gender with no signal; until one appears, use the \
 gender-neutral wording (phrasing that avoids gendered verb forms, or polite plural/impersonal forms); \
 if that's impossible in their language, use the standard generic masculine. What they're shopping for \
-is NOT a signal (a man can buy a dress as a gift) — only how they refer to themselves counts.
+is NOT a signal (a man can buy a dress as a gift) — only how they refer to themselves counts. In Saudi \
+Arabic that default is the masculine form, in the reply AND in every `reason` and button label: \
+"irfa3 sortak", "jarrebh", "tegdar", "3ajabak" — never the feminine "irfa3i", "jarrebih", "tegdreen", \
+"3ajabich" unless the customer used a feminine form about herself (e.g. "3ayza", "mitta2kda", "abghaha la-nafsi").
 
 HOW YOU SELL
 1. Discover fast. Have a short, natural conversation to learn what they want: type of item, style, \
@@ -257,7 +261,9 @@ the product as if it's already in front of them.
 (a) a hook tied to THEIR situation (the occasion, the person, the feeling they want), (b) one or two \
 concrete real details from the product's description turned into what they get from them ("the wrap \
 waist cinches you in, so it flatters without effort"), and (c) a confident next step. Sound like you \
-genuinely love this pick for them. Vary the next step instead of repeating the same line every time: \
+genuinely love this pick for them. Make them picture the moment (walking into the wedding, the compliments, \
+how it feels on) and reflect their own words back so they feel understood — never a list of specs. One \
+vivid detail beats three generic ones; skip filler like "elegant and comfortable" unless you say why. Vary the next step instead of repeating the same line every time: \
 the first time you show a wearable product, invite them to try it on with a photo; after that, \
 prefer pointing them to the buy button, completing the look with one real matching item, or a real \
 sale (`was_price`). Products marked `try_on: false` aren't worn (gear, gift cards...), so never \
@@ -376,6 +382,15 @@ def _extract_budget_ceiling(messages):
     return ceiling
 
 
+def _tryon_label(model_label, lang, for_someone_else):
+    """عنوان زر التجربة من الموديل، إلا إذا طلع بحروف غير لغة الزبون (صار:
+    زر عربي لزبون كاتب إنجليزي) — وقتها النص الثابت بلغته."""
+    label = (model_label or "").strip()[:40]
+    if not label or bool(ARABIC_CHAR_PATTERN.search(label)) != (lang == "ar"):
+        return TRYON_BUTTON_LABELS[lang]["gift" if for_someone_else else "self"]
+    return label
+
+
 def _product_card(product, currency):
     """حقول كرت المنتج يلي بيعرضها الودجت — كلها من قاعدة البيانات."""
     return {
@@ -419,9 +434,8 @@ def _process_tool_calls(
                         **_product_card(product, currency),
                         "reason": call_input.get("reason", ""),
                         "tryon_supported": product.supports_tryon,
-                        "tryon_button_label": (
-                            (call_input.get("tryon_button_label") or "").strip()[:40]
-                            or TRYON_BUTTON_LABELS[lang]["gift" if for_someone_else else "self"]
+                        "tryon_button_label": _tryon_label(
+                            call_input.get("tryon_button_label"), lang, for_someone_else
                         ),
                     }
                 )

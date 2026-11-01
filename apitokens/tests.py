@@ -971,3 +971,12 @@ class PurchaseReplyTests(TestCase):
             ).json()
             self.assertIn(expected, data["reply"])
             self.assertEqual(data["recommendations"][0]["product_url"], "https://s.example.com/products/w")
+
+
+class TryonLabelLanguageTests(TestCase):
+    def test_label_in_wrong_script_falls_back_to_customer_language(self):
+        from .widget_views import _tryon_label
+        self.assertEqual(_tryon_label("جرّبه بصورتك", "en", False), "Try it on with your photo 📸")
+        self.assertEqual(_tryon_label("Try it", "ar", True), "جرّبه على صاحب الهدية 📸")
+        self.assertEqual(_tryon_label("جرّبه على أختك 📸", "ar", True), "جرّبه على أختك 📸")
+        self.assertEqual(_tryon_label("", "en", False), "Try it on with your photo 📸")
