@@ -803,6 +803,9 @@ def event(request):
 # Shopify (وسلة لاحقاً) بيحطوا المنتج نفسه على أكتر من مسار: /products/x،
 # /collections/y/products/x، /ar/products/x — الـ handle هو الثابت بينهم.
 PRODUCT_HANDLE_PATTERN = re.compile(r"/products/([^/]+)")
+# سلة: صفحة المنتج بتنتهي برقمه (/ar/اسم-المنتج/p123456) — الاسم واللغة بيتغيّروا،
+# الرقم ثابت.
+SALLA_PRODUCT_ID_PATTERN = re.compile(r"/p(\d+)$")
 
 
 def _url_path(url):
@@ -829,6 +832,15 @@ def _find_page_product(merchant, page_url):
             if product_match and product_match.group(1) == handle:
                 return product
         return None
+    salla_match = SALLA_PRODUCT_ID_PATTERN.search(path)
+    if salla_match:
+        product_id = salla_match.group(1)
+        for product in products.filter(product_url__icontains=f"/p{product_id}"):
+            product_match = SALLA_PRODUCT_ID_PATTERN.search(_url_path(product.product_url))
+            if product_match and product_match.group(1) == product_id:
+                return product
+        # منتج من غير رابط محفوظ بس رقمه معروف (من المزامنة)
+        return merchant.products.filter(in_stock=True, external_id=product_id).first()
     return next((p for p in products if _url_path(p.product_url) == path), None)
 
 

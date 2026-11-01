@@ -980,3 +980,57 @@ class TryonLabelLanguageTests(TestCase):
         self.assertEqual(_tryon_label("Try it", "ar", True), "جرّبه على صاحب الهدية 📸")
         self.assertEqual(_tryon_label("جرّبه على أختك 📸", "ar", True), "جرّبه على أختك 📸")
         self.assertEqual(_tryon_label("", "en", False), "Try it on with your photo 📸")
+
+
+class SallaPageProductTests(TestCase):
+    """روابط سلة: /{lang}/{اسم}/p{رقم} — منطابق على الرقم."""
+
+    def setUp(self):
+        self.merchant = ApiToken.objects.create(label="Salla", token="SALLATOKEN001", image_quota=5)
+        Product.objects.create(
+            merchant=self.merchant, sku="ABAYA-1", title="عباية سوداء", price="300.00",
+            image_url="https://example.com/a.jpg", category="abayas",
+            product_url="https://salla.example.com/black-abaya/p123456",
+        )
+        Product.objects.create(
+            merchant=self.merchant, sku="ABAYA-2", title="عباية بيج", price="320.00",
+            image_url="https://example.com/b.jpg", category="abayas",
+            product_url="https://salla.example.com/beige-abaya/p1234567",
+        )
+        Product.objects.create(
+            merchant=self.merchant, sku="DRESS-9", external_id="987654", title="فستان", price="200.00",
+            image_url="https://example.com/c.jpg", category="dresses", product_url="",
+        )
+        Product.objects.create(
+            merchant=self.merchant, sku="DRESS-10", external_id="555", title="فستان ثاني", price="200.00",
+            image_url="https://example.com/d.jpg", category="dresses",
+            product_url="https://salla.example.com/other/p555",
+        )
+
+    def lookup(self, page_url):
+        return self.client.post(
+            "/widget/page-product/", data=json.dumps({"page_url": page_url}),
+            content_type="application/json", HTTP_X_API_TOKEN="SALLATOKEN001",
+        ).json()["product"]
+
+    def test_same_product_any_language_or_slug(self):
+        for url in (
+            "https://salla.example.com/black-abaya/p123456",
+            "https://salla.example.com/ar/black-abaya/p123456",
+            "https://salla.example.com/en/black-abaya/p123456?utm_source=snap",
+            "https://salla.example.com/ar/%D8%B9%D8%A8%D8%A7%D9%8A%D8%A9-%D8%B3%D9%88%D8%AF%D8%A7%D8%A1/p123456",
+            "https://my-store.salla.sa/ar/black-abaya/p123456/",
+        ):
+            self.assertEqual(self.lookup(url)["sku"], "ABAYA-1", url)
+
+    def test_id_prefix_does_not_match_longer_id(self):
+        self.assertEqual(self.lookup("https://salla.example.com/ar/x/p1234567")["sku"], "ABAYA-2")
+        self.assertIsNone(self.lookup("https://salla.example.com/ar/x/p12345"))
+
+    def test_falls_back_to_external_id(self):
+        self.assertEqual(self.lookup("https://salla.example.com/ar/dress/p987654")["sku"], "DRESS-9")
+
+    def test_non_product_salla_pages(self):
+        for url in ("https://salla.example.com/ar", "https://salla.example.com/ar/category/c12345",
+                    "https://salla.example.com/ar/x/p999"):
+            self.assertIsNone(self.lookup(url), url)
