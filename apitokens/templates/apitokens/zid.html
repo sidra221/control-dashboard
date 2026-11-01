@@ -1,0 +1,121 @@
+{% extends "apitokens/base.html" %}
+
+{% block title %}{{ T.zid_page_title }} — Control{% endblock %}
+{% block page_title %}{{ T.zid_page_title }}{% endblock %}
+{% block page_sub %}{{ T.zid_page_sub }}{% endblock %}
+{% block header_links %}
+  <a class="back" href="{% url 'apitokens:dashboard' %}">{{ T.back_to_tokens }}</a>
+{% endblock %}
+
+{% block content %}
+
+  <div class="card">
+    <h2>{{ T.salla_stores_title }}</h2>
+    {% if connections %}
+    <div class="table-scroll">
+    <table>
+      <thead>
+        <tr>
+          <th>{{ T.th_store }}</th>
+          <th>{{ T.th_zid_store_id }}</th>
+          <th>{{ T.th_status }}</th>
+          <th>{{ T.th_plan }}</th>
+          <th>{{ T.th_last_sync }}</th>
+          <th>{{ T.th_products }}</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for c in connections %}
+        <tr>
+          <td>
+            {{ c.store_name|default:c.merchant.label }}
+            {% if c.store_url %}<div class="card-note zid-domain"><code>{{ c.store_url }}</code></div>{% endif %}
+          </td>
+          <td><code>{{ c.store_id }}</code></td>
+          <td>
+            <span class="badge {% if c.is_active and c.merchant.is_active %}active{% else %}inactive{% endif %}">
+              {% if not c.is_active %}{{ T.zid_status_uninstalled }}{% elif c.merchant.is_active %}{{ T.status_connected }}{% else %}{{ T.status_inactive }}{% endif %}
+            </span>
+          </td>
+          <td>
+            {% if c.subscription %}
+              {{ c.subscription.plan_name|default:"—" }}
+              {% if not c.subscription.is_active %}<span class="badge inactive">{{ T.zid_plan_ended }}</span>{% endif %}
+              <div class="card-note">{{ c.merchant.images_used }} / {{ c.merchant.image_quota }}</div>
+            {% else %}
+              {{ T.zid_no_plan }}
+            {% endif %}
+          </td>
+          <td>{% if c.last_synced_at %}{{ c.last_synced_at|date:"Y-m-d H:i" }}{% else %}{{ T.salla_never_synced }}{% endif %}</td>
+          <td><a class="btn-toggle" href="{% url 'apitokens:catalog' c.merchant.pk %}">{{ c.product_count }}</a></td>
+          <td>
+            {% if c.is_active %}
+            <form method="post">
+              {% csrf_token %}
+              <input type="hidden" name="action" value="resync">
+              <input type="hidden" name="connection_id" value="{{ c.pk }}">
+              <button type="submit" class="btn-toggle">{{ T.sync_now }}</button>
+            </form>
+            {% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    </div>
+    {% else %}
+    <p class="card-note">{{ T.zid_no_stores }}</p>
+    {% endif %}
+  </div>
+
+  <div class="card">
+    <h2>{{ T.salla_config_title }}</h2>
+    <p class="card-note">{{ T.zid_config_note }}</p>
+    <ul class="zid-config">
+      {% for name, ok in config %}
+      <li>
+        <code>{{ name }}</code>
+        <span class="badge {% if ok %}active{% else %}inactive{% endif %}">
+          {% if ok %}{{ T.salla_config_set }}{% else %}{{ T.salla_config_missing }}{% endif %}
+        </span>
+      </li>
+      {% endfor %}
+    </ul>
+  </div>
+
+  <div class="card">
+    <h2>{{ T.zid_portal_title }}</h2>
+    <dl class="zid-urls">
+      {% for label, url in portal_urls %}
+      <dt>{{ label }}</dt>
+      <dd>
+        <code>{{ url }}</code>
+        <button type="button" class="btn-copy" onclick="copyToken(this, '{{ url|escapejs }}')">{{ T.copy }}</button>
+      </dd>
+      {% endfor %}
+    </dl>
+    <p class="card-note">{{ header_note }}</p>
+    <p class="card-note">{{ T.zid_snippet_label }}</p>
+    <div class="zid-copy">
+      <pre class="zid-snippet" id="zid-snippet">{{ snippet }}</pre>
+      <button type="button" class="btn-copy" onclick="copyToken(this, document.getElementById('zid-snippet').textContent)">{{ T.copy }}</button>
+    </div>
+  </div>
+
+{% endblock %}
+
+{% block extra_style %}
+  .zid-config { list-style: none; padding: 0; margin: 0; display: grid; gap: 8px; }
+  .zid-config li { display: flex; align-items: center; justify-content: space-between; gap: 12px; max-width: 420px; }
+  .zid-urls { display: grid; grid-template-columns: max-content 1fr; gap: 10px 16px; align-items: center; margin: 0 0 16px; }
+  .zid-urls dt { color: var(--muted); }
+  .zid-urls dd { margin: 0; display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+  .zid-urls code, .zid-domain code { word-break: break-all; direction: ltr; }
+  .zid-copy { display: flex; align-items: flex-start; gap: 10px; }
+  .zid-snippet {
+    flex: 1; min-width: 0; margin: 0; padding: 12px; overflow-x: auto; direction: ltr; text-align: left;
+    background: var(--bg-soft); border-radius: 8px; font-size: 12px; line-height: 1.5; max-height: 280px;
+  }
+  @media (max-width: 600px) { .zid-urls { grid-template-columns: 1fr; } }
+{% endblock %}

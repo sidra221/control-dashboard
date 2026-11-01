@@ -1718,3 +1718,38 @@ class ZidWidgetTests(TestCase):
             content_type="application/json", HTTP_X_API_TOKEN=self.merchant.token,
         ).json()["product"]
         self.assertEqual((product["sku"], product["product_id"]), ("A", "u-1"))
+
+
+class ZidDashboardTests(TestCase):
+    def setUp(self):
+        from django.contrib.auth import get_user_model
+        from .models import ZidConnection, ZidSubscription
+        user = get_user_model().objects.create_user("staff2", password="x", is_staff=True)
+        self.client.force_login(user)
+        self.merchant = ApiToken.objects.create(label="ورد", image_quota=100, images_used=12)
+        self.connection = ZidConnection.objects.create(
+            merchant=self.merchant, store_id="4242", store_name="بوتيك الورد", store_url="https://ward.zid.store/",
+            authorization_token="A", manager_token="M",
+        )
+        ZidSubscription.objects.create(store_id="4242", plan_name="Basic", is_active=True)
+
+    @override_settings(ZID_CLIENT_ID="8467", ZID_CLIENT_SECRET="", SITE_BASE_URL="https://control.example.com")
+    def test_page_lists_store_plan_portal_values_and_snippet(self):
+        html = self.client.get("/zid/").content.decode()
+        for expected in ("بوتيك الورد", "4242", "Basic", "12 / 100", "https://control.example.com/zid/callback/",
+                         "https://control.example.com/webhooks/zid/app/", "X-Control-Secret", "/widget/zid-key/",
+                         "ZID_CLIENT_SECRET"):
+            self.assertIn(expected, html, expected)
+        self.assertNotIn(">8467<", html)
+
+    def test_dashboard_marks_zid_stores(self):
+        self.assertIn("/zid/", self.client.get("/").content.decode())
+
+    @patch("apitokens.views.catalog_service.sync_zid", return_value=9)
+    def test_manual_resync(self, mock_sync):
+        self.assertEqual(self.client.post("/zid/", {"action": "resync", "connection_id": self.connection.pk}).status_code, 302)
+        mock_sync.assert_called_once()
+
+    def test_requires_staff(self):
+        self.client.logout()
+        self.assertEqual(self.client.get("/zid/").status_code, 302)

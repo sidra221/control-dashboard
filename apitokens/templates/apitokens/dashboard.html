@@ -6,6 +6,7 @@
 {% block page_sub %}{{ T.dashboard_sub }}{% endblock %}
 {% block header_links %}
   <a class="back" href="{% url 'apitokens:salla' %}">{{ T.salla_link }}</a>
+  <a class="back" href="{% url 'apitokens:zid' %}">{{ T.zid_link }}</a>
   <a class="back" href="/admin/">{{ T.admin_back }}</a>
 {% endblock %}
 
@@ -106,6 +107,8 @@
           <td>
             {% if t.salla_connection %}
             <a class="btn-toggle" href="{% url 'apitokens:salla' %}">{{ T.salla_connected }}</a>
+            {% elif t.zid_connection %}
+            <a class="btn-toggle" href="{% url 'apitokens:zid' %}">{{ T.zid_connected }}</a>
             {% else %}
             <a class="btn-toggle" href="{% url 'apitokens:shopify-connect' t.pk %}">
               {% if t.shopify_connection %}{{ T.shopify_connected }}{% else %}{{ T.shopify_connect_link }}{% endif %}

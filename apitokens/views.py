@@ -14,10 +14,14 @@ from django.utils import timezone
 from django.views.decorators.http import require_http_methods
 
 from .i18n import LANGUAGES, t
-from .models import ApiToken, Conversation, DiscountCode, Product, SallaConnection, ShopifyConnection
+from .models import (
+    ApiToken, Conversation, DiscountCode, Product, SallaConnection, ShopifyConnection, ZidConnection,
+    ZidSubscription,
+)
 from .services import catalog as catalog_service
 from .services import salla as salla_service
 from .services import shopify as shopify_service
+from .services import zid as zid_service
 
 REQUIRED_COLUMNS = {"sku", "title", "price", "image_url"}
 
@@ -366,5 +370,57 @@ def salla_integration(request):
             "webhook_url": f"{settings.SITE_BASE_URL}/webhooks/salla/",
             "snippet": SALLA_SNIPPET_PATH.read_text(encoding="utf-8"),
             "connections": connections,
+        },
+    )
+
+
+ZID_SNIPPET_PATH = settings.BASE_DIR / "apitokens" / "static" / "apitokens" / "zid_snippet.js"
+
+
+@staff_member_required
+def zid_integration(request):
+    """تطبيق زد: المتاجر المفعّلة وباقاتها، الإعدادات المطلوبة، والقيم اللي
+    بتنحط ببوابة شركاء زد."""
+    lang = request.session.get("lang", "ar")
+    if request.method == "POST" and request.POST.get("action") == "resync":
+        connection = get_object_or_404(ZidConnection, pk=request.POST.get("connection_id"))
+        try:
+            count = catalog_service.sync_zid(connection.merchant, connection)
+            messages.success(request, t("msg_zid_resync_success", lang) % {"count": count})
+        except zid_service.ZidError as exc:
+            messages.error(request, t("err_zid_resync_failed", lang) % {"exc": exc})
+        return redirect("apitokens:zid")
+
+    config = [
+        ("ZID_CLIENT_ID", bool(settings.ZID_CLIENT_ID)),
+        ("ZID_CLIENT_SECRET", bool(settings.ZID_CLIENT_SECRET)),
+        ("ZID_WEBHOOK_SECRET", bool(settings.ZID_WEBHOOK_SECRET)),
+    ]
+    connections = list(
+        ZidConnection.objects.select_related("merchant")
+        .annotate(product_count=Count("merchant__products"))
+        .order_by("-created_at")
+    )
+    subscriptions = {
+        s.store_id: s for s in ZidSubscription.objects.filter(store_id__in=[c.store_id for c in connections])
+    }
+    for connection in connections:
+        connection.subscription = subscriptions.get(connection.store_id)
+    base = settings.SITE_BASE_URL
+    return render(
+        request,
+        "apitokens/zid.html",
+        {
+            "config": config,
+            "connections": connections,
+            "portal_urls": [
+                ("Application URL", f"{base}/zid/app/"),
+                ("Redirection URL", f"{base}/zid/install/"),
+                ("Callback URL", f"{base}/zid/callback/"),
+                ("Privacy Policy URL", f"{base}/privacy/"),
+                ("Webhook URL", f"{base}/webhooks/zid/app/"),
+            ],
+            "header_note": t("zid_webhook_header_note", lang) % {"header": "X-Control-Secret"},
+            "snippet": "<script>\n" + ZID_SNIPPET_PATH.read_text(encoding="utf-8") + "</script>",
         },
     )

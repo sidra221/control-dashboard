@@ -158,6 +158,39 @@ TRANSLATIONS = {
     "msg_salla_resync_success": {"ar": "تمت المزامنة: %(count)s منتج", "en": "Synced: %(count)s products"},
     "err_salla_resync_failed": {"ar": "تعذّرت المزامنة: %(exc)s", "en": "Sync failed: %(exc)s"},
 
+    # ===== zid.html =====
+    "zid_page_title": {"ar": "تطبيق زد", "en": "Zid app"},
+    "zid_page_sub": {
+        "ar": "تُضاف المتاجر تلقائياً عند تفعيل التاجر للتطبيق من متجر تطبيقات زد",
+        "en": "Stores are added automatically when a merchant activates the app from the Zid App Market",
+    },
+    "zid_link": {"ar": "تطبيق زد ←", "en": "Zid app ←"},
+    "zid_connected": {"ar": "زد ✓", "en": "Zid ✓"},
+    "zid_config_note": {
+        "ar": "تُضبط هذه القيم في ملف ‎.env على الخادم. المعرّف والسر من بوابة شركاء زد (General settings ← API keys)، وسر الإشعارات قيمة عشوائية نختارها نحن.",
+        "en": "Set these in the server's .env file. The client ID and secret come from the Zid Partner Dashboard (General settings → API keys); the webhook secret is a random value we choose.",
+    },
+    "zid_portal_title": {"ar": "ما يُدخل في بوابة شركاء زد", "en": "What to enter in the Zid Partner Dashboard"},
+    "zid_webhook_header_note": {
+        "ar": "في تبويب Webhooks أضف ترويسة مخصصة باسم %(header)s وقيمتها سر الإشعارات (ZID_WEBHOOK_SECRET)، واشترك في أحداث التثبيت وإلغائه وجميع أحداث الاشتراك.",
+        "en": "In the Webhooks tab add a custom header named %(header)s whose value is the webhook secret (ZID_WEBHOOK_SECRET), and subscribe to the install, uninstall and all subscription events.",
+    },
+    "zid_snippet_label": {
+        "ar": "السكربت (Custom Snippets في General settings):",
+        "en": "Snippet (Custom Snippets under General settings):",
+    },
+    "zid_no_stores": {
+        "ar": "لا توجد متاجر مفعّلة بعد. يظهر المتجر هنا فور تفعيل التاجر للتطبيق.",
+        "en": "No activated stores yet. A store appears here as soon as a merchant activates the app.",
+    },
+    "th_zid_store_id": {"ar": "رقم المتجر في زد", "en": "Zid store ID"},
+    "th_plan": {"ar": "الباقة", "en": "Plan"},
+    "zid_no_plan": {"ar": "بلا باقة", "en": "No plan"},
+    "zid_plan_ended": {"ar": "منتهية", "en": "Ended"},
+    "zid_status_uninstalled": {"ar": "أُلغي التفعيل", "en": "Deactivated"},
+    "msg_zid_resync_success": {"ar": "تمت المزامنة: %(count)s منتج", "en": "Synced: %(count)s products"},
+    "err_zid_resync_failed": {"ar": "تعذّرت المزامنة: %(exc)s", "en": "Sync failed: %(exc)s"},
+
     # ===== discount_codes.html =====
     "discounts_link_short": {"ar": "أكواد الخصم ←", "en": "Discount codes ←"},
     "discounts_title_prefix": {"ar": "أكواد خصم — ", "en": "Discount codes — "},

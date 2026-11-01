@@ -13,4 +13,5 @@ urlpatterns = [
     path("<int:pk>/discounts/", views.discount_codes, name="discount-codes"),
     path("<int:pk>/conversations/", views.conversations, name="conversations"),
     path("salla/", views.salla_integration, name="salla"),
+    path("zid/", views.zid_integration, name="zid"),
 ]
