@@ -1489,3 +1489,14 @@ class ZidInstallTests(TestCase):
         conn.merchant.refresh_from_db()
         self.assertFalse(conn.is_active or conn.merchant.is_active)
         self.assertEqual(conn.manager_token, "")
+
+
+class PrivacyPageTests(TestCase):
+    @override_settings(SUPPORT_EMAIL="support@example.com")
+    def test_public_bilingual_page_with_contact(self):
+        resp = self.client.get("/privacy/")
+        self.assertEqual(resp.status_code, 200)
+        html = resp.content.decode()
+        self.assertIn("سياسة الخصوصية", html)
+        self.assertIn("Privacy Policy", html)
+        self.assertIn("support@example.com", html)

@@ -17,6 +17,19 @@ STATE_SESSION_KEY = "zid_oauth_state"
 CONNECTION_SESSION_KEY = "zid_connection_id"
 
 
+PRIVACY_POLICY_UPDATED = "2026-11-01"
+
+
+@require_GET
+def privacy(request):
+    """سياسة الخصوصية — زد (وسلة) بيطلبوا رابطها إجبارياً للمراجعة."""
+    return render(
+        request,
+        "apitokens/privacy.html",
+        {"updated": PRIVACY_POLICY_UPDATED, "contact_email": settings.SUPPORT_EMAIL},
+    )
+
+
 @require_GET
 def install(request):
     if not settings.ZID_CLIENT_ID:

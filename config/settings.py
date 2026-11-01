@@ -180,3 +180,6 @@ ZID_CLIENT_ID = os.environ.get("ZID_CLIENT_ID", "").strip()
 ZID_CLIENT_SECRET = os.environ.get("ZID_CLIENT_SECRET", "").strip()
 ZID_WEBHOOK_SECRET = os.environ.get("ZID_WEBHOOK_SECRET", "").strip()
 ZID_DEFAULT_IMAGE_QUOTA = int(os.environ.get("ZID_DEFAULT_IMAGE_QUOTA", "20"))
+
+# إيميل الدعم اللي بيظهر بصفحة سياسة الخصوصية (/privacy/).
+SUPPORT_EMAIL = os.environ.get("SUPPORT_EMAIL", "").strip()

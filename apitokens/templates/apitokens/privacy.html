@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>سياسة الخصوصية — Control</title>
+<style>
+  :root { --bg: #f6f6fb; --card: #fff; --text: #1d1b2e; --muted: #5d5a73; --accent: #4f46e5; --rule: #e6e5ef; }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg: #14131c; --card: #1e1d2a; --text: #ecebf5; --muted: #a3a1b8; --accent: #a5b4fc; --rule: #2d2b3d; }
+  }
+  body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe UI", Tahoma, sans-serif; line-height: 1.8; }
+  main { max-width: 760px; margin: 40px auto; padding: 0 16px; }
+  article { background: var(--card); border-radius: 14px; padding: 28px 32px; margin-bottom: 24px; }
+  h1 { font-size: 24px; margin: 0 0 4px; text-wrap: balance; }
+  h2 { font-size: 17px; margin: 24px 0 6px; color: var(--accent); }
+  p, li { color: var(--muted); }
+  ul { padding-inline-start: 20px; margin: 6px 0; }
+  .meta { font-size: 14px; color: var(--muted); border-bottom: 1px solid var(--rule); padding-bottom: 12px; }
+  [lang="en"] { direction: ltr; text-align: left; }
+  a { color: var(--accent); }
+</style>
+</head>
+<body>
+<main>
+  <article>
+    <h1>سياسة الخصوصية</h1>
+    <p class="meta">تطبيق Control — مساعد التسوق الذكي. آخر تحديث: {{ updated }}</p>
+
+    <h2>البيانات التي نعالجها</h2>
+    <ul>
+      <li><strong>بيانات المتجر:</strong> اسم المتجر ورابطه، والمنتجات (الاسم والوصف والسعر والصور والمقاسات والتوفر)، لكي يقترحها المساعد على العملاء.</li>
+      <li><strong>الطلبات:</strong> رقم الطلب وقيمته فقط، لقياس المبيعات التي حققها المساعد. لا نطّلع على بيانات الدفع.</li>
+      <li><strong>المحادثات:</strong> نصوص المحادثة بين العميل والمساعد، والمنتجات المقترحة فيها، لكي يراجعها التاجر.</li>
+      <li><strong>صور تجربة اللبس:</strong> الصورة التي يرفعها العميل تُرسل لمعالجتها وإنتاج صورة التجربة فقط، ولا نحتفظ بها على خوادمنا.</li>
+    </ul>
+
+    <h2>كيف نستخدم البيانات</h2>
+    <p>نستخدم البيانات حصراً لتشغيل خدمة المساعد في متجرك: اقتراح المنتجات، وتجربة اللبس الافتراضية، والإجابة عن أسئلة العملاء، وعرض تقارير المحادثات والمبيعات. لا نبيع البيانات ولا نستخدمها للإعلانات.</p>
+
+    <h2>مزوّدو الخدمة</h2>
+    <p>نستعين بمزوّدين خارجيين لمعالجة البيانات نيابةً عنا: مزوّد نماذج الذكاء الاصطناعي لتوليد ردود المحادثة، ومزوّد توليد الصور لإنتاج صور تجربة اللبس. يتلقى كلٌّ منهم الحدّ الأدنى من البيانات اللازم لأداء مهمته.</p>
+
+    <h2>الحماية والاحتفاظ</h2>
+    <p>تُنقل البيانات عبر اتصال مشفّر (HTTPS)، وتُحفظ مفاتيح الوصول إلى متجرك على خوادمنا فقط. نحتفظ بالبيانات طوال مدة استخدام المتجر للخدمة. عند إلغاء تثبيت التطبيق نوقف الخدمة ونحذف مفاتيح الوصول فوراً، ويمكن للتاجر طلب حذف بيانات متجره بالكامل في أي وقت.</p>
+
+    <h2>التواصل</h2>
+    <p>لأي استفسار أو طلب حذف للبيانات{% if contact_email %}، راسلنا على <a href="mailto:{{ contact_email }}">{{ contact_email }}</a>{% else %}، تواصل معنا عبر قناة الدعم الموضحة في صفحة التطبيق بمتجر التطبيقات{% endif %}.</p>
+  </article>
+
+  <article lang="en">
+    <h1>Privacy Policy</h1>
+    <p class="meta">Control — AI shopping assistant. Last updated: {{ updated }}</p>
+
+    <h2>Data we process</h2>
+    <ul>
+      <li><strong>Store data:</strong> store name and URL, and products (name, description, price, images, sizes, availability), so the assistant can recommend them.</li>
+      <li><strong>Orders:</strong> order number and total only, to measure the sales the assistant generated. We never access payment details.</li>
+      <li><strong>Conversations:</strong> the chat between the shopper and the assistant, and the products recommended in it, for the merchant to review.</li>
+      <li><strong>Try-on photos:</strong> a photo uploaded by a shopper is sent for processing to produce the try-on image only, and is not kept on our servers.</li>
+    </ul>
+
+    <h2>How we use data</h2>
+    <p>Only to run the assistant in your store: product recommendations, virtual try-on, answering shopper questions, and conversation and sales reports. We do not sell data or use it for advertising.</p>
+
+    <h2>Service providers</h2>
+    <p>We use third-party processors on our behalf: an AI model provider to generate chat replies, and an image-generation provider to produce try-on images. Each receives only the minimum data needed for its task.</p>
+
+    <h2>Security and retention</h2>
+    <p>Data is transferred over HTTPS, and your store's access keys are kept on our servers only. We keep data for as long as the store uses the service. On uninstall we stop the service and delete the access keys immediately; merchants can request full deletion of their store's data at any time.</p>
+
+    <h2>Contact</h2>
+    <p>For questions or data deletion requests{% if contact_email %}, email <a href="mailto:{{ contact_email }}">{{ contact_email }}</a>{% else %}, use the support channel listed on the app's page in the App Market{% endif %}.</p>
+  </article>
+</main>
+</body>
+</html>

@@ -24,5 +24,6 @@ urlpatterns = [
     path("zid/install/", zid_views.install, name="zid-install"),
     path("zid/callback/", zid_views.callback, name="zid-callback"),
     path("zid/app/", zid_views.app, name="zid-app"),
+    path("privacy/", zid_views.privacy, name="privacy"),
     path("", include("apitokens.urls")),
 ]
