@@ -186,6 +186,37 @@ class Product(models.Model):
         return bool(WEARABLE_PATTERN.search(f"{self.title} {self.category} {self.tags}"))
 
 
+class SallaConnection(models.Model):
+    """ربط تاجر (ApiToken) بمتجر سلة. بينعمل لحاله لما التاجر يركّب تطبيقنا من
+    متجر تطبيقات سلة — سلة بتبعت التوكن بإشعار app.store.authorize.
+
+    refresh_token بينستخدم مرة وحدة بس: استخدامه مرتين بيلغي الربط والتاجر
+    لازم يعيد التركيب — لهيك التجديد دايماً جوا قفل على هالسطر.
+    """
+
+    merchant = models.OneToOneField(
+        ApiToken, on_delete=models.CASCADE, related_name="salla_connection",
+    )
+    salla_merchant_id = models.CharField("رقم التاجر بسلة", max_length=32, unique=True)
+    store_name = models.CharField("اسم المتجر", max_length=255, blank=True, default="")
+    store_domain = models.CharField("رابط المتجر", max_length=255, blank=True, default="")
+    access_token = models.TextField(blank=True, default="")
+    refresh_token = models.TextField(blank=True, default="")
+    token_expires_at = models.DateTimeField(null=True, blank=True)
+    scope = models.CharField(max_length=500, blank=True, default="")
+    is_active = models.BooleanField("فعّال", default=True)
+    last_synced_at = models.DateTimeField("آخر مزامنة", null=True, blank=True)
+    created_at = models.DateTimeField("تاريخ الربط", auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = "ربط سلة"
+        verbose_name_plural = "ربط سلة"
+
+    def __str__(self):
+        return f"{self.store_name or self.salla_merchant_id} ({self.merchant.label})"
+
+
 class ShopifyConnection(models.Model):
     """ربط حي بين تاجر (ApiToken) ومتجر Shopify حقيقي عبر تطبيق خاص
     (Custom App). الكتالوج بيتزامن أول مرة بالكامل، وبعدها بيتحدّث لحاله

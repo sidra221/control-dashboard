@@ -164,3 +164,12 @@ GROQ_API_KEY = os.environ.get("GROQ_API_KEY", "").strip()
 GROQ_MODEL = os.environ.get("GROQ_MODEL", "llama-3.3-70b-versatile")
 
 KIEAI_API_KEY = os.environ.get("KIEAI_API_KEY", "").strip()
+
+# تطبيق سلة (من بوابة الشركاء portal.salla.partners). التاجر بيركّب التطبيق،
+# وسلة بتبعتلنا التوكن بإشعار app.store.authorize (Easy Mode).
+SALLA_APP_ID = os.environ.get("SALLA_APP_ID", "").strip()
+SALLA_CLIENT_ID = os.environ.get("SALLA_CLIENT_ID", "").strip()
+SALLA_CLIENT_SECRET = os.environ.get("SALLA_CLIENT_SECRET", "").strip()
+SALLA_WEBHOOK_SECRET = os.environ.get("SALLA_WEBHOOK_SECRET", "").strip()
+# رصيد صور التجربة لحساب التاجر اللي بينعمل لحاله عند التركيب — لحد ما تتحدد الباقات.
+SALLA_DEFAULT_IMAGE_QUOTA = int(os.environ.get("SALLA_DEFAULT_IMAGE_QUOTA", "20"))

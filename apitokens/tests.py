@@ -17,7 +17,7 @@ from unittest.mock import patch
 
 from django.test import Client, TestCase
 
-from .models import ApiToken, DiscountCode, Product
+from .models import ApiToken, DiscountCode, Product, SallaConnection
 from .services import llm
 
 
@@ -1034,3 +1034,100 @@ class SallaPageProductTests(TestCase):
         for url in ("https://salla.example.com/ar", "https://salla.example.com/ar/category/c12345",
                     "https://salla.example.com/ar/x/p999"):
             self.assertIsNone(self.lookup(url), url)
+
+
+class SallaAuthTests(TestCase):
+    """تركيب تطبيق سلة: حساب بينعمل لحاله، والتجديد آمن (refresh بينستخدم مرة وحدة)."""
+
+    def authorize(self, merchant_id="1234509876", access="AT1", refresh="RT1", expires=None):
+        from datetime import timedelta
+        from django.utils import timezone
+        from .services import salla
+        expires = expires or int((timezone.now() + timedelta(days=14)).timestamp())
+        with patch("apitokens.services.salla.requests.get") as mock_get:
+            mock_get.return_value.json.return_value = {
+                "merchant": {"id": int(merchant_id), "name": "متجر الأناقة", "domain": "https://elegance.salla.sa"}
+            }
+            mock_get.return_value.raise_for_status.return_value = None
+            return salla.save_authorization(
+                merchant_id, {"access_token": access, "refresh_token": refresh, "expires": expires, "scope": "offline_access products.read"},
+            )
+
+    def test_install_creates_merchant_and_connection(self):
+        conn = self.authorize()
+        self.assertEqual(conn.merchant.label, "متجر الأناقة")
+        self.assertEqual(conn.store_domain, "https://elegance.salla.sa")
+        self.assertEqual(conn.merchant.currency, "SAR")
+        self.assertTrue(conn.merchant.token)
+        self.assertEqual(conn.access_token, "AT1")
+
+    def test_reauthorize_updates_same_merchant(self):
+        first = self.authorize()
+        second = self.authorize(access="AT2", refresh="RT2")
+        self.assertEqual(first.merchant_id, second.merchant_id)
+        self.assertEqual(ApiToken.objects.filter(salla_connection__isnull=False).count(), 1)
+        second.refresh_from_db()
+        self.assertEqual((second.access_token, second.refresh_token), ("AT2", "RT2"))
+
+    def test_uninstall_deactivates_widget(self):
+        from .services import salla
+        conn = self.authorize()
+        salla.deactivate("1234509876")
+        conn.refresh_from_db()
+        conn.merchant.refresh_from_db()
+        self.assertFalse(conn.is_active)
+        self.assertFalse(conn.merchant.is_active)
+        self.assertEqual(conn.refresh_token, "")
+        again = self.authorize(access="AT3", refresh="RT3")
+        again.merchant.refresh_from_db()
+        self.assertTrue(again.merchant.is_active)
+
+    def test_valid_token_is_not_refreshed(self):
+        from .services import salla
+        conn = self.authorize()
+        with patch("apitokens.services.salla.requests.post") as mock_post:
+            self.assertEqual(salla.get_access_token(conn), "AT1")
+            mock_post.assert_not_called()
+
+    def test_expiring_token_refreshes_and_saves_both_tokens(self):
+        from datetime import timedelta
+        from django.utils import timezone
+        from .services import salla
+        conn = self.authorize(expires=int((timezone.now() + timedelta(hours=2)).timestamp()))
+        new_expiry = int((timezone.now() + timedelta(days=14)).timestamp())
+        with patch("apitokens.services.salla.requests.post") as mock_post:
+            mock_post.return_value.ok = True
+            mock_post.return_value.json.return_value = {"access_token": "AT2", "refresh_token": "RT2", "expires": new_expiry}
+            self.assertEqual(salla.get_access_token(conn), "AT2")
+            self.assertEqual(mock_post.call_args.kwargs["data"]["refresh_token"], "RT1")
+        conn.refresh_from_db()
+        self.assertEqual((conn.access_token, conn.refresh_token), ("AT2", "RT2"))
+
+    def test_stale_copy_reuses_token_refreshed_by_another_process(self):
+        """عمليتين معهم نسخة قديمة: التانية لازم ما تحرق الـ refresh من جديد."""
+        from datetime import timedelta
+        from django.utils import timezone
+        from .services import salla
+        conn = self.authorize(expires=int((timezone.now() + timedelta(hours=2)).timestamp()))
+        stale_copy = SallaConnection.objects.get(pk=conn.pk)
+        with patch("apitokens.services.salla.requests.post") as mock_post:
+            mock_post.return_value.ok = True
+            mock_post.return_value.json.return_value = {
+                "access_token": "AT2", "refresh_token": "RT2",
+                "expires": int((timezone.now() + timedelta(days=14)).timestamp()),
+            }
+            salla.get_access_token(conn)
+            self.assertEqual(salla.get_access_token(stale_copy), "AT2")
+            self.assertEqual(mock_post.call_count, 1)
+
+    def test_api_get_retries_once_after_401(self):
+        from .services import salla
+        conn = self.authorize()
+        unauthorized = type("R", (), {"status_code": 401, "ok": False, "text": ""})()
+        ok = type("R", (), {"status_code": 200, "ok": True, "json": lambda self: {"data": []}})()
+        with patch("apitokens.services.salla.requests.get", side_effect=[unauthorized, ok]), \
+                patch("apitokens.services.salla.requests.post") as mock_post:
+            mock_post.return_value.ok = True
+            mock_post.return_value.json.return_value = {"access_token": "AT2", "refresh_token": "RT2", "expires": 4102444800}
+            self.assertEqual(salla.api_get(conn, "/products"), {"data": []})
+            self.assertEqual(mock_post.call_count, 1)
