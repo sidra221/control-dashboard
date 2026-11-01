@@ -1584,3 +1584,99 @@ class ZidSubscriptionTests(TestCase):
     @override_settings(ZID_WEBHOOK_SECRET="")
     def test_unconfigured_secret_refuses(self):
         self.assertEqual(self.event("app.market.subscription.active", secret="x").status_code, 503)
+
+
+@override_settings(ZID_WEBHOOK_SECRET="zid-hook-secret", ZID_CLIENT_ID="8467", SITE_BASE_URL="https://control.example.com")
+class ZidProductTests(TestCase):
+    PRODUCT = {
+        "id": "a1b2c3d4-uuid", "sku": "ABY-01", "name": {"ar": "عباية كريب سوداء", "en": "Black Crepe Abaya"},
+        "description": {"ar": "<p>قماش <b>كريب</b> ناعم</p>", "en": "Soft crepe"},
+        "price": 300, "sale_price": 250, "currency": "SAR", "quantity": 5, "is_infinite": False,
+        "is_published": True, "is_draft": False, "html_url": "https://ward.zid.store/products/black-abaya",
+        "images": [{"id": "i1", "image": {"thumbnail": "https://cdn.zid/t.jpg", "full_size": "https://cdn.zid/full.jpg"}}],
+        "categories": [{"id": 1, "name": {"ar": "عبايات", "en": "Abayas"}}],
+        "options": [{"name": {"ar": "المقاس", "en": "Size"}, "choices": [{"value": {"ar": "S", "en": "S"}}, {"value": "M"}]}],
+    }
+
+    def setUp(self):
+        from .models import ZidConnection
+        self.merchant = ApiToken.objects.create(label="ورد", image_quota=20)
+        self.connection = ZidConnection.objects.create(
+            merchant=self.merchant, store_id="4242", authorization_token="A", manager_token="M", refresh_token="R",
+        )
+
+    def test_mapping_prefers_arabic_and_reads_sale(self):
+        from .services import zid
+        row = zid.product_row_from_payload(self.PRODUCT)
+        self.assertEqual(row["title"], "عباية كريب سوداء")
+        self.assertEqual((str(row["price"]), str(row["compare_at_price"])), ("250", "300"))
+        self.assertEqual(row["image_url"], "https://cdn.zid/full.jpg")
+        self.assertEqual(row["product_url"], "https://ward.zid.store/products/black-abaya")
+        self.assertEqual(row["options"], {"المقاس": ["S", "M"]})
+        self.assertEqual(row["category"], "عبايات")
+        self.assertNotIn("<", row["description"])
+        self.assertTrue(row["in_stock"])
+
+    def test_draft_unpublished_or_imageless_dropped(self):
+        from .services import zid
+        for change in ({"is_draft": True}, {"is_published": False}, {"images": []}):
+            self.assertIsNone(zid.product_row_from_payload(dict(self.PRODUCT, **change)), change)
+        self.assertFalse(zid.product_row_from_payload(dict(self.PRODUCT, quantity=0))["in_stock"])
+        self.assertTrue(zid.product_row_from_payload(dict(self.PRODUCT, quantity=0, is_infinite=True))["in_stock"])
+
+    @patch("apitokens.services.catalog.ensure_embeddings")
+    def test_full_sync_pages_and_removes_deleted(self, _emb):
+        from .services import catalog
+        Product.objects.create(merchant=self.merchant, external_id="gone", sku="G", title="x", price="1",
+                               image_url="https://x/g.jpg")
+        page1 = {"count": 3, "next": "https://api.zid.sa/v1/products/?page=2", "results": [self.PRODUCT, dict(self.PRODUCT, id="p2", sku="")]}
+        page2 = {"count": 3, "next": None, "results": [dict(self.PRODUCT, id="p3", is_draft=True)]}
+        with patch("apitokens.services.zid.requests.request") as mock_req:
+            mock_req.return_value.ok = True
+            mock_req.return_value.content = b"{}"
+            mock_req.return_value.json.side_effect = [page1, page2]
+            self.assertEqual(catalog.sync_zid(self.merchant, self.connection), 2)
+            headers = mock_req.call_args.kwargs["headers"]
+        self.assertEqual(headers["Accept-Language"], "all-languages")
+        self.assertEqual((headers["X-Manager-Token"], headers["Store-Id"]), ("M", "4242"))
+        self.assertEqual(sorted(self.merchant.products.values_list("external_id", flat=True)), ["a1b2c3d4-uuid", "p2"])
+        self.assertEqual(self.merchant.products.get(external_id="p2").sku, "ZID-p2")
+
+    def test_register_store_webhooks_with_basic_auth(self):
+        from .services import zid
+        with patch("apitokens.services.zid.requests.request") as mock_req:
+            mock_req.return_value.ok = True
+            mock_req.return_value.content = b"{}"
+            mock_req.return_value.json.return_value = {}
+            events = zid.register_store_webhooks(self.connection)
+        self.assertEqual(events, zid.STORE_WEBHOOK_EVENTS)
+        body = mock_req.call_args_list[0].kwargs["json"]
+        self.assertEqual(body["target_url"], "https://control.example.com/webhooks/zid/store/4242/product.create/")
+        self.assertEqual((body["username"], body["password"], body["original_id"]), ("control", "zid-hook-secret", "8467"))
+
+    def store_event(self, event, data, password="zid-hook-secret", store="4242"):
+        import base64
+        auth = "Basic " + base64.b64encode(f"control:{password}".encode()).decode()
+        return self.client.post(f"/webhooks/zid/store/{store}/{event}/", data=json.dumps(data),
+                                content_type="application/json", HTTP_AUTHORIZATION=auth)
+
+    def test_store_webhook_product_lifecycle(self):
+        self.assertEqual(self.store_event("product.create", self.PRODUCT).status_code, 200)
+        self.assertTrue(self.merchant.products.filter(external_id="a1b2c3d4-uuid").exists())
+        self.store_event("product.update", dict(self.PRODUCT, sale_price=None))
+        self.assertIsNone(self.merchant.products.get(external_id="a1b2c3d4-uuid").compare_at_price)
+        self.store_event("product.delete", {"id": "a1b2c3d4-uuid"})
+        self.assertFalse(self.merchant.products.filter(external_id="a1b2c3d4-uuid").exists())
+
+    def test_store_webhook_rejects_bad_auth_and_ignores_unknown_store(self):
+        self.assertEqual(self.store_event("product.create", self.PRODUCT, password="nope").status_code, 401)
+        self.assertEqual(self.store_event("product.create", self.PRODUCT, store="999").status_code, 200)
+        self.assertFalse(Product.objects.exists())
+
+    def test_order_links_to_conversation_by_cart(self):
+        from .models import Conversation
+        conv = Conversation.objects.create(merchant=self.merchant, session_id="sess-zid-0001", platform_cart_id="CART-9")
+        self.store_event("order.create", {"id": 77001, "cart": {"id": "CART-9"},
+                                          "order_total": "450.00", "currency_code": "SAR"})
+        conv.refresh_from_db()
+        self.assertEqual((conv.order_id, str(conv.order_total), conv.order_currency), ("77001", "450.00", "SAR"))

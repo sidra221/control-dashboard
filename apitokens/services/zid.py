@@ -3,15 +3,20 @@
 المرجع: docs.zid.sa (صفحة Authorization ومتطلبات OAuth للتطبيقات العامة).
 """
 
+import base64
+import hmac
 import logging
+import time
 from datetime import timedelta
+from decimal import Decimal, InvalidOperation
 
 import requests
 from django.conf import settings
 from django.db import transaction
 from django.utils import timezone
 
-from ..models import ApiToken, ZidConnection
+from ..models import ApiToken, Product, ZidConnection
+from .shopify import _clean_text as clean_html
 
 logger = logging.getLogger(__name__)
 
@@ -183,11 +188,12 @@ def _copy_tokens(source, target):
         setattr(target, field, getattr(source, field))
 
 
-def api_request(connection, method, path, params=None, json_body=None):
+def api_request(connection, method, path, params=None, json_body=None, language="en"):
     """طلب على Merchant API بالمفتاحين مع بعض."""
     if not connection.is_active or not connection.authorization_token:
         raise ZidError("connection_inactive")
     headers = _headers(connection.authorization_token, connection.manager_token)
+    headers["Accept-Language"] = language
     # endpoints المنتجات بتقرا نفس القيمة باسم Access-Token (لأسباب تاريخية).
     headers["Access-Token"] = connection.manager_token
     headers["Store-Id"] = connection.store_id
@@ -294,3 +300,173 @@ def apply_subscription(connection, subscription=None, new_period=False):
         fields.append("is_active")
     if fields:
         merchant.save(update_fields=fields)
+
+
+# ---------------------------------------------------------------------------
+# المنتجات وإشعارات المتجر
+# ---------------------------------------------------------------------------
+
+PRODUCTS_PAGE_SIZE = 50
+MAX_PRODUCT_PAGES = 300  # سقف أمان ضد pagination خربان
+RATE_LIMIT_RETRIES = 3  # زد: 60 طلب بالدقيقة لكل متجر
+STORE_WEBHOOK_EVENTS = ["product.create", "product.update", "product.publish", "product.delete", "order.create"]
+STORE_WEBHOOK_USERNAME = "control"
+
+
+def _localized(value):
+    """زد بترجّع النصوص {ar, en} (مع all-languages) أو نص عادي. السوق
+    سعودي فالعربي أولاً."""
+    if isinstance(value, dict):
+        return (value.get("ar") or value.get("en") or "").strip()
+    return (value or "").strip() if isinstance(value, str) else ""
+
+
+def _amount(value):
+    if isinstance(value, dict):
+        value = value.get("amount", value.get("value"))
+    if value in (None, ""):
+        return None
+    try:
+        amount = Decimal(str(value))
+    except InvalidOperation:
+        return None
+    return amount if amount > 0 else None
+
+
+def _image_url(payload):
+    for item in payload.get("images") or []:
+        if isinstance(item, str) and item:
+            return item
+        if not isinstance(item, dict):
+            continue
+        image = item.get("image") if isinstance(item.get("image"), dict) else item
+        for size in ("full_size", "large", "medium", "original", "url", "small", "thumbnail"):
+            if image.get(size):
+                return image[size]
+    main = payload.get("main_image") or payload.get("thumbnail")
+    if isinstance(main, dict):
+        main = main.get("url") or main.get("full_size")
+    return main or ""
+
+
+def _options(payload):
+    options = {}
+    for option in payload.get("options") or []:
+        if not isinstance(option, dict):
+            continue
+        name = _localized(option.get("name_i18n")) or _localized(option.get("name"))
+        values = []
+        for choice in option.get("choices") or option.get("values") or []:
+            if isinstance(choice, dict):
+                label = _localized(choice.get("value")) or _localized(choice.get("name"))
+            else:
+                label = str(choice).strip()
+            if label and label not in values:
+                values.append(label)
+        if name and values:
+            options[name] = values
+    return options
+
+
+def product_row_from_payload(payload):
+    """منتج زد (API أو إشعار) لصف Product. برجّع None لمسودة/غير منشور/بلا صورة."""
+    product_id = str(payload.get("id") or "")
+    if not product_id or payload.get("is_draft") or payload.get("is_published") is False:
+        return None
+    image_url = _image_url(payload)
+    if not image_url:
+        return None
+    regular = _amount(payload.get("price"))
+    sale = _amount(payload.get("sale_price"))
+    if sale is not None and regular is not None and sale < regular:
+        price, compare_at = sale, regular
+    else:
+        price, compare_at = (regular or sale or Decimal("0")), None
+    quantity = payload.get("quantity")
+    in_stock = bool(payload.get("is_infinite")) or quantity is None or (
+        isinstance(quantity, (int, float)) and quantity > 0
+    )
+    description = _localized(payload.get("description")) or _localized(payload.get("short_description"))
+    categories = [_localized(c.get("name")) for c in payload.get("categories") or [] if isinstance(c, dict)]
+    keywords = payload.get("keywords") or []
+    return {
+        "external_id": product_id,
+        "sku": (payload.get("sku") or "").strip()[:64] or f"ZID-{product_id[:58]}",
+        "title": _localized(payload.get("name"))[:255],
+        "description": clean_html(description)[:2000],
+        "price": price,
+        "compare_at_price": compare_at,
+        "image_url": image_url[:500],
+        "product_url": (payload.get("html_url") or "")[:500],
+        "category": ", ".join(c for c in categories if c)[:120],
+        "tags": ", ".join(str(k) for k in keywords if k)[:500] if isinstance(keywords, list) else "",
+        "options": _options(payload),
+        "in_stock": in_stock,
+        "variant_id": "",
+    }
+
+
+def upsert_product(merchant, payload):
+    product_id = str(payload.get("id") or "")
+    row = product_row_from_payload(payload)
+    if row is None:
+        Product.objects.filter(merchant=merchant, external_id=product_id).delete()
+        return None
+    external_id = row.pop("external_id")
+    product, _ = Product.objects.update_or_create(merchant=merchant, external_id=external_id, defaults=row)
+    return product
+
+
+def fetch_all_products(connection):
+    """كل منتجات المتجر بالعربي والإنجليزي، صفحة صفحة. على 429 منستنى ومنعيد."""
+    page = 1
+    while page <= MAX_PRODUCT_PAGES:
+        for attempt in range(RATE_LIMIT_RETRIES + 1):
+            try:
+                body = api_request(
+                    connection, "GET", "/products/",
+                    params={"page": page, "page_size": PRODUCTS_PAGE_SIZE}, language="all-languages",
+                )
+                break
+            except ZidError as exc:
+                if not str(exc).startswith("api_error:429") or attempt == RATE_LIMIT_RETRIES:
+                    raise
+                time.sleep(15 * (attempt + 1))
+        yield from body.get("results") or []
+        if not body.get("next"):
+            return
+        page += 1
+
+
+def store_webhook_url(connection, event):
+    # رقم المتجر واسم الحدث بالرابط نفسه — ما منعتمد على شكل جسم الإشعار.
+    return f"{settings.SITE_BASE_URL}/webhooks/zid/store/{connection.store_id}/{event}/"
+
+
+def register_store_webhooks(connection):
+    """إشعارات المنتجات والطلبات بتنسجّل لكل متجر عبر الـ API (صلاحية
+    Webhooks)، مع Basic Auth بكلمة سرنا حتى نتأكد إنها من زد."""
+    registered = []
+    for event in STORE_WEBHOOK_EVENTS:
+        try:
+            api_request(connection, "POST", "/managers/webhooks", json_body={
+                "event": event,
+                "target_url": store_webhook_url(connection, event),
+                "original_id": settings.ZID_CLIENT_ID,
+                "username": STORE_WEBHOOK_USERNAME,
+                "password": settings.ZID_WEBHOOK_SECRET,
+            })
+            registered.append(event)
+        except ZidError as exc:
+            # order.create مثلاً بدّه صلاحية الطلبات — منكمّل بالباقي.
+            logger.warning("zid_webhook_register_failed store=%s event=%s error=%s",
+                           connection.store_id, event, exc)
+    return registered
+
+
+def verify_store_webhook(authorization_header):
+    secret = settings.ZID_WEBHOOK_SECRET
+    if not secret or not authorization_header.startswith("Basic "):
+        return False
+    expected = base64.b64encode(f"{STORE_WEBHOOK_USERNAME}:{secret}".encode()).decode()
+    return hmac.compare_digest(authorization_header[6:].strip(), expected)

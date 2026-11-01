@@ -26,5 +26,6 @@ urlpatterns = [
     path("zid/app/", zid_views.app, name="zid-app"),
     path("privacy/", zid_views.privacy, name="privacy"),
     path("webhooks/zid/app/", zid_webhooks.app_webhook, name="zid-app-webhook"),
+    path("webhooks/zid/store/<str:store_id>/<str:event>/", zid_webhooks.store_webhook, name="zid-store-webhook"),
     path("", include("apitokens.urls")),
 ]
