@@ -297,6 +297,8 @@ class Conversation(models.Model):
     tryons = models.PositiveIntegerField(default=0)
     buy_clicks = models.PositiveIntegerField(default=0)
     add_to_carts = models.PositiveIntegerField(default=0)
+    # رقم سلة الزبون بالمنصة (سلة) — منه منعرف أي طلب إجا من هالمحادثة.
+    platform_cart_id = models.CharField(max_length=64, blank=True, default="", db_index=True)
     order_id = models.CharField(max_length=64, blank=True, default="")
     order_total = models.DecimalField(max_digits=12, decimal_places=2, null=True, blank=True)
     order_currency = models.CharField(max_length=8, blank=True, default="")

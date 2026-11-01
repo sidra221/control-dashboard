@@ -8,7 +8,7 @@ from django.http import HttpResponse
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_http_methods
 
-from .models import Product, SallaConnection
+from .models import Conversation, Product, SallaConnection
 from .services import catalog as catalog_service
 from .services import salla as salla_service
 
@@ -60,9 +60,7 @@ def webhook(request):
     elif event == "product.deleted":
         Product.objects.filter(merchant=merchant, external_id=str(data.get("id") or "")).delete()
     elif event == "order.created":
-        # ربط الطلب بالمحادثة بدّه علامة من الودجت على سلة الزبون — بيجي مع
-        # تاسك الودجت. لهلأ منسجّل إنه وصل بس.
-        logger.info("salla_order_received merchant=%s order=%s", salla_merchant_id, data.get("id"))
+        _record_order(merchant, data)
     return HttpResponse(status=200)
 
 
@@ -81,3 +79,32 @@ def _initial_sync(connection_pk):
         logger.exception("salla_initial_sync_failed connection=%s", connection_pk)
     finally:
         db_connection.close()
+
+
+def _order_cart_id(data):
+    """رقم السلة اللي انعمل منها الطلب — سلة ممكن تحطه بأكتر من مكان."""
+    cart = data.get("cart") if isinstance(data.get("cart"), dict) else {}
+    for value in (data.get("cart_id"), cart.get("id"), data.get("cart_reference_id")):
+        if value:
+            return str(value)
+    return ""
+
+
+def _record_order(merchant, data):
+    """بيربط الطلب بالمحادثة يلي الودجت سجّل رقم سلّتها. طلب ما إله علاقة
+    بالمساعد منتجاهله."""
+    cart_id = _order_cart_id(data)
+    if not cart_id:
+        logger.info("salla_order_without_cart merchant=%s order=%s", merchant.pk, data.get("id"))
+        return
+    conversation = Conversation.objects.filter(merchant=merchant, platform_cart_id=cart_id).first()
+    if conversation is None or conversation.order_id:
+        return
+    amounts = data.get("amounts") if isinstance(data.get("amounts"), dict) else {}
+    total = amounts.get("total") or data.get("total") or {}
+    if not isinstance(total, dict):
+        total = {"amount": total}
+    conversation.order_id = str(data.get("id") or "")[:64]
+    conversation.order_total = salla_service._amount(total.get("amount"))
+    conversation.order_currency = (total.get("currency") or data.get("currency") or "")[:8]
+    conversation.save(update_fields=["order_id", "order_total", "order_currency", "updated_at"])

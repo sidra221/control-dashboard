@@ -11,7 +11,7 @@ from django.utils import timezone
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_http_methods
 
-from .models import ApiToken, Conversation, Product
+from .models import ApiToken, Conversation, Product, SallaConnection
 from .services import catalog as catalog_service
 from .services import kieai, llm
 
@@ -410,6 +410,8 @@ def _product_card(product, currency):
         "image_url": product.image_url,
         "product_url": product.product_url,
         "variant_id": product.variant_id,
+        "product_id": product.external_id,
+        "has_options": bool(product.options),
     }
 
 
@@ -795,8 +797,31 @@ def event(request):
     conversation = Conversation.objects.filter(merchant=merchant, session_id=session_id).first()
     if conversation is not None:
         setattr(conversation, field, getattr(conversation, field) + 1)
-        conversation.save(update_fields=[field, "updated_at"])
+        update_fields = [field, "updated_at"]
+        cart_id = str(body.get("cart_id") or "").strip()[:64]
+        if cart_id:
+            conversation.platform_cart_id = cart_id
+            update_fields.append("platform_cart_id")
+        conversation.save(update_fields=update_fields)
     return _cors_response({"ok": True})
+
+
+@require_http_methods(["GET", "OPTIONS"])
+def salla_store_key(request, store_id):
+    """سكربت سلة (نفسه لكل المتاجر) بيعرف بس رقم المتجر — منرجّعله مفتاح
+    الودجت تبع هالمتجر. المفتاح أصلاً علني (بينحط بصفحات المتجر)."""
+    if request.method == "OPTIONS":
+        return _cors_response({}, status=200)
+    connection = (
+        SallaConnection.objects.filter(salla_merchant_id=str(store_id)[:32], is_active=True)
+        .select_related("merchant")
+        .first()
+    )
+    if connection is None or not connection.merchant.is_active:
+        return _cors_response({"ok": False, "error": "store_not_connected"}, status=404)
+    response = _cors_response({"ok": True, "store_key": connection.merchant.token})
+    response["Access-Control-Allow-Methods"] = "GET, OPTIONS"
+    return response
 
 
 

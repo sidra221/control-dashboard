@@ -27,6 +27,8 @@
   var shownSkus = [];
   // جوا متجر Shopify فعلي: منقدر نضيف للسلة مباشرة ونعلّم السلة بمعرّف المحادثة.
   var IS_SHOPIFY = !!(window.Shopify && window.Shopify.shop);
+  // جوا متجر سلة: مكتبة سلة (Twilight) بتضيف للسلة، ورقم السلة بيربط الطلب بالمحادثة.
+  var IS_SALLA = !!(window.salla && window.salla.cart && window.salla.cart.addItem);
   var cartTagged = false;
   var UI = {
     ar: { add: "أضف للسلة 🛒", added: "انضاف للسلة ✓ — كمّل طلبك", addFailed: "ما قدرنا نضيفه للسلة، جرّب من صفحة المنتج.", buy: "اشترِه الحين" },
@@ -59,13 +61,32 @@
     return title.length > 40 ? title.slice(0, 38) + "…" : title;
   }
 
-  function trackEvent(type) {
+  function sendEvent(type, cartId) {
     fetch(API_BASE + "/widget/event/", {
       method: "POST",
       headers: { "Content-Type": "application/json", "X-Api-Token": STORE_KEY },
-      body: JSON.stringify({ type: type, session_id: SESSION_ID }),
+      body: JSON.stringify({ type: type, session_id: SESSION_ID, cart_id: cartId ? String(cartId) : "" }),
       keepalive: true,
     }).catch(function () {});
+  }
+
+  function trackEvent(type) {
+    if (!IS_SALLA || !window.salla.cart.getCurrentCartId) {
+      sendEvent(type);
+      return;
+    }
+    // getCurrentCartId ممكن يرجّع قيمة أو Promise حسب نسخة المكتبة.
+    try {
+      Promise.resolve(window.salla.cart.getCurrentCartId())
+        .then(function (cartId) {
+          sendEvent(type, cartId);
+        })
+        .catch(function () {
+          sendEvent(type);
+        });
+    } catch (e) {
+      sendEvent(type);
+    }
   }
 
   function tagShopifyCart() {
@@ -447,6 +468,28 @@
           });
       });
       card.appendChild(addBtn);
+    } else if (IS_SALLA && rec.product_id && !rec.has_options) {
+      // منتج بمقاسات/ألوان لازم الزبون يختارها بصفحة المنتج — بس البسيط منضيفه من هون.
+      var sallaAddBtn = document.createElement("button");
+      sallaAddBtn.className = "addcart";
+      sallaAddBtn.textContent = labels.add;
+      sallaAddBtn.addEventListener("click", function () {
+        sallaAddBtn.disabled = true;
+        Promise.resolve(window.salla.cart.addItem({ id: Number(rec.product_id), quantity: 1 }))
+          .then(function () {
+            trackEvent("add_to_cart");
+            var go = document.createElement("a");
+            go.className = "buy";
+            go.href = (window.salla.url && window.salla.url.get && window.salla.url.get("cart")) || "/cart";
+            go.textContent = labels.added;
+            sallaAddBtn.replaceWith(go);
+          })
+          .catch(function () {
+            sallaAddBtn.disabled = false;
+            addErrorMessage(labels.addFailed);
+          });
+      });
+      card.appendChild(sallaAddBtn);
     } else if (rec.product_url) {
       var buyLink = document.createElement("a");
       buyLink.className = "buy";

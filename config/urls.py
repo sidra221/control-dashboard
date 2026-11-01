@@ -14,6 +14,7 @@ urlpatterns = [
     path("widget/tryon/", widget_views.tryon, name="widget-tryon"),
     path("widget/event/", widget_views.event, name="widget-event"),
     path("widget/page-product/", widget_views.page_product, name="widget-page-product"),
+    path("widget/salla-key/<str:store_id>/", widget_views.salla_store_key, name="widget-salla-key"),
     path(
         "webhooks/shopify/<str:token>/",
         shopify_webhooks.product_webhook,

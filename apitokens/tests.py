@@ -1299,3 +1299,59 @@ class SallaSyncTests(TestCase):
             self.client.post("/webhooks/salla/", data=body, content_type="application/json",
                              HTTP_X_SALLA_SIGNATURE=hmac.new(b"whsec_test", body, hashlib.sha256).hexdigest())
         mock_start.assert_called_once_with(SallaConnection.objects.get(salla_merchant_id="4321").pk)
+
+
+@override_settings(SALLA_WEBHOOK_SECRET="whsec_test")
+class SallaWidgetTests(TestCase):
+    def setUp(self):
+        from .models import Conversation
+        self.merchant = ApiToken.objects.create(label="متجر", image_quota=5)
+        self.connection = SallaConnection.objects.create(merchant=self.merchant, salla_merchant_id="2468")
+        self.conversation = Conversation.objects.create(merchant=self.merchant, session_id="sess-abcdef12")
+
+    def test_store_key_for_connected_store_only(self):
+        data = self.client.get("/widget/salla-key/2468/").json()
+        self.assertEqual(data["store_key"], self.merchant.token)
+        self.assertEqual(self.client.get("/widget/salla-key/9999/").status_code, 404)
+        self.connection.is_active = False
+        self.connection.save()
+        self.assertEqual(self.client.get("/widget/salla-key/2468/").status_code, 404)
+
+    def test_card_carries_platform_product_id_and_options_flag(self):
+        Product.objects.create(
+            merchant=self.merchant, sku="A", external_id="123", title="عباية", price="10",
+            image_url="https://x/a.jpg", product_url="https://s.salla.sa/x/p123", options={"المقاس": ["S"]},
+        )
+        product = self.client.post(
+            "/widget/page-product/", data=json.dumps({"page_url": "https://s.salla.sa/ar/x/p123"}),
+            content_type="application/json", HTTP_X_API_TOKEN=self.merchant.token,
+        ).json()["product"]
+        self.assertEqual((product["product_id"], product["has_options"]), ("123", True))
+
+    def order(self, data):
+        import hashlib
+        import hmac
+        body = json.dumps({"event": "order.created", "merchant": 2468, "data": data}).encode()
+        return self.client.post(
+            "/webhooks/salla/", data=body, content_type="application/json",
+            HTTP_X_SALLA_SIGNATURE=hmac.new(b"whsec_test", body, hashlib.sha256).hexdigest(),
+        )
+
+    def test_add_to_cart_event_links_cart_then_order(self):
+        self.client.post(
+            "/widget/event/", data=json.dumps({"type": "add_to_cart", "session_id": "sess-abcdef12", "cart_id": "C-77"}),
+            content_type="application/json", HTTP_X_API_TOKEN=self.merchant.token,
+        )
+        self.conversation.refresh_from_db()
+        self.assertEqual((self.conversation.platform_cart_id, self.conversation.add_to_carts), ("C-77", 1))
+
+        self.order({"id": 5551, "cart": {"id": "C-77"}, "amounts": {"total": {"amount": 300, "currency": "SAR"}}})
+        self.conversation.refresh_from_db()
+        self.assertEqual(self.conversation.order_id, "5551")
+        self.assertEqual((str(self.conversation.order_total), self.conversation.order_currency), ("300.00", "SAR"))
+
+    def test_order_from_unrelated_cart_ignored(self):
+        self.assertEqual(self.order({"id": 1, "cart_id": "OTHER"}).status_code, 200)
+        self.assertEqual(self.order({"id": 2}).status_code, 200)
+        self.conversation.refresh_from_db()
+        self.assertEqual(self.conversation.order_id, "")
