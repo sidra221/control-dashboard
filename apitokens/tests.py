@@ -1222,7 +1222,8 @@ class SallaWebhookTests(TestCase):
         self.assertFalse(Product.objects.exists())
 
     def test_authorize_and_uninstall_events(self):
-        with patch("apitokens.services.salla.requests.get") as mock_get:
+        with patch("apitokens.services.salla.requests.get") as mock_get, \
+                patch("apitokens.salla_webhooks.start_initial_sync"):
             mock_get.return_value.json.return_value = {"merchant": {"name": "متجر جديد", "domain": "https://new.salla.sa"}}
             resp = self.send({"event": "app.store.authorize", "merchant": 555, "data": {
                 "access_token": "A", "refresh_token": "R", "expires": 4102444800, "scope": "products.read"}})
@@ -1232,3 +1233,69 @@ class SallaWebhookTests(TestCase):
         self.send({"event": "app.uninstalled", "merchant": 555, "data": {}})
         conn.refresh_from_db()
         self.assertFalse(conn.is_active)
+
+
+class SallaSyncTests(TestCase):
+    def setUp(self):
+        self.merchant = ApiToken.objects.create(label="متجر", image_quota=5)
+        self.connection = SallaConnection.objects.create(
+            merchant=self.merchant, salla_merchant_id="888", access_token="AT", refresh_token="RT",
+        )
+        from datetime import datetime, timezone as dt_timezone
+        self.connection.token_expires_at = datetime(2099, 1, 1, tzinfo=dt_timezone.utc)
+        self.connection.save()
+
+    @staticmethod
+    def product(pid, **extra):
+        return dict({"id": pid, "name": f"منتج {pid}", "price": 100, "status": "sale",
+                     "images": [{"url": f"https://cdn.salla.sa/{pid}.jpg", "main": True}],
+                     "urls": {"customer": f"https://s.salla.sa/x/p{pid}"}}, **extra)
+
+    def pages(self, *pages):
+        responses = []
+        for i, items in enumerate(pages, start=1):
+            r = type("R", (), {"status_code": 200, "ok": True})()
+            body = {"data": items, "pagination": {"currentPage": i, "totalPages": len(pages)}}
+            r.json = (lambda b: (lambda: b))(body)
+            responses.append(r)
+        return responses
+
+    @patch("apitokens.services.catalog.ensure_embeddings")
+    def test_full_sync_walks_all_pages_and_removes_deleted(self, _emb):
+        from .services import catalog
+        Product.objects.create(merchant=self.merchant, external_id="old", sku="OLD", title="قديم",
+                               price="1", image_url="https://x/o.jpg")
+        Product.objects.create(merchant=self.merchant, sku="MANUAL", title="يدوي", price="1",
+                               image_url="https://x/m.jpg")
+        responses = self.pages([self.product(1), self.product(2)], [self.product(3), self.product(4, status="hidden")])
+        with patch("apitokens.services.salla.requests.get", side_effect=responses) as mock_get:
+            count = catalog.sync_salla(self.merchant, self.connection)
+        self.assertEqual(count, 3)
+        self.assertEqual([c.kwargs["params"]["page"] for c in mock_get.call_args_list], [1, 2])
+        self.assertEqual(
+            sorted(self.merchant.products.values_list("external_id", flat=True)), ["", "1", "2", "3"],
+        )
+        self.connection.refresh_from_db()
+        self.assertIsNotNone(self.connection.last_synced_at)
+
+    @patch("apitokens.services.salla.time.sleep")
+    @patch("apitokens.services.catalog.ensure_embeddings")
+    def test_rate_limit_waits_and_retries(self, _emb, mock_sleep):
+        from .services import catalog
+        limited = type("R", (), {"status_code": 429, "ok": False, "text": "Too Many Requests"})()
+        with patch("apitokens.services.salla.requests.get", side_effect=[limited] + self.pages([self.product(1)])):
+            self.assertEqual(catalog.sync_salla(self.merchant, self.connection), 1)
+        mock_sleep.assert_called_once()
+
+    @override_settings(SALLA_WEBHOOK_SECRET="whsec_test")
+    def test_install_starts_initial_sync(self):
+        import hashlib
+        import hmac
+        body = json.dumps({"event": "app.store.authorize", "merchant": 4321, "data": {
+            "access_token": "A", "refresh_token": "R", "expires": 4102444800}}).encode()
+        with patch("apitokens.services.salla.requests.get") as mock_get, \
+                patch("apitokens.salla_webhooks.start_initial_sync") as mock_start:
+            mock_get.return_value.json.return_value = {"merchant": {"name": "متجر", "domain": ""}}
+            self.client.post("/webhooks/salla/", data=body, content_type="application/json",
+                             HTTP_X_SALLA_SIGNATURE=hmac.new(b"whsec_test", body, hashlib.sha256).hexdigest())
+        mock_start.assert_called_once_with(SallaConnection.objects.get(salla_merchant_id="4321").pk)

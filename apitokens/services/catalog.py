@@ -11,6 +11,7 @@ from django.db import transaction
 from django.utils import timezone
 
 from ..models import Product
+from . import salla as salla_service
 from . import shopify as shopify_service
 
 logger = logging.getLogger(__name__)
@@ -71,6 +72,39 @@ def sync_shopify(merchant, connection):
 
     connection.last_synced_at = timezone.now()
     connection.save(update_fields=["last_synced_at", "primary_domain"])
+
+    try:
+        ensure_embeddings(list(merchant.products.filter(in_stock=True)))
+    except Exception:  # noqa: BLE001 — التضمين تحسين، مش شرط لنجاح المزامنة
+        logger.exception("embedding_refresh_failed merchant=%s", merchant.pk)
+    return len(rows)
+
+
+def sync_salla(merchant, connection):
+    """مزامنة كاملة لمتجر سلة، بنفس منطق Shopify: المنتجات اللي انشالت من
+    سلة بتنشال عنا. برجّع عدد المنتجات."""
+    rows = []
+    for raw in salla_service.fetch_all_products(connection):
+        row = salla_service.product_row_from_payload(raw)
+        if row is not None:
+            rows.append(row)
+    fetched_ids = {row["external_id"] for row in rows}
+
+    with transaction.atomic():
+        for row in rows:
+            external_id = row.pop("external_id")
+            Product.objects.update_or_create(
+                merchant=merchant, external_id=external_id, defaults=row,
+            )
+        (
+            Product.objects.filter(merchant=merchant)
+            .exclude(external_id="")
+            .exclude(external_id__in=fetched_ids)
+            .delete()
+        )
+
+    connection.last_synced_at = timezone.now()
+    connection.save(update_fields=["last_synced_at", "updated_at"])
 
     try:
         ensure_embeddings(list(merchant.products.filter(in_stock=True)))

@@ -1,12 +1,15 @@
 import json
 import logging
+import threading
 
 from django.conf import settings
+from django.db import connection as db_connection
 from django.http import HttpResponse
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_http_methods
 
 from .models import Product, SallaConnection
+from .services import catalog as catalog_service
 from .services import salla as salla_service
 
 logger = logging.getLogger(__name__)
@@ -34,10 +37,11 @@ def webhook(request):
 
     if event == "app.store.authorize":
         try:
-            salla_service.save_authorization(salla_merchant_id, data)
+            connection = salla_service.save_authorization(salla_merchant_id, data)
         except salla_service.SallaError:
             logger.exception("salla_authorize_failed merchant=%s", salla_merchant_id)
             return HttpResponse(status=400)
+        start_initial_sync(connection.pk)
         return HttpResponse(status=200)
     if event == "app.uninstalled":
         salla_service.deactivate(salla_merchant_id)
@@ -60,3 +64,20 @@ def webhook(request):
         # تاسك الودجت. لهلأ منسجّل إنه وصل بس.
         logger.info("salla_order_received merchant=%s order=%s", salla_merchant_id, data.get("id"))
     return HttpResponse(status=200)
+
+
+def start_initial_sync(connection_pk):
+    """أول مزامنة بعد التركيب بالخلفية: سلة بتستنى رد الإشعار ~30 ثانية بس،
+    ومتجر كبير بياخد أكتر. بعدها المنتجات بتتحدّث بالإشعارات + sync_salla."""
+    threading.Thread(target=_initial_sync, args=(connection_pk,), daemon=True).start()
+
+
+def _initial_sync(connection_pk):
+    try:
+        connection = SallaConnection.objects.select_related("merchant").get(pk=connection_pk)
+        count = catalog_service.sync_salla(connection.merchant, connection)
+        logger.info("salla_initial_sync merchant=%s products=%s", connection.salla_merchant_id, count)
+    except Exception:  # noqa: BLE001 — خيط بالخلفية، أي خطأ لازم ينسجّل بس
+        logger.exception("salla_initial_sync_failed connection=%s", connection_pk)
+    finally:
+        db_connection.close()

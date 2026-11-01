@@ -8,6 +8,7 @@ docs.salla.dev بتحظر القراءة الآلية).
 import hashlib
 import hmac
 import logging
+import time
 from datetime import datetime, timedelta, timezone as dt_timezone
 from decimal import Decimal, InvalidOperation
 
@@ -303,3 +304,27 @@ def upsert_product(merchant, payload):
         merchant=merchant, external_id=external_id, defaults=row,
     )
     return product
+
+
+PRODUCTS_PER_PAGE = 60  # أقصى عدد بتسمح فيه سلة بالصفحة
+MAX_PRODUCT_PAGES = 200  # سقف أمان (12,000 منتج) ضد pagination خربان
+RATE_LIMIT_RETRIES = 3
+
+
+def fetch_all_products(connection):
+    """كل منتجات المتجر صفحة صفحة. على 429 (حد الطلبات بالدقيقة) منستنى ومنعيد."""
+    page = 1
+    while page <= MAX_PRODUCT_PAGES:
+        for attempt in range(RATE_LIMIT_RETRIES + 1):
+            try:
+                body = api_get(connection, "/products", {"page": page, "per_page": PRODUCTS_PER_PAGE})
+                break
+            except SallaError as exc:
+                if not str(exc).startswith("api_error:429") or attempt == RATE_LIMIT_RETRIES:
+                    raise
+                time.sleep(10 * (attempt + 1))
+        yield from body.get("data") or []
+        pagination = body.get("pagination") or {}
+        if page >= int(pagination.get("totalPages") or 1):
+            return
+        page += 1
