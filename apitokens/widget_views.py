@@ -63,6 +63,12 @@ DISCOUNT_APPENDIX = {
     "ar": "وعشان نسهّلها عليك: استخدم كود {code} ({description}) 🎁",
     "en": "And to make it easier: use code {code} ({description}) 🎁",
 }
+# طلب شراء بكرت بلا نص: الموديل بيكتب الـ reason أحياناً بلغة عشوائية (إسباني،
+# عربي لزبون إنجليزي...). علامات نية الشراء أصلاً عربي/إنجليزي بس، فجملة ثابتة أضمن.
+PURCHASE_REPLY = {
+    "ar": "تقدر تطلبه الحين من زر الشراء تحت 👇 اختيار موفّق!",
+    "en": "You can order it right now with the buy button below 👇 Great pick!",
+}
 FALLBACK_REPHRASE_REPLY = {
     "ar": "ممكن تعيد سؤالك بطريقة ثانية؟",
     "en": "Could you rephrase that for me?",
@@ -124,7 +130,7 @@ RECOMMEND_TOOL = {
                 "type": "string",
                 "description": (
                     "A short, persuasive, benefit-led reason this product fits, written strictly in "
-                    "the same language and dialect as your chat reply (Saudi dialect if Arabic), "
+                    "the language of the customer's latest message (Saudi dialect only if that message is Arabic), "
                     "with no markdown formatting (no bold, headings, or lists — plain text only). "
                     "The first time you show a product, also invite them to upload a photo to try it "
                     "on — don't repeat that same invitation on every card, and never invite a try-on for "
@@ -148,8 +154,8 @@ RECOMMEND_TOOL = {
                 "type": "string",
                 "description": (
                     "Very short label (2-6 words, may end with 📸) for the button that lets the customer "
-                    "upload a photo to try this product on, written strictly in the same language "
-                    "and dialect as your chat reply (Saudi dialect if Arabic). If it's for someone else, word it for trying it on that "
+                    "upload a photo to try this product on, written strictly in the language of the "
+                    "customer's latest message (Saudi dialect only if it's Arabic). If it's for someone else, word it for trying it on that "
                     "person, not the customer."
                 ),
             },
@@ -183,8 +189,8 @@ DISCOUNT_TOOL = {
             "pitch": {
                 "type": "string",
                 "description": (
-                    "Your full closing message that goes with the code, strictly in the same language "
-                    "and dialect as your chat reply (Saudi dialect if Arabic), plain text: acknowledge their hesitation in a few words, one "
+                    "Your full closing message that goes with the code, strictly in the language of the "
+                    "customer's latest message (Saudi dialect only if it's Arabic), plain text: acknowledge their hesitation in a few words, one "
                     "concrete sentence on the product's real value, then present the code as the reason "
                     "to go ahead now. Never just the code alone."
                 ),
@@ -208,9 +214,11 @@ chat reply AND the `reason` field of every tool call — must be in that languag
 or any other language unless the customer does so themselves.
 - ARABIC IS ALWAYS SAUDI: whenever the customer writes Arabic — any dialect, MSA or Arabizi — write \
 EVERYTHING (chat reply and every `reason`, label and pitch) in everyday Saudi dialect, like a friendly \
-salesperson in a Saudi store: e.g. "أبي/تبي"، "وش"، "الحين"، "زين"، "مرّة" (very)، "حيل"، "ودّك"، "يعطيك \
-العافية"، "قبل لا"، "عشان". Never write Levantine, Egyptian or other dialects ("بدي"، "شو"، "هلق"، "كتير"، \
-"عايز"، "إيه") and never drift into Modern Standard Arabic, even if the customer writes that way.
+salesperson in a Saudi store: e.g. "abi/tabi", "wesh", "al-7een", "zain", "marra" (very), "7eil", \
+"wddak", "gabl la", "3shan". Never write Levantine, Egyptian or other dialects ("baddi", "shu", \
+"halla2", "ktir", "3ayez") and never drift into Modern Standard Arabic, even if the customer writes that way. \
+Every Arabic reply should sound unmistakably Saudi: use at least two everyday Saudi words in it, written \
+in Arabic letters.
 - For other languages, match the customer's register (casual vs. formal English, Brazilian vs. \
 European Portuguese, etc.).
 - Keep each reply in ONE script and never mix Arabic and Latin letters inside it. If they write Arabic \
@@ -626,10 +634,19 @@ def chat(request):
     if force_tool:
         original_reply_text = result.reply_text
         try:
+            # بالاستدعاء الإجباري الموديل بيكتب الـ reason بس، وبلا تذكير صريح كان
+            # أحياناً يكتبه بلغة عشوائية (إسباني/كتالوني لزبون كاتب إنجليزي).
+            forced_messages = clean_messages + (
+                [{"role": "assistant", "content": original_reply_text}] if original_reply_text else []
+            )
             forced_result = llm.chat_with_retry(
                 provider,
-                system_prompt,
-                clean_messages + [{"role": "assistant", "content": original_reply_text}],
+                system_prompt + (
+                    "\n\nThe customer's latest message is: "
+                    + json.dumps(clean_messages[-1]["content"], ensure_ascii=False)
+                    + ". Write every tool field in that message's language (Saudi dialect only if it's Arabic)."
+                ),
+                forced_messages,
                 tools,
                 force_tool=force_tool,
             )
@@ -677,6 +694,22 @@ def chat(request):
         except llm.LLMError:
             pass  # نضل مع الرد الأصلي بدل ما نفشّل الطلب كله
 
+    if not reply_text:
+        # لو الموديل رجع بس tool_use بدون نص، منضمن إنه الزبون ما يستنى رد
+        # فاضي أو رد عام مالوش علاقة بالسياق بالشات. قبل شبكة اللغة، لأنه الـ reason
+        # نفسه ممكن يطلع بلغة غلط.
+        if recommendations and purchase_intent:
+            reply_text = PURCHASE_REPLY[lang]
+            recommendations[0]["reason"] = reply_text
+        elif recommendations:
+            reply_text = recommendations[0]["reason"]
+        elif blocked_reason:
+            reply_text = blocked_reason
+        elif discount_offer:
+            reply_text = FALLBACK_DISCOUNT_REPLY[lang].format(**discount_offer)
+        else:
+            reply_text = FALLBACK_REPHRASE_REPLY[lang]
+
     # شبكة أمان للغة: زبون كاتب بحروف عربية لازم يجيه رد فيه حروف عربية، والعكس.
     # (الموديلات الرخيصة نادراً بتغلط وبترد بلغة تانية.) منعيد مرة وحدة بتصحيح صريح.
     if reply_text and _script_mismatch(last_user_text, reply_text):
@@ -687,27 +720,18 @@ def chat(request):
         )
         try:
             corrected = llm.chat_with_retry(provider, corrected_system_prompt, clean_messages, tools)
-            if corrected.reply_text and not _script_mismatch(last_user_text, corrected.reply_text):
-                new_recs, new_offer, blocked_reason = _process_tool_calls(
-                    corrected.tool_calls, products, discount_codes, lang, blocked_skus, merchant.currency
-                )
-                reply_text = corrected.reply_text
+            new_recs, new_offer, new_blocked_reason = _process_tool_calls(
+                corrected.tool_calls, products, discount_codes, lang, blocked_skus, merchant.currency
+            )
+            # التصحيح كمان ممكن يرجع كرت بلا نص — وقتها الـ reason تبعه هو الرد.
+            new_reply = corrected.reply_text or (new_recs[0]["reason"] if new_recs else new_blocked_reason)
+            if new_reply and not _script_mismatch(last_user_text, new_reply):
+                blocked_reason = new_blocked_reason
+                reply_text = new_reply
                 recommendations = _apply_budget(new_recs, budget_ceiling) or recommendations
                 discount_offer = new_offer or discount_offer
         except llm.LLMError:
             pass
-
-    if not reply_text:
-        # لو الموديل رجع بس tool_use بدون نص، منضمن إنه الزبون ما يستنى رد
-        # فاضي أو رد عام مالوش علاقة بالسياق بالشات.
-        if recommendations:
-            reply_text = recommendations[0]["reason"]
-        elif blocked_reason:
-            reply_text = blocked_reason
-        elif discount_offer:
-            reply_text = FALLBACK_DISCOUNT_REPLY[lang].format(**discount_offer)
-        else:
-            reply_text = FALLBACK_REPHRASE_REPLY[lang]
 
     # الرد النصي لازم يطابق العرض المنظّم: لو في discount_offer حقيقي بس
     # الموديل ما ذكره بالنص، منضيف جملة مبنية من بيانات الكود الفعلية بس.

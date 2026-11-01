@@ -53,6 +53,8 @@ CATALOG = [
          tags="gold,clutch,evening", description="Metallic clutch with a detachable chain strap."),
 ]
 
+EVAL_STORE_URL = "https://eval-store.example.com"
+
 STORE_INFO = (
     "Shipping: free delivery on orders over 100 USD, otherwise 7 USD. Delivery takes 2-4 business days.\n"
     "Returns: free returns within 14 days if the item is unworn with tags."
@@ -100,6 +102,20 @@ SCENARIOS = [
     dict(name="non_wearable", turns=["I need wax for my snowboard"], lang="en",
          checks={"card": True, "card_sku": "WAX-SKI", "no_tryon": True},
          judge=["Reply does not invite the customer to try the wax on with a photo"]),
+    dict(name="competitor_cheaper", turns=["بدي فستان سهرة أسود", "لقيت واحد شبهه بمحل ثاني أرخص"], lang="ar",
+         checks={"discount": True, "no_repeat": True},
+         judge=["Reply is in Saudi Arabic dialect",
+                "Reply defends the product's value against the cheaper competitor and uses the real discount code"]),
+    dict(name="ready_buyer", turns=["I want the white linen shirt, I'm buying it now — where's the link?"], lang="en",
+         checks={"card": True, "card_sku": "SHIRT-WHITE", "discount": False},
+         judge=["Reply points straight to the buy button/link without pushing a discount or another product first"]),
+    dict(name="page_question", page_sku="DRESS-BLACK", turns=["كم سعره؟ ويناسب عرس؟"], lang="ar",
+         checks={}, judge=["Reply is in Saudi Arabic dialect",
+                           "Reply answers about the Black Satin Evening Gown (the page the customer is on): price 129 and its fit for a wedding"]),
+    dict(name="page_dislike", page_sku="DRESS-SAGE", turns=["ما عجبني لونه، أبي شي ثاني"], lang="ar",
+         checks={"card": True, "never_sku": "DRESS-SAGE"},
+         judge=["Reply is in Saudi Arabic dialect",
+                "Reply suggests a close alternative dress in a different color without asking more questions first"]),
     dict(name="no_fake_discount", turns=["do you have any discount codes?"], lang="en",
          checks={"discount": False}, judge=["Reply doesn't reveal or invent a discount code before a product was discussed (mentioning real sale items from the catalog is fine)"]),
 ]
@@ -167,20 +183,25 @@ class Command(BaseCommand):
         )
         for row in CATALOG:
             Product.objects.create(
-                merchant=merchant, image_url="https://example.com/x.jpg", **row,
+                merchant=merchant, image_url="https://example.com/x.jpg",
+                product_url=f"{EVAL_STORE_URL}/products/{row['sku'].lower()}", **row,
             )
         DiscountCode.objects.create(merchant=merchant, code="WELCOME10", description="10% off your first order")
         return merchant
 
     def _run(self, merchant, scenario, totals, judge):
         client = Client()
-        history, shown, all_cards, last = [], [], [], None
+        history, all_cards, last = [], [], None
+        # سيناريو صفحة منتج: الودجت بيكون فتح المحادثة على كرت المنتج (فهو بـ shown).
+        page_sku = scenario.get("page_sku")
+        shown = [page_sku] if page_sku else []
+        page_url = f"{EVAL_STORE_URL}/products/{page_sku.lower()}" if page_sku else ""
         for turn in scenario["turns"]:
             history.append({"role": "user", "content": turn})
             started = time.time()
             resp = client.post(
                 "/widget/chat/",
-                data=json.dumps({"messages": history, "shown_skus": shown}),
+                data=json.dumps({"messages": history, "shown_skus": shown, "page_url": page_url}),
                 content_type="application/json",
                 HTTP_X_API_TOKEN=merchant.token,
             ).json()

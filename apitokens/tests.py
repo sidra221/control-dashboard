@@ -921,3 +921,53 @@ class SaudiPhrasingTests(TestCase):
         from .widget_views import _extract_budget_ceiling
         for text in ("أبي فستان في حدود 300", "ميزانيتي 250", "ما ابي ادفع اكثر من 400", "مو اكثر من 150"):
             self.assertIsNotNone(_extract_budget_ceiling([{"role": "user", "content": text}]), text)
+
+
+class ToolOnlyReplyLanguageTests(TestCase):
+    """الموديل رجّع كرت بلا نص و reason بلغة غلط: شبكة اللغة لازم تلقطه."""
+
+    def setUp(self):
+        self.merchant = ApiToken.objects.create(label="Lang", token="LANGTOKEN0001", image_quota=5)
+        Product.objects.create(
+            merchant=self.merchant, sku="SHIRT-WHITE", title="White Linen Shirt", price="45.00",
+            image_url="https://example.com/s.jpg", category="shirts",
+        )
+
+    @patch("apitokens.widget_views.llm.chat_with_retry")
+    @patch("apitokens.widget_views.llm.get_provider")
+    def test_wrong_language_reason_is_corrected(self, mock_provider, mock_chat):
+        mock_provider.return_value = FakeProvider()
+        card = lambda reason: fake_result(
+            tool_calls=[{"name": "recommend_product", "input": {"sku": "SHIRT-WHITE", "reason": reason}}]
+        )
+        mock_chat.side_effect = [card("اضغط زر الشراء تحت"), card("Tap the buy button below")]
+        data = Client().post(
+            "/widget/chat/", data=json.dumps({"messages": [{"role": "user", "content": "which shirt would you pick for me?"}]}),
+            content_type="application/json", HTTP_X_API_TOKEN=self.merchant.token,
+        ).json()
+        self.assertEqual(data["reply"], "Tap the buy button below")
+        self.assertEqual(data["recommendations"][0]["reason"], "Tap the buy button below")
+
+
+class PurchaseReplyTests(TestCase):
+    def setUp(self):
+        self.merchant = ApiToken.objects.create(label="Buy", token="BUYTOKEN00001", image_quota=5)
+        Product.objects.create(
+            merchant=self.merchant, sku="SHIRT-WHITE", title="White Linen Shirt", price="45.00",
+            image_url="https://example.com/s.jpg", category="shirts", product_url="https://s.example.com/products/w",
+        )
+
+    @patch("apitokens.widget_views.llm.chat_with_retry")
+    @patch("apitokens.widget_views.llm.get_provider")
+    def test_tool_only_buy_reply_uses_fixed_sentence_in_customer_language(self, mock_provider, mock_chat):
+        mock_provider.return_value = FakeProvider()
+        mock_chat.return_value = fake_result(
+            tool_calls=[{"name": "recommend_product", "input": {"sku": "SHIRT-WHITE", "reason": "Pulsa el botón"}}]
+        )
+        for text, expected in (("great, how do I buy it?", "buy button"), ("زين أبيه، كيف أطلبه؟", "زر الشراء")):
+            data = Client().post(
+                "/widget/chat/", data=json.dumps({"messages": [{"role": "user", "content": text}]}),
+                content_type="application/json", HTTP_X_API_TOKEN=self.merchant.token,
+            ).json()
+            self.assertIn(expected, data["reply"])
+            self.assertEqual(data["recommendations"][0]["product_url"], "https://s.example.com/products/w")
