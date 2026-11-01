@@ -123,6 +123,8 @@ def complete_installation(code):
         if not connection.merchant.is_active:
             connection.merchant.is_active = True
             connection.merchant.save(update_fields=["is_active"])
+    # اشتراك وصل قبل ما التاجر يكمّل التفعيل (زد بتقبض قبل OAuth).
+    apply_subscription(connection, new_period=True)
     return connection
 
 
@@ -200,3 +202,95 @@ def api_request(connection, method, path, params=None, json_body=None):
     if not resp.ok:
         raise ZidError(f"api_error:{resp.status_code}:{resp.text[:200]}")
     return resp.json() if resp.content else {}
+
+
+# ---------------------------------------------------------------------------
+# الاشتراكات
+# ---------------------------------------------------------------------------
+
+ACTIVATING_EVENTS = {
+    "app.market.subscription.active",
+    "app.market.subscription.renew",
+    "app.market.subscription.upgrade",
+}
+ENDING_EVENTS = {
+    "app.market.subscription.suspended",
+    "app.market.subscription.expired",
+    "app.market.subscription.refunded",
+}
+
+
+def _parse_date(value):
+    from django.utils.dateparse import parse_datetime
+
+    try:
+        return parse_datetime(value) if value else None
+    except (TypeError, ValueError):
+        return None
+
+
+def plan_quota(subscription):
+    """رصيد الصور الشهري للباقة، من ZID_PLAN_QUOTAS (بالرقم أو بالاسم)."""
+    quotas = settings.ZID_PLAN_QUOTAS or {}
+    for key in (subscription.plan_id, subscription.plan_name):
+        if key and str(key) in quotas:
+            return int(quotas[str(key)])
+    return settings.ZID_DEFAULT_IMAGE_QUOTA
+
+
+def record_subscription_event(payload):
+    """بيسجّل حالة الاشتراك (حتى لو التاجر لسا ما كمّل OAuth) وبيطبّقها على
+    حسابه إذا موجود. منفرّق بين الأحداث بـ event_name بس (توصية زد)."""
+    from ..models import ZidSubscription
+
+    event = payload.get("event_name") or ""
+    store_id = str(payload.get("store_id") or "")
+    if not store_id:
+        return None
+    subscription, _ = ZidSubscription.objects.get_or_create(store_id=store_id)
+    subscription.store_uuid = str(payload.get("store_uuid") or subscription.store_uuid)[:64]
+    subscription.last_event = event[:80]
+    renewed = event in ACTIVATING_EVENTS
+    if renewed:
+        subscription.is_active = True
+        subscription.plan_id = str(payload.get("plan_id") or "")[:32]
+        subscription.plan_name = (payload.get("plan_name") or "")[:120]
+        subscription.plan_type = (payload.get("plan_type") or "")[:32]
+        subscription.end_date = _parse_date(payload.get("end_date"))
+    elif event in ENDING_EVENTS:
+        subscription.is_active = False
+    subscription.save()
+
+    connection = ZidConnection.objects.filter(store_id=store_id).select_related("merchant").first()
+    if connection is not None:
+        apply_subscription(connection, subscription, new_period=renewed)
+    return subscription
+
+
+def apply_subscription(connection, subscription=None, new_period=False):
+    """بيطبّق الباقة على حساب التاجر: الرصيد الشهري، وتوقيف الودجت لما ينتهي
+    الاشتراك. متجر ما إله اشتراك مسجّل (قبل ما نعمل باقات) بيضل متل ما هو."""
+    from ..models import ZidSubscription
+
+    if subscription is None:
+        subscription = ZidSubscription.objects.filter(store_id=connection.store_id).first()
+        if subscription is None:
+            return
+    merchant = connection.merchant
+    fields = []
+    if subscription.is_active:
+        quota = plan_quota(subscription)
+        if merchant.image_quota != quota:
+            merchant.image_quota = quota
+            fields.append("image_quota")
+        if new_period:
+            # فترة اشتراك جديدة (تفعيل/تجديد/ترقية) = رصيد جديد.
+            merchant.images_used = 0
+            merchant.period_start = timezone.now()
+            fields += ["images_used", "period_start"]
+    should_be_active = subscription.is_active and connection.is_active
+    if merchant.is_active != should_be_active:
+        merchant.is_active = should_be_active
+        fields.append("is_active")
+    if fields:
+        merchant.save(update_fields=fields)

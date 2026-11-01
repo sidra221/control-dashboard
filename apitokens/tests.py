@@ -1500,3 +1500,87 @@ class PrivacyPageTests(TestCase):
         self.assertIn("سياسة الخصوصية", html)
         self.assertIn("Privacy Policy", html)
         self.assertIn("support@example.com", html)
+
+
+@override_settings(ZID_WEBHOOK_SECRET="zid-hook-secret", ZID_PLAN_QUOTAS={"Basic": 100, "904": 500},
+                   ZID_DEFAULT_IMAGE_QUOTA=20)
+class ZidSubscriptionTests(TestCase):
+    def setUp(self):
+        from .models import ZidConnection
+        self.merchant = ApiToken.objects.create(label="بوتيك", image_quota=20, images_used=7)
+        self.connection = ZidConnection.objects.create(
+            merchant=self.merchant, store_id="507530", store_uuid="d78468cd", authorization_token="A",
+            manager_token="M", refresh_token="R",
+        )
+
+    def event(self, name, secret="zid-hook-secret", **extra):
+        payload = dict({"app_id": 1292, "store_id": 507530, "store_uuid": "d78468cd", "plan_name": "Basic",
+                        "plan_id": 77, "plan_type": "Paid", "status": "active",
+                        "end_date": "2026-12-01T08:05:29.000000Z", "event_name": name}, **extra)
+        headers = {"HTTP_X_CONTROL_SECRET": secret} if secret else {}
+        return self.client.post("/webhooks/zid/app/", data=json.dumps(payload),
+                                content_type="application/json", **headers)
+
+    def test_missing_or_wrong_secret_rejected(self):
+        self.assertEqual(self.event("app.market.subscription.active", secret=None).status_code, 401)
+        self.assertEqual(self.event("app.market.subscription.active", secret="nope").status_code, 401)
+
+    def test_active_sets_plan_quota_and_resets_usage(self):
+        self.assertEqual(self.event("app.market.subscription.active").status_code, 200)
+        self.merchant.refresh_from_db()
+        self.assertEqual((self.merchant.image_quota, self.merchant.images_used), (100, 0))
+        self.assertTrue(self.merchant.is_active)
+
+    def test_upgrade_by_plan_id(self):
+        self.event("app.market.subscription.active")
+        self.merchant.images_used = 40
+        self.merchant.save()
+        self.event("app.market.subscription.upgrade", plan_name="Growth", plan_id=904)
+        self.merchant.refresh_from_db()
+        self.assertEqual((self.merchant.image_quota, self.merchant.images_used), (500, 0))
+
+    def test_expired_turns_widget_off_and_renew_turns_it_back_on(self):
+        self.event("app.market.subscription.active")
+        self.event("app.market.subscription.warning", status="warning")
+        self.merchant.refresh_from_db()
+        self.assertTrue(self.merchant.is_active)
+        self.event("app.market.subscription.expired", status="expire")
+        self.merchant.refresh_from_db()
+        self.assertFalse(self.merchant.is_active)
+        self.event("app.market.subscription.renew")
+        self.merchant.refresh_from_db()
+        self.assertTrue(self.merchant.is_active)
+
+    def test_subscription_before_oauth_applies_on_install(self):
+        """زد بتقبض قبل OAuth — الاشتراك بيوصل قبل ما يكون عنا ربط."""
+        from .models import ZidConnection, ZidSubscription
+        from .services import zid
+        self.event("app.market.subscription.active", store_id=999001, store_uuid="new-uuid")
+        self.assertTrue(ZidSubscription.objects.get(store_id="999001").is_active)
+        tokens = {"authorization": "A2", "access_token": "M2", "refresh_token": "R2", "expires_in": 100}
+        with patch("apitokens.services.zid.requests.post") as mock_post, \
+                patch("apitokens.services.zid.requests.get") as mock_get:
+            mock_post.return_value.ok = True
+            mock_post.return_value.json.return_value = tokens
+            mock_get.return_value.json.return_value = {"store": {"id": 999001, "uuid": "new-uuid", "title": "جديد"}}
+            mock_get.return_value.raise_for_status.return_value = None
+            conn = zid.complete_installation("CODE")
+        conn.merchant.refresh_from_db()
+        self.assertEqual(conn.merchant.image_quota, 100)
+        self.assertTrue(conn.merchant.is_active)
+        self.assertEqual(ZidConnection.objects.filter(store_id="999001").count(), 1)
+
+    def test_unknown_plan_falls_back_to_default_quota(self):
+        self.event("app.market.subscription.active", plan_name="Mystery", plan_id=1)
+        self.merchant.refresh_from_db()
+        self.assertEqual(self.merchant.image_quota, 20)
+
+    def test_uninstall_event_deactivates(self):
+        self.event("app.market.application.uninstall", status="active")
+        self.connection.refresh_from_db()
+        self.merchant.refresh_from_db()
+        self.assertFalse(self.connection.is_active or self.merchant.is_active)
+
+    @override_settings(ZID_WEBHOOK_SECRET="")
+    def test_unconfigured_secret_refuses(self):
+        self.assertEqual(self.event("app.market.subscription.active", secret="x").status_code, 503)

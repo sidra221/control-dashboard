@@ -1,7 +1,7 @@
 from django.contrib import admin
 from django.urls import include, path
 
-from apitokens import salla_webhooks, shopify_webhooks, widget_views, zid_views
+from apitokens import salla_webhooks, shopify_webhooks, widget_views, zid_views, zid_webhooks
 
 admin.site.site_header = "Control — kie.ai Tokens"
 admin.site.site_title = "Control"
@@ -25,5 +25,6 @@ urlpatterns = [
     path("zid/callback/", zid_views.callback, name="zid-callback"),
     path("zid/app/", zid_views.app, name="zid-app"),
     path("privacy/", zid_views.privacy, name="privacy"),
+    path("webhooks/zid/app/", zid_webhooks.app_webhook, name="zid-app-webhook"),
     path("", include("apitokens.urls")),
 ]

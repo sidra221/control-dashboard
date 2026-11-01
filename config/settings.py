@@ -1,4 +1,5 @@
 from pathlib import Path
+import json
 import os
 
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -180,6 +181,11 @@ ZID_CLIENT_ID = os.environ.get("ZID_CLIENT_ID", "").strip()
 ZID_CLIENT_SECRET = os.environ.get("ZID_CLIENT_SECRET", "").strip()
 ZID_WEBHOOK_SECRET = os.environ.get("ZID_WEBHOOK_SECRET", "").strip()
 ZID_DEFAULT_IMAGE_QUOTA = int(os.environ.get("ZID_DEFAULT_IMAGE_QUOTA", "20"))
+# رصيد صور التجربة الشهري لكل باقة بزد — المفتاح اسم الباقة (plan_name) أو رقمها
+# (plan_id) متل ما بتطلع ببوابة الشركاء. مؤقت لحد ما تتحدد الباقات النهائية.
+ZID_PLAN_QUOTAS = json.loads(
+    os.environ.get("ZID_PLAN_QUOTAS", "") or '{"Basic": 100, "Growth": 500, "Pro": 1000}'
+)
 
 # إيميل الدعم اللي بيظهر بصفحة سياسة الخصوصية (/privacy/).
 SUPPORT_EMAIL = os.environ.get("SUPPORT_EMAIL", "").strip()

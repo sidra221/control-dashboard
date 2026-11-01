@@ -251,6 +251,29 @@ class ZidConnection(models.Model):
         return f"{self.store_name or self.store_id} ({self.merchant.label})"
 
 
+class ZidSubscription(models.Model):
+    """آخر حالة لاشتراك متجر بباقاتنا على زد. منفصل عن الربط لأنه زد بتقبض
+    وبتبعت app.market.subscription.active قبل ما التاجر يكمّل OAuth — يعني
+    الاشتراك ممكن يوصل قبل ما يكون عنا ربط للمتجر."""
+
+    store_id = models.CharField(max_length=32, unique=True)
+    store_uuid = models.CharField(max_length=64, blank=True, default="", db_index=True)
+    plan_id = models.CharField(max_length=32, blank=True, default="")
+    plan_name = models.CharField("الباقة", max_length=120, blank=True, default="")
+    plan_type = models.CharField(max_length=32, blank=True, default="")
+    is_active = models.BooleanField("الاشتراك فعّال", default=False)
+    end_date = models.DateTimeField(null=True, blank=True)
+    last_event = models.CharField(max_length=80, blank=True, default="")
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = "اشتراك زد"
+        verbose_name_plural = "اشتراكات زد"
+
+    def __str__(self):
+        return f"{self.store_id} — {self.plan_name or '-'}"
+
+
 class ShopifyConnection(models.Model):
     """ربط حي بين تاجر (ApiToken) ومتجر Shopify حقيقي عبر تطبيق خاص
     (Custom App). الكتالوج بيتزامن أول مرة بالكامل، وبعدها بيتحدّث لحاله
