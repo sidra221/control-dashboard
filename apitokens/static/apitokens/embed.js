@@ -29,6 +29,9 @@
   var IS_SHOPIFY = !!(window.Shopify && window.Shopify.shop);
   // جوا متجر سلة: مكتبة سلة (Twilight) بتضيف للسلة، ورقم السلة بيربط الطلب بالمحادثة.
   var IS_SALLA = !!(window.salla && window.salla.cart && window.salla.cart.addItem);
+  // زد: ثيمات Vitrin الجديدة (zid.cart) والقديمة (zid.store.cart).
+  var ZID_CART = window.zid && (window.zid.cart || (window.zid.store && window.zid.store.cart));
+  var IS_ZID = !!(ZID_CART && ZID_CART.addProduct);
   var cartTagged = false;
   var UI = {
     ar: { add: "أضف للسلة 🛒", added: "انضاف للسلة ✓ — كمّل طلبك", addFailed: "ما قدرنا نضيفه للسلة، جرّب من صفحة المنتج.", buy: "اشترِه الحين" },
@@ -70,14 +73,32 @@
     }).catch(function () {});
   }
 
-  function trackEvent(type) {
-    if (!IS_SALLA || !window.salla.cart.getCurrentCartId) {
-      sendEvent(type);
-      return;
+  // رقم سلة الزبون بالمنصة — منه منعرف إذا الطلب إجا من هالمحادثة.
+  function platformCartId() {
+    if (IS_SALLA && window.salla.cart.getCurrentCartId) {
+      return window.salla.cart.getCurrentCartId();
     }
-    // getCurrentCartId ممكن يرجّع قيمة أو Promise حسب نسخة المكتبة.
+    if (IS_ZID) {
+      var fetchCart = window.zid.cart && window.zid.cart.get
+        ? window.zid.cart.get()
+        : window.zid.store.cart.fetch();
+      return Promise.resolve(fetchCart).then(function (res) {
+        var cart = (res && (res.cart || (res.data && res.data.cart))) || res || {};
+        return cart.id || cart.session_id || "";
+      });
+    }
+    return null;
+  }
+
+  function trackEvent(type) {
+    // ممكن ترجّع قيمة أو Promise حسب نسخة مكتبة المنصة.
     try {
-      Promise.resolve(window.salla.cart.getCurrentCartId())
+      var pending = platformCartId();
+      if (pending === null) {
+        sendEvent(type);
+        return;
+      }
+      Promise.resolve(pending)
         .then(function (cartId) {
           sendEvent(type, cartId);
         })
@@ -490,6 +511,30 @@
           });
       });
       card.appendChild(sallaAddBtn);
+    } else if (IS_ZID && rec.product_id && !rec.has_options) {
+      var zidAddBtn = document.createElement("button");
+      zidAddBtn.className = "addcart";
+      zidAddBtn.textContent = labels.add;
+      zidAddBtn.addEventListener("click", function () {
+        zidAddBtn.disabled = true;
+        var adding = window.zid.cart && window.zid.cart.addProduct
+          ? window.zid.cart.addProduct({ product_id: rec.product_id, quantity: 1 })
+          : window.zid.store.cart.addProduct({ productId: rec.product_id, quantity: 1 });
+        Promise.resolve(adding)
+          .then(function () {
+            trackEvent("add_to_cart");
+            var go = document.createElement("a");
+            go.className = "buy";
+            go.href = "/cart/view";
+            go.textContent = labels.added;
+            zidAddBtn.replaceWith(go);
+          })
+          .catch(function () {
+            zidAddBtn.disabled = false;
+            addErrorMessage(labels.addFailed);
+          });
+      });
+      card.appendChild(zidAddBtn);
     } else if (rec.product_url) {
       var buyLink = document.createElement("a");
       buyLink.className = "buy";

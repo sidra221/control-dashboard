@@ -1680,3 +1680,41 @@ class ZidProductTests(TestCase):
                                           "order_total": "450.00", "currency_code": "SAR"})
         conv.refresh_from_db()
         self.assertEqual((conv.order_id, str(conv.order_total), conv.order_currency), ("77001", "450.00", "SAR"))
+
+
+class ZidWidgetTests(TestCase):
+    def setUp(self):
+        from .models import ZidConnection
+        self.merchant = ApiToken.objects.create(label="ورد", image_quota=20)
+        self.connection = ZidConnection.objects.create(
+            merchant=self.merchant, store_id="4242", store_url="https://ward.zid.store/", authorization_token="A",
+        )
+        ApiToken.objects.create(label="other", image_quota=1)
+        other = ApiToken.objects.create(label="ward2", image_quota=1)
+        ZidConnection.objects.create(merchant=other, store_id="5555", store_url="https://award.zid.store/")
+
+    def key(self, host):
+        return self.client.get("/widget/zid-key/", {"host": host})
+
+    def test_store_key_by_host(self):
+        for host in ("ward.zid.store", "WWW.ward.zid.store", "ward.zid.store:443"):
+            self.assertEqual(self.key(host).json()["store_key"], self.merchant.token, host)
+
+    def test_similar_or_unknown_host_not_matched(self):
+        self.assertEqual(self.key("zid.store").status_code, 404)
+        self.assertEqual(self.key("ard.zid.store").status_code, 404)
+        self.assertEqual(self.key("").status_code, 404)
+
+    def test_inactive_store_gets_no_key(self):
+        self.merchant.is_active = False
+        self.merchant.save()
+        self.assertEqual(self.key("ward.zid.store").status_code, 404)
+
+    def test_zid_product_pages_already_match(self):
+        Product.objects.create(merchant=self.merchant, sku="A", external_id="u-1", title="عباية", price="10",
+                               image_url="https://x/a.jpg", product_url="https://ward.zid.store/products/black-abaya")
+        product = self.client.post(
+            "/widget/page-product/", data=json.dumps({"page_url": "https://ward.zid.store/products/black-abaya?ref=ig"}),
+            content_type="application/json", HTTP_X_API_TOKEN=self.merchant.token,
+        ).json()["product"]
+        self.assertEqual((product["sku"], product["product_id"]), ("A", "u-1"))

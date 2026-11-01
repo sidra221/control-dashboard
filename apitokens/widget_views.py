@@ -11,7 +11,7 @@ from django.utils import timezone
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_http_methods
 
-from .models import ApiToken, Conversation, Product, SallaConnection
+from .models import ApiToken, Conversation, Product, SallaConnection, ZidConnection
 from .services import catalog as catalog_service
 from .services import kieai, llm
 
@@ -804,6 +804,36 @@ def event(request):
             update_fields.append("platform_cart_id")
         conversation.save(update_fields=update_fields)
     return _cors_response({"ok": True})
+
+
+def _bare_host(value):
+    host = (value or "").strip().lower()
+    if "://" in host:
+        host = urlsplit(host).netloc
+    host = host.split("/")[0].split(":")[0]
+    return host[4:] if host.startswith("www.") else host
+
+
+@require_http_methods(["GET", "OPTIONS"])
+def zid_store_key(request):
+    """سكربت زد (نفسه لكل المتاجر) بيبعت دومين الصفحة — منرجّع مفتاح الودجت
+    للمتجر يلي رابطه (store_url من زد) بنفس الدومين."""
+    if request.method == "OPTIONS":
+        return _cors_response({}, status=200)
+    host = _bare_host(request.GET.get("host", ""))[:255]
+    connection = None
+    if host:
+        for candidate in ZidConnection.objects.filter(
+            is_active=True, store_url__icontains=host,
+        ).select_related("merchant"):
+            if _bare_host(candidate.store_url) == host:
+                connection = candidate
+                break
+    if connection is None or not connection.merchant.is_active:
+        return _cors_response({"ok": False, "error": "store_not_connected"}, status=404)
+    response = _cors_response({"ok": True, "store_key": connection.merchant.token})
+    response["Access-Control-Allow-Methods"] = "GET, OPTIONS"
+    return response
 
 
 @require_http_methods(["GET", "OPTIONS"])
