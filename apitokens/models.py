@@ -217,6 +217,40 @@ class SallaConnection(models.Model):
         return f"{self.store_name or self.salla_merchant_id} ({self.merchant.label})"
 
 
+class ZidConnection(models.Model):
+    """ربط تاجر (ApiToken) بمتجر زد. بينعمل لحاله بعد موافقة OAuth لما التاجر
+    يفعّل تطبيقنا من متجر تطبيقات زد.
+
+    زد بتعطي مفتاحين لازم ينبعتوا مع بعض بكل طلب: authorization (Bearer) و
+    manager token. الـ refresh بيعيش سنة بس (أقصر من المفاتيح بسنتين) — لازم
+    نجدّد على جدول، مش لما يفشل طلب.
+    """
+
+    merchant = models.OneToOneField(
+        ApiToken, on_delete=models.CASCADE, related_name="zid_connection",
+    )
+    store_id = models.CharField("رقم المتجر بزد", max_length=32, unique=True)
+    store_uuid = models.CharField(max_length=64, blank=True, default="", db_index=True)
+    store_name = models.CharField("اسم المتجر", max_length=255, blank=True, default="")
+    store_url = models.CharField("رابط المتجر", max_length=255, blank=True, default="")
+    authorization_token = models.TextField(blank=True, default="")
+    manager_token = models.TextField(blank=True, default="")
+    refresh_token = models.TextField(blank=True, default="")
+    token_expires_at = models.DateTimeField(null=True, blank=True)
+    tokens_refreshed_at = models.DateTimeField(null=True, blank=True)
+    is_active = models.BooleanField("فعّال", default=True)
+    last_synced_at = models.DateTimeField("آخر مزامنة", null=True, blank=True)
+    created_at = models.DateTimeField("تاريخ الربط", auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = "ربط زد"
+        verbose_name_plural = "ربط زد"
+
+    def __str__(self):
+        return f"{self.store_name or self.store_id} ({self.merchant.label})"
+
+
 class ShopifyConnection(models.Model):
     """ربط حي بين تاجر (ApiToken) ومتجر Shopify حقيقي عبر تطبيق خاص
     (Custom App). الكتالوج بيتزامن أول مرة بالكامل، وبعدها بيتحدّث لحاله

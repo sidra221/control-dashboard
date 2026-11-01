@@ -1389,3 +1389,103 @@ class SallaDashboardTests(TestCase):
     def test_requires_staff(self):
         self.client.logout()
         self.assertEqual(self.client.get("/salla/").status_code, 302)
+
+
+@override_settings(ZID_CLIENT_ID="zid-client", ZID_CLIENT_SECRET="zid-secret", SITE_BASE_URL="https://control.example.com")
+class ZidInstallTests(TestCase):
+    TOKENS = {"token_type": "Bearer", "expires_in": 94608000, "authorization": "AUTH1",
+              "access_token": "MGR1", "refresh_token": "REF1"}
+    STORE = {"status": "object", "store": {"id": 4242, "uuid": "3dfc16e6-ad19", "title": "بوتيك الورد",
+                                           "url": "https://ward.zid.store/"}}
+
+    def start(self):
+        resp = self.client.get("/zid/install/")
+        from urllib.parse import parse_qs, urlparse
+        query = parse_qs(urlparse(resp["Location"]).query)
+        return resp, query
+
+    def finish(self, state, code="CODE1"):
+        with patch("apitokens.services.zid.requests.post") as mock_post, \
+                patch("apitokens.services.zid.requests.get") as mock_get, \
+                patch("apitokens.zid_webhooks.start_initial_sync") as mock_sync:
+            mock_post.return_value.ok = True
+            mock_post.return_value.json.return_value = dict(self.TOKENS)
+            mock_get.return_value.json.return_value = self.STORE
+            mock_get.return_value.raise_for_status.return_value = None
+            resp = self.client.get("/zid/callback/", {"code": code, "state": state})
+        return resp, mock_post, mock_get, mock_sync
+
+    def test_install_redirects_straight_to_zid_oauth(self):
+        resp, query = self.start()
+        self.assertTrue(resp["Location"].startswith("https://oauth.zid.sa/oauth/authorize?"))
+        self.assertEqual(query["client_id"], ["zid-client"])
+        self.assertEqual(query["redirect_uri"], ["https://control.example.com/zid/callback/"])
+        self.assertEqual(query["response_type"], ["code"])
+        self.assertTrue(query["state"][0])
+
+    def test_callback_creates_merchant_and_connection(self):
+        _, query = self.start()
+        resp, mock_post, mock_get, mock_sync = self.finish(query["state"][0])
+        self.assertRedirects(resp, "/zid/app/", fetch_redirect_response=False)
+        data = mock_post.call_args.kwargs["data"]
+        self.assertEqual((data["grant_type"], data["code"]), ("authorization_code", "CODE1"))
+        headers = mock_get.call_args.kwargs["headers"]
+        self.assertEqual((headers["Authorization"], headers["X-Manager-Token"]), ("Bearer AUTH1", "MGR1"))
+        from .models import ZidConnection
+        conn = ZidConnection.objects.get(store_id="4242")
+        self.assertEqual((conn.store_name, conn.store_uuid), ("بوتيك الورد", "3dfc16e6-ad19"))
+        self.assertEqual((conn.authorization_token, conn.manager_token, conn.refresh_token), ("AUTH1", "MGR1", "REF1"))
+        self.assertEqual(conn.merchant.label, "بوتيك الورد")
+        mock_sync.assert_called_once_with(conn.pk)
+        page = self.client.get("/zid/app/").content.decode()
+        self.assertIn("تم تفعيل Control على متجرك", page)
+
+    def test_wrong_state_rejected_without_spending_the_code(self):
+        self.start()
+        resp, mock_post, _, _ = self.finish("forged-state")
+        self.assertEqual(resp.status_code, 400)
+        mock_post.assert_not_called()
+
+    def test_reinstall_reuses_same_merchant(self):
+        from .models import ZidConnection
+        _, q1 = self.start()
+        self.finish(q1["state"][0])
+        _, q2 = self.start()
+        self.finish(q2["state"][0], code="CODE2")
+        self.assertEqual(ZidConnection.objects.count(), 1)
+
+    def test_app_page_without_session_restarts_oauth(self):
+        self.assertRedirects(self.client.get("/zid/app/"), "/zid/install/", fetch_redirect_response=False)
+
+    def test_scheduled_refresh_replaces_whole_token_set(self):
+        from datetime import timedelta
+        from django.utils import timezone
+        from .models import ZidConnection
+        from .services import zid
+        _, query = self.start()
+        self.finish(query["state"][0])
+        conn = ZidConnection.objects.get(store_id="4242")
+        self.assertFalse(zid.needs_scheduled_refresh(conn))
+        conn.tokens_refreshed_at = timezone.now() - timedelta(days=301)
+        conn.save()
+        self.assertTrue(zid.needs_scheduled_refresh(conn))
+        with patch("apitokens.services.zid.requests.post") as mock_post:
+            mock_post.return_value.ok = True
+            mock_post.return_value.json.return_value = dict(self.TOKENS, authorization="AUTH2", access_token="MGR2", refresh_token="REF2")
+            zid.refresh_tokens(conn)
+            data = mock_post.call_args.kwargs["data"]
+            self.assertEqual((data["grant_type"], data["refresh_token"]), ("refresh_token", "REF1"))
+        conn.refresh_from_db()
+        self.assertEqual((conn.authorization_token, conn.manager_token, conn.refresh_token), ("AUTH2", "MGR2", "REF2"))
+        self.assertFalse(zid.needs_scheduled_refresh(conn))
+
+    def test_uninstall_deactivates(self):
+        from .models import ZidConnection
+        from .services import zid
+        _, query = self.start()
+        self.finish(query["state"][0])
+        zid.deactivate(store_uuid="3dfc16e6-ad19")
+        conn = ZidConnection.objects.get(store_id="4242")
+        conn.merchant.refresh_from_db()
+        self.assertFalse(conn.is_active or conn.merchant.is_active)
+        self.assertEqual(conn.manager_token, "")

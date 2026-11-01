@@ -173,3 +173,10 @@ SALLA_CLIENT_SECRET = os.environ.get("SALLA_CLIENT_SECRET", "").strip()
 SALLA_WEBHOOK_SECRET = os.environ.get("SALLA_WEBHOOK_SECRET", "").strip()
 # رصيد صور التجربة لحساب التاجر اللي بينعمل لحاله عند التركيب — لحد ما تتحدد الباقات.
 SALLA_DEFAULT_IMAGE_QUOTA = int(os.environ.get("SALLA_DEFAULT_IMAGE_QUOTA", "20"))
+
+# تطبيق زد (من بوابة الشركاء partner.zid.sa ← General settings ← API keys).
+# التاجر بيضغط "تفعيل" بزد ← /zid/install/ ← موافقة OAuth ← /zid/callback/.
+ZID_CLIENT_ID = os.environ.get("ZID_CLIENT_ID", "").strip()
+ZID_CLIENT_SECRET = os.environ.get("ZID_CLIENT_SECRET", "").strip()
+ZID_WEBHOOK_SECRET = os.environ.get("ZID_WEBHOOK_SECRET", "").strip()
+ZID_DEFAULT_IMAGE_QUOTA = int(os.environ.get("ZID_DEFAULT_IMAGE_QUOTA", "20"))
