@@ -10,12 +10,16 @@ from urllib.parse import urlparse
 
 from django.conf import settings
 from django.http import Http404
-from django.shortcuts import render
+from django.core.exceptions import ValidationError
+from django.core.validators import validate_email
+from django.shortcuts import redirect, render
 from django.templatetags.static import static
+from django.utils.http import url_has_allowed_host_and_scheme
 from django.utils.text import slugify
-from django.views.decorators.http import require_GET
+from django.views.decorators.http import require_GET, require_http_methods
 
-from .models import ApiToken
+from .models import ApiToken, DemoCustomer
+from .widget_views import DEMO_CUSTOMER_SESSION_KEY, _shopper_tryons_left
 
 DEMO_PRODUCTS_PREFIX = "/demo/products/"
 STORE_NAME = "متجر الأناقة"
@@ -176,8 +180,27 @@ def products_json(cards):
     return data
 
 
+def current_customer(request, merchant):
+    customer_id = request.session.get(DEMO_CUSTOMER_SESSION_KEY)
+    if not customer_id:
+        return None
+    return DemoCustomer.objects.filter(pk=customer_id, merchant=merchant).first()
+
+
+def tryon_allowance(merchant, customer):
+    """عدد التجارب الكلي والمتبقي لحساب الزبون (None للمتبقي = بلا حد). الحد بيجي
+    من إعداد التاجر بالداشبورد، فأي تعديل عليه بينعكس فوراً على كل الحسابات."""
+    limit = merchant.tryons_per_shopper
+    if customer is None or not limit:
+        return {"limit": limit, "left": None}
+    return {"limit": limit, "left": _shopper_tryons_left(merchant, customer.shopper_id, "")}
+
+
 def render_demo(request, template, merchant, cards, extra=None):
+    customer = current_customer(request, merchant)
     context = {
+        "customer": customer,
+        "allowance": tryon_allowance(merchant, customer),
         "store_name": STORE_NAME,
         "currency": "ر.س",
         "categories": categories_of(cards),
@@ -237,3 +260,78 @@ def product(request, handle):
 def cart(request):
     merchant = demo_merchant()
     return render_demo(request, "cart.html", merchant, all_cards(merchant))
+
+
+# ---------------------------------------------------------------- الحسابات
+
+MIN_PASSWORD_LENGTH = 6
+
+
+def _safe_next(request, default="/demo/"):
+    target = request.POST.get("next") or request.GET.get("next") or ""
+    ok = url_has_allowed_host_and_scheme(target, allowed_hosts={request.get_host()}, require_https=request.is_secure())
+    return target if ok and target.startswith("/demo/") else default
+
+
+def _auth_page(request, merchant, template, extra):
+    context = {"next": _safe_next(request)}
+    context.update(extra)
+    return render_demo(request, template, merchant, [], context)
+
+
+@require_http_methods(["GET", "POST"])
+def register(request):
+    merchant = demo_merchant()
+    if current_customer(request, merchant):
+        return redirect(_safe_next(request))
+    values = {"name": "", "email": ""}
+    error = ""
+    if request.method == "POST":
+        values["name"] = request.POST.get("name", "").strip()[:80]
+        values["email"] = request.POST.get("email", "").strip().lower()
+        password = request.POST.get("password", "")
+        try:
+            validate_email(values["email"])
+            valid_email = True
+        except ValidationError:
+            valid_email = False
+        if not values["name"]:
+            error = "يرجى إدخال الاسم."
+        elif not valid_email:
+            error = "يرجى إدخال بريد إلكتروني صحيح."
+        elif len(password) < MIN_PASSWORD_LENGTH:
+            error = f"كلمة المرور يجب ألا تقل عن {MIN_PASSWORD_LENGTH} أحرف."
+        elif DemoCustomer.objects.filter(merchant=merchant, email=values["email"]).exists():
+            error = "يوجد حساب مسجّل بهذا البريد الإلكتروني، يمكنك تسجيل الدخول."
+        else:
+            customer = DemoCustomer(merchant=merchant, name=values["name"], email=values["email"])
+            customer.set_password(password)
+            customer.save()
+            request.session.cycle_key()
+            request.session[DEMO_CUSTOMER_SESSION_KEY] = customer.pk
+            return redirect(_safe_next(request))
+    return _auth_page(request, merchant, "register.html", {"values": values, "error": error})
+
+
+@require_http_methods(["GET", "POST"])
+def login(request):
+    merchant = demo_merchant()
+    if current_customer(request, merchant):
+        return redirect(_safe_next(request))
+    email = ""
+    error = ""
+    if request.method == "POST":
+        email = request.POST.get("email", "").strip().lower()
+        customer = DemoCustomer.objects.filter(merchant=merchant, email=email).first()
+        if customer is not None and customer.check_password(request.POST.get("password", "")):
+            request.session.cycle_key()
+            request.session[DEMO_CUSTOMER_SESSION_KEY] = customer.pk
+            return redirect(_safe_next(request))
+        error = "البريد الإلكتروني أو كلمة المرور غير صحيحة."
+    return _auth_page(request, merchant, "login.html", {"email": email, "error": error})
+
+
+@require_http_methods(["POST"])
+def logout(request):
+    request.session.pop(DEMO_CUSTOMER_SESSION_KEY, None)
+    return redirect("/demo/")

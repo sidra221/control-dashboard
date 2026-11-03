@@ -33,5 +33,8 @@ urlpatterns = [
     path("demo/", demo_views.home, name="demo-home"),
     path("demo/products/<str:handle>/", demo_views.product, name="demo-product"),
     path("demo/cart/", demo_views.cart, name="demo-cart"),
+    path("demo/register/", demo_views.register, name="demo-register"),
+    path("demo/login/", demo_views.login, name="demo-login"),
+    path("demo/logout/", demo_views.logout, name="demo-logout"),
     path("", include("apitokens.urls")),
 ]

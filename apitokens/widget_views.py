@@ -12,7 +12,7 @@ from django.utils import timezone
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_http_methods
 
-from .models import ApiToken, Conversation, Product, SallaConnection, SizeChart, TryOnRecord, ZidConnection
+from .models import ApiToken, Conversation, DemoCustomer, Product, SallaConnection, SizeChart, TryOnRecord, ZidConnection
 from .services import catalog as catalog_service
 from .services import kieai, llm, sizing
 
@@ -1050,9 +1050,8 @@ def page_product(request):
     except json.JSONDecodeError:
         return _cors_response({"ok": False, "error": "invalid_json"}, status=400)
     page_url = str(body.get("page_url") or "")[:2000]
-    tryons_left = _shopper_tryons_left(
-        merchant, _clean_session_id(body.get("shopper_id")), _client_ip_hash(request),
-    )
+    shopper_id, ip_hash = _resolve_shopper(request, merchant, body.get("shopper_id"))
+    tryons_left = _shopper_tryons_left(merchant, shopper_id, ip_hash)
     product = _find_page_product(merchant, page_url)
     if product is None:
         return _cors_response({"ok": True, "product": None, "tryons_left": tryons_left})
@@ -1082,6 +1081,27 @@ def _client_ip_hash(request):
     if not ip:
         return ""
     return hashlib.sha256(f"{settings.SECRET_KEY}:{ip}".encode()).hexdigest()
+
+
+
+ACCOUNT_SHOPPER_PREFIX = "acct-"
+DEMO_CUSTOMER_SESSION_KEY = "demo_customer_id"
+
+
+def _resolve_shopper(request, merchant, client_shopper_id):
+    """(shopper_id, ip_hash) اللي بينحسب عليهم حد التجارب. زبون مسجّل دخوله
+    بمتجر الديمو (نفس الدومين، فالكوكي بتوصل): الحساب هو المعرّف من الجلسة
+    مش من الطلب، وما في حد IP (الحساب هو الهوية). غير هيك: معرّف المتصفح
+    مع حد الـ IP، ومعرّفات الحسابات من الطلب مرفوضة حتى ما حدا يستهلك حساب غيره."""
+    customer_id = request.session.get(DEMO_CUSTOMER_SESSION_KEY)
+    if customer_id:
+        customer = DemoCustomer.objects.filter(pk=customer_id, merchant=merchant).first()
+        if customer is not None:
+            return customer.shopper_id, ""
+    shopper_id = _clean_session_id(client_shopper_id)
+    if shopper_id.startswith(ACCOUNT_SHOPPER_PREFIX):
+        shopper_id = ""
+    return shopper_id, _client_ip_hash(request)
 
 
 def _days_until_tryon_reset(merchant, shopper_id, ip_hash):
@@ -1145,9 +1165,6 @@ def tryon(request):
     if not settings.KIEAI_API_KEY:
         return _cors_response({"ok": False, "error": "tryon_not_configured"}, status=503)
 
-    shopper_id = _clean_session_id(request.POST.get("shopper_id"))
-    ip_hash = _client_ip_hash(request)
-
     with transaction.atomic():
         merchant = (
             ApiToken.objects.select_for_update().filter(token=token_value).first()
@@ -1156,6 +1173,7 @@ def tryon(request):
             return _cors_response({"ok": False, "error": "invalid_token"}, status=401)
         if not merchant.is_active:
             return _cors_response({"ok": False, "error": "token_disabled"}, status=403)
+        shopper_id, ip_hash = _resolve_shopper(request, merchant, request.POST.get("shopper_id"))
         if _shopper_tryons_left(merchant, shopper_id, ip_hash) == 0:
             return _cors_response(
                 {

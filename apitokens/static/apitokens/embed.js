@@ -800,6 +800,10 @@
         addTryonResultCard(data.image_url, null);
         addBotMessage("وش رأيك؟ عجبتك الإطلالة؟ 😊");
         if (data.shopper_remaining === 0) disableTryons();
+        // للمتجر المضيف (متل عدّاد التجارب بمتجر الديمو)
+        try {
+          document.dispatchEvent(new CustomEvent("controlwidget:tryon", { detail: { remaining: data.shopper_remaining } }));
+        } catch (e) {}
       })
       .catch(function () {
         loadingEl.remove();

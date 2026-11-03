@@ -2098,3 +2098,105 @@ class SizeAskTests(TestCase):
                                     content_type="application/json", HTTP_X_API_TOKEN=merchant.token).json()
         self.assertIn("طولك ووزنك", data["reply"])
         self.assertIsNone(data["size_advice"])
+
+
+@override_settings(KIEAI_API_KEY="kie-test", DEMO_STORE_KEY="DEMOACCTKEY00001")
+class DemoAccountTests(TestCase):
+    """حسابات متجر الديمو: كل حساب إله عدد تجارب لبس (tryons_per_shopper من الداشبورد)."""
+
+    def setUp(self):
+        self.merchant = ApiToken.objects.create(
+            label="Demo", token="DEMOACCTKEY00001", image_quota=100, tryons_per_shopper=2,
+        )
+        Product.objects.create(merchant=self.merchant, sku="D1", title="فستان", price="10",
+                               image_url="https://x/d.jpg", category="dresses")
+
+    def signup(self, client, email="a@example.com", name="سارة", password="secret12"):
+        return client.post("/demo/register/", {"name": name, "email": email, "password": password})
+
+    def tryon(self, client, shopper="browser-id-0001", ip="10.0.0.1"):
+        from django.core.files.uploadedfile import SimpleUploadedFile
+        photo = SimpleUploadedFile("me.jpg", b"\xff\xd8fakejpeg", content_type="image/jpeg")
+        with patch("apitokens.widget_views.kieai.generate_tryon", return_value="https://cdn/result.jpg"):
+            return client.post(
+                "/widget/tryon/", {"sku": "D1", "photo": photo, "shopper_id": shopper},
+                HTTP_X_API_TOKEN=self.merchant.token, HTTP_X_FORWARDED_FOR=ip,
+            ).json()
+
+    def test_pages_render_and_guest_header_offers_signup(self):
+        for url in ("/demo/login/", "/demo/register/"):
+            self.assertEqual(self.client.get(url).status_code, 200, url)
+        html = self.client.get("/demo/").content.decode()
+        self.assertIn("/demo/register/", html)
+        self.assertIn("احصل على 2 تجربة لبس", html)
+
+    def test_register_logs_in_and_header_shows_allowance(self):
+        r = self.signup(self.client)
+        self.assertEqual(r.status_code, 302)
+        html = self.client.get("/demo/").content.decode()
+        self.assertIn("مرحباً، سارة", html)
+        self.assertIn('id="tryon-left">2</span> من 2', html)
+
+    def test_register_validation_and_duplicate_email(self):
+        self.assertIn("بريد إلكتروني صحيح", self.signup(self.client, email="nope").content.decode())
+        self.assertIn("6 أحرف", self.signup(self.client, password="123").content.decode())
+        self.signup(self.client)
+        other = Client()
+        self.assertIn("يوجد حساب", self.signup(other).content.decode())
+        self.assertEqual(self.merchant.demo_customers.count(), 1)
+
+    def test_login_and_logout(self):
+        self.signup(self.client)
+        self.client.post("/demo/logout/")
+        self.assertNotIn("مرحباً", self.client.get("/demo/").content.decode())
+        bad = self.client.post("/demo/login/", {"email": "a@example.com", "password": "wrong"})
+        self.assertIn("غير صحيحة", bad.content.decode())
+        ok = self.client.post("/demo/login/", {"email": "A@Example.com", "password": "secret12"})
+        self.assertEqual(ok.status_code, 302)
+        self.assertIn("مرحباً، سارة", self.client.get("/demo/").content.decode())
+
+    def test_next_redirect_stays_inside_demo(self):
+        r = self.client.post("/demo/register/", {"name": "x", "email": "b@example.com", "password": "secret12",
+                                                 "next": "https://evil.example/"})
+        self.assertEqual(r["Location"], "/demo/")
+
+    def test_account_gets_exactly_the_dashboard_limit_across_browsers(self):
+        self.signup(self.client)
+        first, second, third = self.tryon(self.client), self.tryon(self.client), self.tryon(self.client)
+        self.assertEqual((first["shopper_remaining"], second["shopper_remaining"]), (1, 0))
+        self.assertEqual(third["error"], "shopper_limit_reached")
+        # نفس الحساب من متصفح تاني (معرّف متصفح مختلف) ما بيرجّع التجارب
+        again = Client()
+        again.post("/demo/login/", {"email": "a@example.com", "password": "secret12"})
+        self.assertEqual(self.tryon(again, shopper="other-browser-99")["error"], "shopper_limit_reached")
+        self.assertIn('id="tryon-left">0</span>', again.get("/demo/").content.decode())
+
+    def test_changing_dashboard_limit_applies_to_accounts(self):
+        self.signup(self.client)
+        self.merchant.tryons_per_shopper = 3
+        self.merchant.save()
+        self.assertIn('id="tryon-left">3</span> من 3', self.client.get("/demo/").content.decode())
+        results = [self.tryon(self.client)["ok"] for _ in range(4)]
+        self.assertEqual(results, [True, True, True, False])
+
+    def test_accounts_are_independent_and_not_capped_by_shared_ip(self):
+        for i in range(4):  # 4 حسابات × 2 = 8 تجارب من نفس الـ IP، أكتر من حد الـ IP للضيوف (6)
+            c = Client()
+            self.signup(c, email=f"u{i}@example.com")
+            self.assertTrue(self.tryon(c)["ok"] and self.tryon(c)["ok"], i)
+
+    def test_guest_cannot_spend_an_accounts_allowance(self):
+        self.signup(self.client)
+        customer = self.merchant.demo_customers.get()
+        guest = Client()
+        for _ in range(3):
+            self.tryon(guest, shopper=customer.shopper_id)
+        from .models import TryOnRecord
+        self.assertEqual(TryOnRecord.objects.filter(shopper_id=customer.shopper_id).count(), 0)
+
+    def test_page_product_reports_account_allowance(self):
+        self.signup(self.client)
+        self.tryon(self.client), self.tryon(self.client)
+        r = self.client.post("/widget/page-product/", data=json.dumps({"page_url": "https://x/", "shopper_id": "anything-1234"}),
+                             content_type="application/json", HTTP_X_API_TOKEN=self.merchant.token).json()
+        self.assertEqual(r["tryons_left"], 0)

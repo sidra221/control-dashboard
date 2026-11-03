@@ -2,6 +2,7 @@ import re
 import secrets
 
 from django.conf import settings
+from django.contrib.auth.hashers import check_password, make_password
 from django.db import models
 from django.utils import timezone
 
@@ -398,6 +399,38 @@ class TryOnRecord(models.Model):
     class Meta:
         verbose_name = "تجربة لبس"
         verbose_name_plural = "تجارب اللبس"
+
+
+class DemoCustomer(models.Model):
+    """حساب زبون بمتجر الديمو (/demo/) — منه منعرض إنو لكل حساب عدد تجارب لبس
+    محدد (tryons_per_shopper من الداشبورد). منفصل عن مستخدمي الداشبورد (Staff)."""
+
+    merchant = models.ForeignKey(ApiToken, on_delete=models.CASCADE, related_name="demo_customers")
+    name = models.CharField("الاسم", max_length=80)
+    email = models.EmailField("البريد الإلكتروني")
+    password = models.CharField(max_length=128)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        verbose_name = "حساب زبون (ديمو)"
+        verbose_name_plural = "حسابات زبائن (ديمو)"
+        constraints = [
+            models.UniqueConstraint(fields=["merchant", "email"], name="unique_demo_customer_email"),
+        ]
+
+    def __str__(self):
+        return f"{self.name} <{self.email}>"
+
+    def set_password(self, raw):
+        self.password = make_password(raw)
+
+    def check_password(self, raw):
+        return check_password(raw, self.password)
+
+    @property
+    def shopper_id(self):
+        """المعرّف اللي بينحسب عليه حد التجارب — ثابت لكل حساب مهما تغيّر المتصفح."""
+        return f"acct-{self.pk}"
 
 
 class SizeChart(models.Model):

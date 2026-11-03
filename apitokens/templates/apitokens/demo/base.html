@@ -204,6 +204,33 @@
   .modal h3 { margin: 0 0 8px; font-size: 20px; }
   .modal p { margin: 0 0 20px; color: var(--ink-2); }
 
+  /* الحساب */
+  .account { display: flex; align-items: center; gap: 10px; font-size: 14px; flex-wrap: wrap; justify-content: flex-end; }
+  .account a, .account .link-btn { font-weight: 700; color: var(--accent); }
+  .account .link-btn { border: 0; background: none; padding: 0; }
+  .account .who { color: var(--ink-2); }
+  .tryon-pill {
+    background: var(--sand); border: 1px solid var(--sand-2); border-radius: 999px;
+    padding: 3px 12px; font-size: 13px; font-weight: 700; color: var(--accent-dark); white-space: nowrap;
+  }
+  .tryon-pill.empty { background: #f7e3dd; border-color: #ecc7bd; color: var(--sale); }
+  .auth-card {
+    max-width: 420px; margin: 40px auto 0; background: var(--surface); border: 1px solid var(--line);
+    border-radius: 22px; padding: 30px 26px 26px; box-shadow: var(--shadow);
+  }
+  .auth-card h1 { margin: 0 0 6px; font-size: 26px; font-weight: 800; }
+  .auth-sub { margin: 0 0 18px; color: var(--ink-2); font-size: 14px; }
+  .auth-card label { display: block; margin: 12px 0 5px; font-size: 14px; font-weight: 700; }
+  .auth-card input[type=text], .auth-card input[type=email], .auth-card input[type=password] {
+    width: 100%; height: 48px; padding: 0 14px; border: 1.5px solid var(--line); border-radius: var(--radius-sm);
+    background: var(--bg); font: inherit; color: var(--ink);
+  }
+  .auth-card input:focus { outline: 0; border-color: var(--accent); }
+  .auth-card .btn { width: 100%; margin-top: 20px; }
+  .auth-error { background: #f7e3dd; color: var(--sale); border-radius: var(--radius-sm); padding: 10px 14px; font-size: 14px; margin-bottom: 6px; }
+  .auth-alt { margin: 16px 0 0; text-align: center; font-size: 14px; color: var(--ink-2); }
+  .auth-alt a { color: var(--accent); font-weight: 700; }
+
   {% block extra_css %}{% endblock %}
 </style>
 </head>
@@ -214,6 +241,23 @@
         <b>{{ store_name }}</b>
         <small>ELEGANCE · RIYADH</small>
       </a>
+      <div class="account" id="account">
+        {% if customer %}
+          <span class="who">مرحباً، {{ customer.name }}</span>
+          {% if allowance.limit %}
+            <span class="tryon-pill{% if allowance.left == 0 %} empty{% endif %}" id="tryon-pill" data-limit="{{ allowance.limit }}">
+              تجارب اللبس: <span id="tryon-left">{{ allowance.left }}</span> من {{ allowance.limit }}
+            </span>
+          {% else %}
+            <span class="tryon-pill">تجارب اللبس: غير محدودة</span>
+          {% endif %}
+          <form method="post" action="/demo/logout/">{% csrf_token %}<button class="link-btn" type="submit">تسجيل الخروج</button></form>
+        {% else %}
+          {% if allowance.limit %}<span class="who">أنشئ حساباً واحصل على {{ allowance.limit }} تجربة لبس</span>{% endif %}
+          <a href="/demo/login/?next={{ request.path|urlencode }}">تسجيل الدخول</a>
+          <a href="/demo/register/?next={{ request.path|urlencode }}">إنشاء حساب</a>
+        {% endif %}
+      </div>
     </div>
   </header>
 
@@ -335,6 +379,15 @@
         });
       }
     };
+
+    // الويدجت بيبلّغ بعد كل تجربة لبس ناجحة، فنحدّث العدّاد بالترويسة بدون إعادة تحميل
+    document.addEventListener("controlwidget:tryon", function (e) {
+      var left = e.detail && e.detail.remaining;
+      var pill = document.getElementById("tryon-pill"), num = document.getElementById("tryon-left");
+      if (!pill || !num || typeof left !== "number") return;
+      num.textContent = String(left);
+      pill.classList.toggle("empty", left === 0);
+    });
 
     window.addEventListener("storage", function (e) { if (e.key === KEY) updateBadge(); });
     updateBadge(false);
