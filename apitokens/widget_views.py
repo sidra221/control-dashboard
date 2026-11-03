@@ -12,9 +12,9 @@ from django.utils import timezone
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_http_methods
 
-from .models import ApiToken, Conversation, Product, SallaConnection, TryOnRecord, ZidConnection
+from .models import ApiToken, Conversation, Product, SallaConnection, SizeChart, TryOnRecord, ZidConnection
 from .services import catalog as catalog_service
-from .services import kieai, llm
+from .services import kieai, llm, sizing
 
 logger = logging.getLogger(__name__)
 
@@ -162,6 +162,44 @@ RECOMMEND_TOOL = {
             },
         },
         "required": ["sku", "reason"],
+    },
+}
+
+SIZE_TOOL = {
+    "name": "recommend_size",
+    "description": (
+        "Get the right size for the customer from their body measurements. Call it as soon as the "
+        "customer has told you their height and weight (or waist) for a product with sizes. The "
+        "system computes the size from the store's size chart and adds it to your reply — never "
+        "state, guess or compare sizes yourself, and don't promise a size before calling this."
+    ),
+    "parameters": {
+        "type": "object",
+        "properties": {
+            "sku": {"type": "string", "description": "Exact sku of the product the size is for."},
+            "height_cm": {"type": "number", "description": "Customer height in cm, if given."},
+            "weight_kg": {"type": "number", "description": "Customer weight in kg, if given."},
+            "waist_cm": {"type": "number", "description": "Customer waist in cm, if given."},
+        },
+        "required": ["sku"],
+    },
+}
+
+# حدود منطقية للقياسات — أي رقم برّاها غلط بالكتابة أو وحدة تانية.
+MEASUREMENT_BOUNDS = {"height": (100, 230), "weight": (25, 250), "waist": (40, 200)}
+
+SIZE_REPLY = {
+    "ar": {
+        "fit": "مقاسك المناسب في «{title}» هو {size} ✓",
+        "missing": "مقاسك المناسب في «{title}» هو {size}، بس للأسف مو متوفر حالياً. أقرب مقاس متوفر: {alternative}.",
+        "missing_none": "مقاسك المناسب في «{title}» هو {size}، بس للأسف مو متوفر حالياً.",
+        "approx": " (تقديري حسب جدول مقاسات عام)",
+    },
+    "en": {
+        "fit": "Your size in “{title}” is {size} ✓",
+        "missing": "Your size in “{title}” is {size}, but it's out of stock right now. Closest available: {alternative}.",
+        "missing_none": "Your size in “{title}” is {size}, but it's out of stock right now.",
+        "approx": " (estimated from a standard size chart)",
     },
 }
 
@@ -347,6 +385,12 @@ briefly in the customer's language, then steer back to the product. If the answe
 is no such section), say honestly in one short line that you don't have that detail right now — never \
 invent a delivery date, fee, return guarantee or size measurement — and immediately pivot back to being \
 useful. Don't sound robotic and don't treat it as the end of the conversation.
+11a. Sizes: when the customer asks which size fits, or is about to buy a product that has sizes, ask \
+in ONE short question for their height and weight (waist too if they know it). Once they give \
+measurements, call `recommend_size` with the product's sku and the numbers — never name or guess a \
+size yourself; the system adds the exact size to your message, so just write a short warm line around \
+it (e.g. a word on how the cut will sit on them). If they don't want to share measurements, use the \
+product's `available_options` and the store information instead.
 11b. Every informational answer (shipping, returns, sizes, fabric, how to buy) still ends with a short, \
 confident nudge toward the sale, tied to what they asked — e.g. after sizes: the size that's available \
 and that it's ready to order from the button; after returns: that this makes trying it risk-free; \
@@ -573,7 +617,7 @@ def chat(request):
     products = catalog_service.select_products(merchant, clean_messages, pinned_skus)
     discount_codes = list(merchant.discount_codes.filter(is_active=True))
     discount_codes_section = ""
-    tools = [RECOMMEND_TOOL]
+    tools = [RECOMMEND_TOOL, SIZE_TOOL]
     if discount_codes:
         codes_json = json.dumps(
             [{"code": d.code, "description": d.description} for d in discount_codes],
@@ -719,6 +763,10 @@ def chat(request):
         except llm.LLMError:
             pass  # نضل مع الرد الأصلي بدل ما نفشّل الطلب كله
 
+    size_advice = _size_advice(
+        result.tool_calls, merchant, products, page_product, shown_skus, lang,
+    )
+
     if not reply_text:
         # لو الموديل رجع بس tool_use بدون نص، منضمن إنه الزبون ما يستنى رد
         # فاضي أو رد عام مالوش علاقة بالسياق بالشات. قبل شبكة اللغة، لأنه الـ reason
@@ -732,6 +780,8 @@ def chat(request):
             reply_text = blocked_reason
         elif discount_offer:
             reply_text = FALLBACK_DISCOUNT_REPLY[lang].format(**discount_offer)
+        elif size_advice:
+            reply_text = size_advice["text"]
         else:
             reply_text = FALLBACK_REPHRASE_REPLY[lang]
 
@@ -764,6 +814,9 @@ def chat(request):
     # البطاقة وما فيه الكود.
     if discount_offer and reply_text and discount_offer["code"] not in reply_text:
         reply_text = reply_text + "\n\n" + DISCOUNT_APPENDIX[lang].format(**discount_offer)
+    # المقاس من الحساب بالكود — الموديل ممنوع يذكره بنفسه، فمنضيفه للرد.
+    if size_advice and size_advice["text"] not in reply_text:
+        reply_text = reply_text + "\n\n" + size_advice["text"]
 
     _log_conversation(merchant, session_id, clean_messages, reply_text, recommendations, discount_offer)
 
@@ -774,8 +827,70 @@ def chat(request):
             "recommendation": recommendations[0] if recommendations else None,
             "recommendations": recommendations,
             "discount_offer": discount_offer,
+            "size_advice": {k: v for k, v in size_advice.items() if k != "text"} if size_advice else None,
         }
     )
+
+
+def _measurement(call_input, key, measure):
+    try:
+        value = float(call_input.get(key))
+    except (TypeError, ValueError):
+        return None
+    low, high = MEASUREMENT_BOUNDS[measure]
+    return value if low <= value <= high else None
+
+
+def _size_chart_for(merchant, product):
+    """جدول الفئة إذا التاجر عامله، وإلا جدوله العام، وإلا الجدول القياسي."""
+    charts = list(merchant.size_charts.all())
+    category = (product.category or "").lower()
+    for chart in charts:
+        if chart.category and chart.category.lower() in category:
+            return chart.chart, False
+    general = next((c for c in charts if not c.category), None)
+    if general:
+        return general.chart, False
+    return sizing.DEFAULT_CHART, True
+
+
+def _size_advice(tool_calls, merchant, products, page_product, shown_skus, lang):
+    call = next((c for c in tool_calls if c["name"] == "recommend_size"), None)
+    if call is None:
+        return None
+    call_input = call.get("input") or {}
+    measurements = {
+        measure: _measurement(call_input, key, measure)
+        for measure, key in (("height", "height_cm"), ("weight", "weight_kg"), ("waist", "waist_cm"))
+    }
+    measurements = {k: v for k, v in measurements.items() if v is not None}
+    if not measurements:
+        return None
+    sku = call_input.get("sku", "")
+    product = next((p for p in products if p.sku == sku), None) or (
+        merchant.products.filter(sku=sku).first() if sku else None
+    )
+    if product is None:
+        # الموديل ما حدد المنتج — منحسب لمنتج الصفحة أو آخر منتج انعرض.
+        product = page_product or (
+            merchant.products.filter(sku=shown_skus[-1]).first() if shown_skus else None
+        )
+    if product is None:
+        return None
+    chart, approximate = _size_chart_for(merchant, product)
+    advice = sizing.advise(chart, measurements, sizing.product_sizes(product))
+    if advice is None:
+        return None
+    texts = SIZE_REPLY[lang]
+    if advice["available"]:
+        text = texts["fit"].format(title=product.title, size=advice["size"])
+    elif advice["alternative"]:
+        text = texts["missing"].format(title=product.title, **advice)
+    else:
+        text = texts["missing_none"].format(title=product.title, size=advice["size"])
+    if approximate:
+        text += texts["approx"]
+    return {**advice, "sku": product.sku, "approximate": approximate, "text": text}
 
 
 @csrf_exempt

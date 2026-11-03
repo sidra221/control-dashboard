@@ -1883,3 +1883,68 @@ class SizingTests(TestCase):
         self.assertIn("S, 150-160, 45-55, 60-66", self.client.get(url).content.decode())
         self.client.post(url, {"action": "size_chart_delete", "category": "فساتين"})
         self.assertFalse(SizeChart.objects.exists())
+
+
+class SizeAdviceChatTests(TestCase):
+    def setUp(self):
+        self.merchant = ApiToken.objects.create(label="m", image_quota=5)
+        self.dress = Product.objects.create(
+            merchant=self.merchant, sku="DRESS-1", title="فستان ميدي", price="200", category="فساتين",
+            image_url="https://x/d.jpg", options={"المقاس": ["S", "M", "L"]},
+            product_url="https://s.example.com/products/midi",
+        )
+
+    def chat(self, text, tool_input, reply="حلو! خلني أشوف لك", page_url=None, shown=()):
+        body = {"messages": [{"role": "user", "content": text}], "shown_skus": list(shown)}
+        if page_url:
+            body["page_url"] = page_url
+        with patch("apitokens.widget_views.llm.get_provider", return_value=FakeProvider()), \
+                patch("apitokens.widget_views.llm.chat_with_retry") as mock_chat:
+            mock_chat.return_value = fake_result(
+                reply_text=reply, tool_calls=[{"name": "recommend_size", "input": tool_input}],
+            )
+            data = self.client.post("/widget/chat/", data=json.dumps(body), content_type="application/json",
+                                    HTTP_X_API_TOKEN=self.merchant.token).json()
+            return data, mock_chat
+
+    def test_standard_chart_size_added_to_reply(self):
+        data, mock_chat = self.chat("طولي 165 ووزني 60", {"sku": "DRESS-1", "height_cm": 165, "weight_kg": 60})
+        self.assertIn("مقاسك المناسب في «فستان ميدي» هو M ✓", data["reply"])
+        self.assertIn("تقديري", data["reply"])
+        self.assertEqual((data["size_advice"]["size"], data["size_advice"]["approximate"]), ("M", True))
+        tool_names = [t["name"] for t in mock_chat.call_args[0][3]]
+        self.assertIn("recommend_size", tool_names)
+
+    def test_merchant_category_chart_wins_and_is_not_approximate(self):
+        from .models import SizeChart
+        SizeChart.objects.create(merchant=self.merchant, category="", chart=[{"size": "S", "height": [100, 230]}])
+        SizeChart.objects.create(merchant=self.merchant, category="فساتين",
+                                 chart=[{"size": "S", "weight": [40, 55]}, {"size": "L", "weight": [55, 70]}])
+        data, _ = self.chat("وزني 60", {"sku": "DRESS-1", "weight_kg": 60})
+        self.assertEqual((data["size_advice"]["size"], data["size_advice"]["approximate"]), ("L", False))
+        self.assertNotIn("تقديري", data["reply"])
+
+    def test_out_of_stock_size_offers_closest(self):
+        self.dress.options = {"المقاس": ["S", "L"]}
+        self.dress.save()
+        data, _ = self.chat("طولي 165 ووزني 60", {"sku": "DRESS-1", "height_cm": 165, "weight_kg": 60})
+        self.assertIn("مو متوفر", data["reply"])
+        self.assertIn("أقرب مقاس متوفر: L", data["reply"])
+
+    def test_missing_sku_falls_back_to_page_product(self):
+        data, _ = self.chat("طولي 165 ووزني 60", {"sku": "", "height_cm": 165, "weight_kg": 60},
+                            page_url="https://s.example.com/products/midi")
+        self.assertEqual(data["size_advice"]["sku"], "DRESS-1")
+
+    def test_absurd_measurements_ignored(self):
+        data, _ = self.chat("طولي 1.65", {"sku": "DRESS-1", "height_cm": 1.65})
+        self.assertIsNone(data["size_advice"])
+        self.assertNotIn("مقاسك", data["reply"])
+
+    def test_tool_only_reply_becomes_the_size_sentence(self):
+        data, _ = self.chat("طولي 165 ووزني 60", {"sku": "DRESS-1", "height_cm": 165, "weight_kg": 60}, reply="")
+        self.assertTrue(data["reply"].startswith("مقاسك المناسب"))
+
+    def test_english_customer_gets_english_sentence(self):
+        data, _ = self.chat("I'm 165cm and 60kg", {"sku": "DRESS-1", "height_cm": 165, "weight_kg": 60}, reply="Great!")
+        self.assertIn("Your size in", data["reply"])

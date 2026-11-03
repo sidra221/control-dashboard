@@ -95,6 +95,13 @@ SCENARIOS = [
          judge=["Reply doesn't claim the navy dress is available; it confidently offers the closest alternative"]),
     dict(name="sizes", turns=["بدي الفستان الأخضر", "في منه مقاس XL؟"], lang="ar",
          checks={}, judge=["Reply says honestly that XL isn't available and mentions the sizes that are (S, M, L)"]),
+    dict(name="size_recommend", turns=["أبي الفستان الأخضر", "طولي 165 ووزني 60، وش مقاسي؟"], lang="ar",
+         checks={"size": True},
+         judge=["Reply is in Saudi Arabic dialect",
+                "Reply gives one size (from the system) without inventing a different size itself"]),
+    dict(name="size_asks_measurements", turns=["أبي الفستان الأخضر، بس ما أعرف وش مقاسي"], lang="ar",
+         checks={"size": False},
+         judge=["Reply asks for the customer's height and weight (in one short question) instead of guessing a size"]),
     dict(name="shipping", turns=["how long does delivery take and can I return it?"], lang="en",
          checks={}, judge=["Reply states 2-4 business days delivery and 14-day free returns, inventing nothing else"]),
     dict(name="gift", turns=["بدي هدية لأختي، بتحب الفساتين الحمرا"], lang="ar",
@@ -270,6 +277,8 @@ class Command(BaseCommand):
             results.append((f"never shows {checks['never_sku']}", all(c["sku"] != checks["never_sku"] for c in all_cards)))
         if "discount" in checks:
             results.append((f"discount offered={checks['discount']}", bool(resp.get("discount_offer")) == checks["discount"]))
+        if "size" in checks:
+            results.append((f"size advice={checks['size']}", bool(resp.get("size_advice")) == checks["size"]))
         if checks.get("no_tryon"):
             results.append(("no try-on button", all(c.get("tryon_supported") is False for c in cards)))
         if checks.get("no_repeat"):
