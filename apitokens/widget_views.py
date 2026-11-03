@@ -194,12 +194,14 @@ SIZE_REPLY = {
         "missing": "مقاسك المناسب في «{title}» هو {size}، بس للأسف مو متوفر حالياً. أقرب مقاس متوفر: {alternative}.",
         "missing_none": "مقاسك المناسب في «{title}» هو {size}، بس للأسف مو متوفر حالياً.",
         "approx": " (تقديري حسب جدول مقاسات عام)",
+        "cta": " تقدر تطلبه الحين بمقاسك من زر الشراء 👇",
     },
     "en": {
         "fit": "Your size in “{title}” is {size} ✓",
         "missing": "Your size in “{title}” is {size}, but it's out of stock right now. Closest available: {alternative}.",
         "missing_none": "Your size in “{title}” is {size}, but it's out of stock right now.",
         "approx": " (estimated from a standard size chart)",
+        "cta": " You can order it in your size with the buy button below 👇",
     },
 }
 
@@ -890,6 +892,8 @@ def _size_advice(tool_calls, merchant, products, page_product, shown_skus, lang)
         text = texts["missing_none"].format(title=product.title, size=advice["size"])
     if approximate:
         text += texts["approx"]
+    if advice["available"]:
+        text += texts["cta"]
     return {**advice, "sku": product.sku, "approximate": approximate, "text": text}
 
 
@@ -1030,9 +1034,12 @@ def page_product(request):
     except json.JSONDecodeError:
         return _cors_response({"ok": False, "error": "invalid_json"}, status=400)
     page_url = str(body.get("page_url") or "")[:2000]
+    tryons_left = _shopper_tryons_left(
+        merchant, _clean_session_id(body.get("shopper_id")), _client_ip_hash(request),
+    )
     product = _find_page_product(merchant, page_url)
     if product is None:
-        return _cors_response({"ok": True, "product": None})
+        return _cors_response({"ok": True, "product": None, "tryons_left": tryons_left})
     return _cors_response(
         {
             "ok": True,
@@ -1041,6 +1048,7 @@ def page_product(request):
                 "tryon_supported": product.supports_tryon,
                 "tryon_button_label": TRYON_BUTTON_LABELS["ar"]["self"],
             },
+            "tryons_left": tryons_left,
         }
     )
 
@@ -1058,6 +1066,19 @@ def _client_ip_hash(request):
     if not ip:
         return ""
     return hashlib.sha256(f"{settings.SECRET_KEY}:{ip}".encode()).hexdigest()
+
+
+def _days_until_tryon_reset(merchant, shopper_id, ip_hash):
+    """بعد كم يوم بترجع أول تجربة للزبون (أقدم تجربة بالفترة بتسقط)."""
+    since = timezone.now() - timedelta(days=merchant.tryon_limit_days)
+    recent = TryOnRecord.objects.filter(merchant=merchant, created_at__gte=since)
+    oldest = (recent.filter(shopper_id=shopper_id) if shopper_id else recent.filter(ip_hash=ip_hash)).order_by(
+        "created_at"
+    ).first()
+    if oldest is None:
+        return 1
+    reset_at = oldest.created_at + timedelta(days=merchant.tryon_limit_days)
+    return max(1, (reset_at - timezone.now()).days + 1)
 
 
 def _shopper_tryons_left(merchant, shopper_id, ip_hash):
@@ -1121,7 +1142,13 @@ def tryon(request):
             return _cors_response({"ok": False, "error": "token_disabled"}, status=403)
         if _shopper_tryons_left(merchant, shopper_id, ip_hash) == 0:
             return _cors_response(
-                {"ok": False, "error": "shopper_limit_reached", "shopper_remaining": 0}, status=200
+                {
+                    "ok": False,
+                    "error": "shopper_limit_reached",
+                    "shopper_remaining": 0,
+                    "days_until_reset": _days_until_tryon_reset(merchant, shopper_id, ip_hash),
+                },
+                status=200,
             )
 
         period_end = merchant.period_start + timedelta(days=merchant.period_days)

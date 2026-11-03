@@ -1804,6 +1804,7 @@ class TryOnShopperLimitTests(TestCase):
         self.assertTrue(first["ok"] and second["ok"])
         self.assertEqual((first["shopper_remaining"], second["shopper_remaining"]), (1, 0))
         self.assertEqual((third["ok"], third["error"]), (False, "shopper_limit_reached"))
+        self.assertEqual(third["days_until_reset"], 30)
         self.merchant.refresh_from_db()
         self.assertEqual(self.merchant.images_used, 2)  # المرفوض ما بيخصم من رصيد التاجر
 
@@ -1829,6 +1830,20 @@ class TryOnShopperLimitTests(TestCase):
         results = [self.tryon() for _ in range(4)]
         self.assertTrue(all(r["ok"] for r in results))
         self.assertIsNone(results[-1]["shopper_remaining"])
+
+
+    def test_page_product_reports_tryons_left(self):
+        self.tryon(), self.tryon()
+        data = self.client.post(
+            "/widget/page-product/", data=json.dumps({"page_url": "https://x/", "shopper_id": "shopper-aaaa1111"}),
+            content_type="application/json", HTTP_X_API_TOKEN=self.merchant.token, HTTP_X_FORWARDED_FOR="10.0.0.1",
+        ).json()
+        self.assertEqual(data["tryons_left"], 0)
+        fresh = self.client.post(
+            "/widget/page-product/", data=json.dumps({"page_url": "https://x/", "shopper_id": "shopper-new00001"}),
+            content_type="application/json", HTTP_X_API_TOKEN=self.merchant.token, HTTP_X_FORWARDED_FOR="10.0.0.9",
+        ).json()
+        self.assertEqual(fresh["tryons_left"], 2)
 
 
 class SizingTests(TestCase):

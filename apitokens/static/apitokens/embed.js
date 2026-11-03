@@ -55,18 +55,31 @@
     return /[\u0600-\u06FF]/.test(lastUser) || !lastUser ? "ar" : "en";
   }
 
+  // لما تخلص تجارب الزبون: كل أزرار التجربة بتصير رمادية ومعطّلة (والجديدة كمان).
+  var tryonsExhausted = false;
+  function disableTryons() {
+    tryonsExhausted = true;
+    if (typeof msgsEl === "undefined" || !msgsEl) return;
+    var buttons = msgsEl.querySelectorAll("button.tryon");
+    for (var i = 0; i < buttons.length; i++) {
+      buttons[i].disabled = true;
+      buttons[i].textContent = "خلصت تجاربك 🙏";
+    }
+  }
+
   // لو الزبون فاتح صفحة منتج من الكتالوج، منفتح المحادثة على هالمنتج نفسه.
   var pageProduct = null;
   var pageProductReady = fetch(API_BASE + "/widget/page-product/", {
     method: "POST",
     headers: { "Content-Type": "application/json", "X-Api-Token": STORE_KEY },
-    body: JSON.stringify({ page_url: window.location.href }),
+    body: JSON.stringify({ page_url: window.location.href, shopper_id: SHOPPER_ID }),
   })
     .then(function (r) {
       return r.json();
     })
     .then(function (data) {
       if (data && data.ok && data.product) pageProduct = data.product;
+      if (data && data.tryons_left === 0) disableTryons();
     })
     .catch(function () {});
 
@@ -202,6 +215,7 @@
     "  border: none; cursor: pointer; width: 100%; margin-top: 6px; font-family: inherit;",
     "}",
     ".card button.tryon { background: #eef0ff; color: #4f46e5; }",
+    ".card button.tryon:disabled { background: #eceef2; color: #9aa0ab; cursor: not-allowed; }",
     ".card a.buy, .card button.addcart { background: linear-gradient(135deg, #6366f1, #4f46e5); color: #fff; }",
     ".typing { align-self: flex-start; font-size: 12px; color: #9095ab; padding: 0 4px; }",
     ".msg.writing::after { content: '▍'; margin-inline-start: 1px; opacity: .6; animation: sw-blink 1s steps(1) infinite; }",
@@ -459,6 +473,10 @@
     tryBtn.className = "tryon";
     if (rec.tryon_supported === false) tryBtn.style.display = "none";
     tryBtn.textContent = rec.tryon_button_label || "جرّب شكلك فيه 📸";
+    if (tryonsExhausted) {
+      tryBtn.disabled = true;
+      tryBtn.textContent = "خلصت تجاربك 🙏";
+    }
     tryBtn.addEventListener("click", function () {
       if (savedPhoto) {
         runTryon(rec.sku, savedPhoto);
@@ -592,7 +610,6 @@
     invalid_token: "فيه مشكلة في إعداد المتجر — تواصل مع صاحب المتجر.",
     token_disabled: "الخدمة موقوفة مؤقتاً لهذا المتجر.",
     quota_exceeded: "خلص رصيد الصور المسموح لهذي الفترة.",
-    shopper_limit_reached: "استخدمت كل تجارب اللبس المتاحة لك حالياً 🙏 تقدر تكمل تسوّقك وأساعدك تختار المقاس واللون المناسب.",
     assistant_not_configured: "المساعد الذكي مو جاهز للحين.",
     assistant_unavailable: "فيه ضغط على المساعد الذكي الحين، جرّب بعد شوي 🙏",
     tryon_not_configured: "خاصية تجربة اللبس مو جاهزة للحين.",
@@ -691,14 +708,20 @@
       .then(function (data) {
         loadingEl.remove();
         if (!data.ok) {
+          if (data.error === "shopper_limit_reached") {
+            disableTryons();
+            addBotMessage(
+              "خلصت تجاربك المجانية 🙏 ترجع لك بعد " + (data.days_until_reset || 1) +
+                " يوم، وإلى ذاك الوقت أبشر، أساعدك تختار المقاس واللون اللي يناسبك 👌"
+            );
+            return;
+          }
           addErrorMessage(friendlyError(data.error));
           return;
         }
         addTryonResultCard(data.image_url, null);
-        var followUp = "وش رأيك؟ عجبتك الإطلالة؟ 😊";
-        if (data.shopper_remaining === 1) followUp += " وباقي لك تجربة وحدة 😉";
-        if (data.shopper_remaining === 0) followUp += " وهذي كانت آخر تجربة لك حالياً.";
-        addBotMessage(followUp);
+        addBotMessage("وش رأيك؟ عجبتك الإطلالة؟ 😊");
+        if (data.shopper_remaining === 0) disableTryons();
       })
       .catch(function () {
         loadingEl.remove();
