@@ -1,6 +1,7 @@
 from django.contrib import admin
 from django.urls import include, path
 
+from apitokens import demo_views
 from apitokens import salla_webhooks, shopify_webhooks, widget_views, zid_views, zid_webhooks
 
 admin.site.site_header = "Control — kie.ai Tokens"
@@ -28,5 +29,9 @@ urlpatterns = [
     path("privacy/", zid_views.privacy, name="privacy"),
     path("webhooks/zid/app/", zid_webhooks.app_webhook, name="zid-app-webhook"),
     path("webhooks/zid/store/<str:store_id>/<str:event>/", zid_webhooks.store_webhook, name="zid-store-webhook"),
+    # متجر الديمو (متجر وهمي لعرض الويدجت) — 404 إذا DEMO_STORE_KEY فاضي
+    path("demo/", demo_views.home, name="demo-home"),
+    path("demo/products/<str:handle>/", demo_views.product, name="demo-product"),
+    path("demo/cart/", demo_views.cart, name="demo-cart"),
     path("", include("apitokens.urls")),
 ]

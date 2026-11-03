@@ -1,0 +1,171 @@
+{% extends "apitokens/demo/base.html" %}
+
+{% block title %}سلة التسوق — {{ store_name }}{% endblock %}
+
+{% block extra_css %}
+  .cart-title { margin: 22px 0 22px; font-size: clamp(26px, 4.5vw, 36px); font-weight: 800; letter-spacing: -.4px; }
+  .cart-layout { display: grid; grid-template-columns: 1fr; gap: 28px; align-items: start; }
+  @media (min-width: 900px) { .cart-layout { grid-template-columns: 1.7fr 1fr; gap: 40px; } }
+  .cart-list { display: grid; gap: 14px; }
+  .line {
+    display: grid; grid-template-columns: 92px 1fr; gap: 14px; background: var(--surface);
+    border: 1px solid var(--line); border-radius: var(--radius); padding: 12px;
+  }
+  @media (min-width: 600px) { .line { grid-template-columns: 110px 1fr; padding: 14px; } }
+  .line-img { aspect-ratio: 3 / 4; border-radius: 12px; overflow: hidden; background: var(--sand); }
+  .line-img img { width: 100%; height: 100%; object-fit: cover; }
+  .line-top { display: flex; justify-content: space-between; gap: 10px; align-items: start; }
+  .line-title { font-weight: 700; font-size: 15px; line-height: 1.45; }
+  .line-meta { color: var(--muted); font-size: 13px; margin-top: 2px; }
+  .line-remove {
+    border: 0; background: none; color: var(--muted); padding: 4px; border-radius: 8px; flex-shrink: 0;
+  }
+  .line-remove:hover { color: var(--sale); background: #f7e3dd; }
+  .line-remove svg { width: 18px; height: 18px; display: block; }
+  .line-bottom { display: flex; justify-content: space-between; align-items: center; margin-top: 14px; gap: 10px; flex-wrap: wrap; }
+  .line .qty { height: 40px; display: inline-flex; align-items: center; border: 1.5px solid var(--line); border-radius: 999px; }
+  .line .qty button { width: 36px; height: 100%; border: 0; background: none; font-size: 18px; }
+  .line .qty span { min-width: 26px; text-align: center; font-weight: 700; }
+  .line-total { font-weight: 800; }
+
+  .summary {
+    background: var(--surface); border: 1px solid var(--line); border-radius: 22px; padding: 22px;
+  }
+  @media (min-width: 900px) { .summary { position: sticky; top: 130px; } }
+  .summary h2 { margin: 0 0 14px; font-size: 19px; }
+  .sum-row { display: flex; justify-content: space-between; padding: 7px 0; color: var(--ink-2); }
+  .sum-row.total { border-top: 1px solid var(--line); margin-top: 8px; padding-top: 14px; color: var(--ink); font-weight: 800; font-size: 18px; }
+  .ship-progress { margin: 6px 0 16px; font-size: 13px; color: var(--ink-2); }
+  .ship-bar { height: 6px; background: var(--sand); border-radius: 6px; overflow: hidden; margin-top: 8px; }
+  .ship-bar i { display: block; height: 100%; background: var(--accent); border-radius: 6px; transition: width .3s; }
+  .summary .btn { width: 100%; margin-top: 16px; }
+  .secure { text-align: center; color: var(--muted); font-size: 12px; margin-top: 10px; }
+
+  .empty {
+    text-align: center; padding: 60px 20px; background: var(--surface); border: 1px dashed var(--sand-2); border-radius: 22px;
+  }
+  .empty svg { width: 54px; height: 54px; color: var(--accent); margin-bottom: 10px; }
+  .empty h2 { margin: 0 0 6px; font-size: 21px; }
+  .empty p { margin: 0 0 20px; color: var(--muted); }
+{% endblock %}
+
+{% block content %}
+<div class="wrap">
+  <h1 class="cart-title">سلة التسوق</h1>
+
+  <div id="cart-empty" class="empty" hidden>
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M5 8h14l-1.2 11.2a2 2 0 0 1-2 1.8H8.2a2 2 0 0 1-2-1.8L5 8Z"/><path d="M9 8V6.5a3 3 0 0 1 6 0V8"/></svg>
+    <h2>سلتك فارغة</h2>
+    <p>لم تُضف أي منتجات بعد. تصفّح أحدث التشكيلات وابدأ التسوق.</p>
+    <a class="btn" href="/demo/">متابعة التسوق</a>
+  </div>
+
+  <div id="cart-full" class="cart-layout" hidden>
+    <div class="cart-list" id="cart-list"></div>
+    <aside class="summary">
+      <h2>ملخص الطلب</h2>
+      <div class="sum-row"><span>المجموع الفرعي (<span id="sum-count">0</span> منتج)</span><b id="sum-subtotal">0 ر.س</b></div>
+      <div class="sum-row"><span>الشحن</span><span id="sum-shipping">—</span></div>
+      <div class="ship-progress" id="ship-progress"></div>
+      <div class="sum-row total"><span>الإجمالي</span><span id="sum-total">0 ر.س</span></div>
+      <button type="button" class="btn" id="checkout-btn">إتمام الطلب</button>
+      <div class="secure">🔒 دفع آمن ومشفّر — مدى، Apple Pay، والبطاقات الائتمانية</div>
+      <a class="btn btn-light" href="/demo/" style="margin-top:10px;width:100%">متابعة التسوق</a>
+    </aside>
+  </div>
+</div>
+{% endblock %}
+
+{% block modals %}
+<div class="modal-backdrop" id="demo-modal" role="dialog" aria-modal="true" aria-labelledby="demo-modal-title">
+  <div class="modal">
+    <div class="modal-icon">✦</div>
+    <h3 id="demo-modal-title">شكراً لتجربتك!</h3>
+    <p>هذا متجر تجريبي لأغراض العرض فقط، لذلك لن يُنفَّذ أي طلب أو عملية دفع حقيقية. يسعدنا أنك جرّبت تجربة التسوق مع مساعدنا الذكي.</p>
+    <button type="button" class="btn" id="modal-close" style="width:100%">حسناً</button>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  (function () {
+    var FREE_SHIPPING = 299, SHIPPING_FEE = 25;
+    var cart = window.DemoCart;
+    var fmt = cart.formatPrice;
+
+    function esc(s) {
+      return String(s == null ? "" : s).replace(/[&<>"']/g, function (c) {
+        return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c];
+      });
+    }
+
+    function render() {
+      var items = cart.read();
+      var empty = !items.length;
+      document.getElementById("cart-empty").hidden = !empty;
+      document.getElementById("cart-full").hidden = empty;
+      if (empty) return;
+
+      var list = document.getElementById("cart-list");
+      list.innerHTML = items.map(function (it, i) {
+        var lineTotal = (Number(it.price) || 0) * (parseInt(it.qty, 10) || 1);
+        return '<div class="line">' +
+          '<a class="line-img" href="' + esc(it.url || "#") + '"><img src="' + esc(it.image) + '" alt=""></a>' +
+          '<div>' +
+            '<div class="line-top"><div>' +
+              '<a class="line-title" href="' + esc(it.url || "#") + '">' + esc(it.title) + '</a>' +
+              '<div class="line-meta">' + (it.size ? "المقاس: " + esc(it.size) + " · " : "") + fmt(it.price) + ' ر.س</div>' +
+            '</div>' +
+            '<button class="line-remove" data-remove="' + i + '" aria-label="حذف من السلة">' +
+              '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><path d="M4 7h16M10 11v6M14 11v6M6 7l1 12a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2l1-12M9 7V4h6v3"/></svg>' +
+            '</button></div>' +
+            '<div class="line-bottom">' +
+              '<div class="qty"><button data-inc="' + i + '" aria-label="زيادة">+</button><span>' + esc(it.qty) + '</span><button data-dec="' + i + '" aria-label="إنقاص">−</button></div>' +
+              '<span class="line-total">' + fmt(lineTotal) + ' ر.س</span>' +
+            '</div>' +
+          '</div>' +
+        '</div>';
+      }).join("");
+
+      var subtotal = items.reduce(function (s, it) { return s + (Number(it.price) || 0) * (parseInt(it.qty, 10) || 1); }, 0);
+      var shipping = subtotal >= FREE_SHIPPING ? 0 : SHIPPING_FEE;
+      document.getElementById("sum-count").textContent = cart.count(items);
+      document.getElementById("sum-subtotal").textContent = fmt(subtotal) + " ر.س";
+      document.getElementById("sum-shipping").textContent = shipping ? fmt(shipping) + " ر.س" : "مجاني";
+      document.getElementById("sum-total").textContent = fmt(subtotal + shipping) + " ر.س";
+      var remaining = FREE_SHIPPING - subtotal;
+      var pct = Math.min(100, Math.round(subtotal / FREE_SHIPPING * 100));
+      document.getElementById("ship-progress").innerHTML =
+        (remaining > 0 ? "أضف منتجات بقيمة <b>" + fmt(remaining) + " ر.س</b> لتحصل على شحن مجاني"
+                       : "🎉 طلبك مؤهّل للشحن المجاني") +
+        '<div class="ship-bar"><i style="width:' + pct + '%"></i></div>';
+    }
+
+    document.getElementById("cart-list").addEventListener("click", function (e) {
+      var btn = e.target.closest("button");
+      if (!btn) return;
+      var items = cart.read();
+      if (btn.dataset.remove != null) {
+        items.splice(+btn.dataset.remove, 1);
+      } else if (btn.dataset.inc != null) {
+        var a = items[+btn.dataset.inc]; a.qty = Math.min(99, (parseInt(a.qty, 10) || 1) + 1);
+      } else if (btn.dataset.dec != null) {
+        var b = items[+btn.dataset.dec]; b.qty = (parseInt(b.qty, 10) || 1) - 1;
+        if (b.qty < 1) items.splice(+btn.dataset.dec, 1);
+      } else { return; }
+      cart.write(items, false);
+    });
+
+    var modal = document.getElementById("demo-modal");
+    document.getElementById("checkout-btn").addEventListener("click", function () { modal.classList.add("open"); });
+    document.getElementById("modal-close").addEventListener("click", function () { modal.classList.remove("open"); });
+    modal.addEventListener("click", function (e) { if (e.target === modal) modal.classList.remove("open"); });
+
+    // أي تغيير بالسلة (حتى من الويدجت أو تبويب تاني) بيعيد الرسم
+    document.addEventListener("democart:change", render);
+    window.addEventListener("storage", render);
+    render();
+  })();
+</script>
+{% endblock %}

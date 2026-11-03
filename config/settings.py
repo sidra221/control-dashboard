@@ -166,6 +166,10 @@ GROQ_MODEL = os.environ.get("GROQ_MODEL", "llama-3.3-70b-versatile")
 
 KIEAI_API_KEY = os.environ.get("KIEAI_API_KEY", "").strip()
 
+# توكن التاجر الوهمي يلي بيعرض متجر الديمو (/demo/) — متجر تجريبي منفرجي فيه
+# ويدجت الشات كأنه مركّب على متجر حقيقي. فاضي = صفحات /demo/ بترجع 404.
+DEMO_STORE_KEY = os.environ.get("DEMO_STORE_KEY", "").strip()
+
 # تطبيق سلة (من بوابة الشركاء portal.salla.partners). التاجر بيركّب التطبيق،
 # وسلة بتبعتلنا التوكن بإشعار app.store.authorize (Easy Mode).
 SALLA_APP_ID = os.environ.get("SALLA_APP_ID", "").strip()

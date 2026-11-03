@@ -1963,3 +1963,122 @@ class SizeAdviceChatTests(TestCase):
     def test_english_customer_gets_english_sentence(self):
         data, _ = self.chat("I'm 165cm and 60kg", {"sku": "DRESS-1", "height_cm": 165, "weight_kg": 60}, reply="Great!")
         self.assertIn("Your size in", data["reply"])
+
+
+class SizeAdviceShoeTests(TestCase):
+    def test_numeric_shoe_sizes_get_no_body_chart_advice(self):
+        merchant = ApiToken.objects.create(label="m", image_quota=5)
+        Product.objects.create(merchant=merchant, sku="SHOE-1", title="حذاء", price="100", category="أحذية",
+                               image_url="https://x/s.jpg", options={"المقاس": ["38", "39", "40"]})
+        with patch("apitokens.widget_views.llm.get_provider", return_value=FakeProvider()), \
+                patch("apitokens.widget_views.llm.chat_with_retry") as mock_chat:
+            mock_chat.return_value = fake_result(
+                reply_text="تمام", tool_calls=[{"name": "recommend_size", "input": {"sku": "SHOE-1", "height_cm": 165, "weight_kg": 60}}],
+            )
+            data = self.client.post("/widget/chat/", data=json.dumps({"messages": [{"role": "user", "content": "طولي 165"}]}),
+                                    content_type="application/json", HTTP_X_API_TOKEN=merchant.token).json()
+        self.assertIsNone(data["size_advice"])
+        self.assertNotIn("مقاسك", data["reply"])
+
+
+from django.test import override_settings  # noqa: E402
+
+
+@override_settings(DEMO_STORE_KEY="DEMOSTOREKEY0001")
+class DemoStoreTests(TestCase):
+    """متجر الديمو (/demo/): الصفحات بتطلع، فيها بيانات الكتالوج والسكربت
+    بمفتاح التاجر، وبترجع 404 إذا DEMO_STORE_KEY مو مضبوط."""
+
+    def setUp(self):
+        self.merchant = ApiToken.objects.create(
+            label="Demo Store", token="DEMOSTOREKEY0001", image_quota=10, currency="SAR",
+        )
+        self.abaya = Product.objects.create(
+            merchant=self.merchant, sku="ABY-1", external_id="1001", title="عباية كريب سوداء",
+            description="عباية ناعمة بقصة واسعة.", price="349.00", image_url="https://example.com/a.jpg",
+            product_url="https://control.example.com/demo/products/abaya-1", category="عبايات",
+            options={"المقاس": ["S", "M", "L"]},
+        )
+        self.dress = Product.objects.create(
+            merchant=self.merchant, sku="DRS-1", external_id="1002", title="فستان سهرة مخملي",
+            price="300.00", compare_at_price="400.00", image_url="https://example.com/d.jpg",
+            category="فساتين", options={"Size": ["XS", "S"]},
+        )
+        self.sold_out = Product.objects.create(
+            merchant=self.merchant, sku="ABY-2", external_id="1003", title="عباية مطرزة بيج",
+            price="420.00", image_url="https://example.com/b.jpg", category="عبايات", in_stock=False,
+        )
+        self.client = Client()
+
+    def test_helpers_derive_handles(self):
+        from .demo_views import demo_product_url
+        self.assertEqual(demo_product_url(self.abaya), "/demo/products/abaya-1/")
+        self.assertEqual(demo_product_url(self.dress), "/demo/products/1002/")
+
+    def test_home(self):
+        r = self.client.get("/demo/")
+        self.assertEqual(r.status_code, 200)
+        html = r.content.decode()
+        self.assertIn("متجر الأناقة", html)
+        self.assertIn("عباية كريب سوداء", html)
+        self.assertIn("فستان سهرة مخملي", html)
+        self.assertIn("خصم 25%", html)
+        self.assertIn("400 ر.س", html)
+        self.assertIn("نفدت الكمية", html)
+        self.assertIn('id="cat-عبايات"', html)  # قسم الفئة بالرئيسية
+        self.assertIn("/demo/#cat-عبايات", html)  # القائمة بتنط عليه
+        self.assertNotIn("/demo/c/", html)  # ما في صفحة فئات
+        self.assertIn("/demo/products/abaya-1/", html)
+        self.assertIn('<script src="/static/apitokens/embed.js" data-store-key="DEMOSTOREKEY0001"></script>', html)
+        self.assertIn("window.ControlCart", html)
+        self.assertIn('"1001"', html)  # خريطة المنتجات بمفتاح external_id
+
+    def test_no_category_page(self):
+        self.assertEqual(self.client.get("/demo/c/عبايات/").status_code, 404)
+
+    def test_product_page(self):
+        r = self.client.get("/demo/products/abaya-1/")
+        self.assertEqual(r.status_code, 200)
+        html = r.content.decode()
+        self.assertIn("عباية كريب سوداء", html)
+        for size in ("S", "M", "L"):
+            self.assertIn(f'data-size="{size}"', html)
+        self.assertIn("أضف إلى السلة", html)
+        self.assertIn("اعرف مقاسك", html)
+        self.assertIn("ControlWidget", html)
+        self.assertIn("قد يعجبك أيضاً", html)
+        self.assertIn("عباية مطرزة بيج", html)  # منتج مشابه من نفس الفئة
+        self.assertIn('data-store-key="DEMOSTOREKEY0001"', html)
+
+    def test_product_page_sale_and_size_key_variant(self):
+        r = self.client.get("/demo/products/1002/")
+        self.assertEqual(r.status_code, 200)
+        html = r.content.decode()
+        self.assertIn("خصم 25%", html)
+        self.assertIn('data-size="XS"', html)
+
+    def test_out_of_stock_product_disables_button(self):
+        r = self.client.get("/demo/products/aby-2/")
+        self.assertEqual(r.status_code, 404)  # الـ handle من external_id مش من الـ sku
+        r = self.client.get("/demo/products/1003/")
+        self.assertEqual(r.status_code, 200)
+        self.assertIn("نفدت الكمية حالياً", r.content.decode())
+
+    def test_unknown_product_404(self):
+        self.assertEqual(self.client.get("/demo/products/nope/").status_code, 404)
+
+    def test_cart(self):
+        r = self.client.get("/demo/cart/")
+        self.assertEqual(r.status_code, 200)
+        html = r.content.decode()
+        self.assertIn("سلة التسوق", html)
+        self.assertIn("إتمام الطلب", html)
+        self.assertIn("متجر تجريبي", html)
+        self.assertIn('data-store-key="DEMOSTOREKEY0001"', html)
+
+    def test_404_when_key_unset_or_unknown(self):
+        with override_settings(DEMO_STORE_KEY=""):
+            for url in ("/demo/", "/demo/cart/", "/demo/products/abaya-1/"):
+                self.assertEqual(self.client.get(url).status_code, 404, url)
+        with override_settings(DEMO_STORE_KEY="NOT-A-REAL-TOKEN"):
+            self.assertEqual(self.client.get("/demo/").status_code, 404)

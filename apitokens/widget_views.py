@@ -880,7 +880,12 @@ def _size_advice(tool_calls, merchant, products, page_product, shown_skus, lang)
     if product is None:
         return None
     chart, approximate = _size_chart_for(merchant, product)
-    advice = sizing.advise(chart, measurements, sizing.product_sizes(product))
+    available_sizes = sizing.product_sizes(product)
+    chart_sizes = {str(row["size"]).strip().upper() for row in chart}
+    if available_sizes and not chart_sizes & {s.strip().upper() for s in available_sizes}:
+        # مقاسات المنتج من نظام تاني (أحذية 36-45 مثلاً) — الجدول ما بينطبق عليه.
+        return None
+    advice = sizing.advise(chart, measurements, available_sizes)
     if advice is None:
         return None
     texts = SIZE_REPLY[lang]

@@ -42,6 +42,13 @@
   // زد: ثيمات Vitrin الجديدة (zid.cart) والقديمة (zid.store.cart).
   var ZID_CART = window.zid && (window.zid.cart || (window.zid.store && window.zid.store.cart));
   var IS_ZID = !!(ZID_CART && ZID_CART.addProduct);
+  // متجر مخصص (متل متجر الديمو) بيقدر يعرّف window.ControlCart = {add, url} لنضيف لسلته.
+  function controlCart() {
+    return window.ControlCart && typeof window.ControlCart.add === "function" ? window.ControlCart : null;
+  }
+  // المقاس اللي رشّحه المساعد لكل منتج — بيطلع كشارة على الكرت وبينضاف للسلة معه.
+  var sizeBySku = {};
+  var recBySku = {};
   var cartTagged = false;
   var UI = {
     ar: { add: "أضف للسلة 🛒", added: "انضاف للسلة ✓ — كمّل طلبك", addFailed: "ما قدرنا نضيفه للسلة، جرّب من صفحة المنتج.", buy: "اشترِه الحين" },
@@ -209,6 +216,7 @@
     ".card .price { font-size: 12.5px; color: #6b7083; margin-bottom: 8px; }",
     ".card .price s { opacity: .7; margin-inline-start: 6px; }",
     ".card .price .sale { color: #dc2626; font-weight: 700; }",
+    ".card .size-badge { display: inline-block; margin-bottom: 8px; padding: 3px 10px; border-radius: 999px; background: #e8f7ee; color: #12753f; font-size: 12px; font-weight: 700; }",
     ".card button, .card a.buy {",
     "  display: inline-block; text-decoration: none; text-align: center;",
     "  font-size: 12.5px; font-weight: 700; border-radius: 9px; padding: 8px 10px;",
@@ -441,9 +449,61 @@
     scrollToBottom();
   }
 
+  function sizeBadge(size) {
+    var badge = document.createElement("div");
+    badge.className = "size-badge";
+    badge.textContent = (uiLang() === "ar" ? "مقاسك: " : "Your size: ") + size + " ✓";
+    return badge;
+  }
+
+  function controlCartButton(rec, labels) {
+    var btn = document.createElement("button");
+    btn.className = "addcart";
+    btn.textContent = labels.add;
+    btn.addEventListener("click", function () {
+      btn.disabled = true;
+      Promise.resolve(
+        controlCart().add({ product_id: rec.product_id, quantity: 1, size: sizeBySku[rec.sku] || "" })
+      )
+        .then(function () {
+          trackEvent("add_to_cart");
+          var go = document.createElement("a");
+          go.className = "buy";
+          go.href = controlCart().url || "#";
+          go.textContent = labels.added;
+          btn.replaceWith(go);
+        })
+        .catch(function () {
+          btn.disabled = false;
+          addErrorMessage(labels.addFailed);
+        });
+    });
+    return btn;
+  }
+
+  // المساعد رشّح مقاس: منحط الشارة على كروت هالمنتج، وإذا المتجر بيدعم
+  // ControlCart منبدّل رابط "اشتري" بزر إضافة للسلة بالمقاس.
+  function markSize(sku, size) {
+    sizeBySku[sku] = size;
+    var cards = msgsEl.querySelectorAll('.card[data-sku="' + sku.replace(/"/g, "") + '"]');
+    for (var i = 0; i < cards.length; i++) {
+      var card = cards[i];
+      var old = card.querySelector(".size-badge");
+      if (old) old.remove();
+      card.querySelector(".price").after(sizeBadge(size));
+      var rec = recBySku[sku];
+      var link = card.querySelector("a.buy");
+      if (controlCart() && rec && rec.product_id && link && !card.querySelector("button.addcart")) {
+        link.replaceWith(controlCartButton(rec, UI[uiLang()]));
+      }
+    }
+  }
+
   function addRecommendationCard(rec) {
     var card = document.createElement("div");
     card.className = "card";
+    card.setAttribute("data-sku", rec.sku);
+    recBySku[rec.sku] = rec;
     var img = document.createElement("img");
     img.src = rec.image_url;
     img.alt = rec.title;
@@ -468,6 +528,7 @@
     }
     if (shownSkus.indexOf(rec.sku) === -1) shownSkus.push(rec.sku);
     card.appendChild(price);
+    if (sizeBySku[rec.sku]) card.appendChild(sizeBadge(sizeBySku[rec.sku]));
 
     var tryBtn = document.createElement("button");
     tryBtn.className = "tryon";
@@ -517,6 +578,8 @@
           });
       });
       card.appendChild(addBtn);
+    } else if (controlCart() && rec.product_id && (!rec.has_options || sizeBySku[rec.sku])) {
+      card.appendChild(controlCartButton(rec, labels));
     } else if (IS_SALLA && rec.product_id && !rec.has_options) {
       // منتج بمقاسات/ألوان لازم الزبون يختارها بصفحة المنتج — بس البسيط منضيفه من هون.
       var sallaAddBtn = document.createElement("button");
@@ -664,6 +727,9 @@
           if (data.discount_offer) {
             addDiscountMessage(data.discount_offer);
           }
+          if (data.size_advice && data.size_advice.available && data.size_advice.sku) {
+            markSize(data.size_advice.sku, data.size_advice.size);
+          }
         }
         if (data.reply) {
           history.push({ role: "assistant", content: data.reply });
@@ -735,4 +801,16 @@
     savedPhoto = file;
     runTryon(pendingSku, file);
   });
+  // واجهة بسيطة للمتجر: زر "اعرف مقاسك" مثلاً بيفتح المحادثة وبيبعت رسالة جاهزة.
+  window.ControlWidget = {
+    open: function (message) {
+      if (!panel.classList.contains("open")) openPanel();
+      if (!message) return;
+      // منستنى الترحيب يطلع قبل ما نبعت، حتى يضل ترتيب المحادثة طبيعي.
+      setTimeout(function () {
+        inputEl.value = message;
+        sendMessage();
+      }, 1800);
+    },
+  };
 })();

@@ -1,0 +1,232 @@
+{% extends "apitokens/demo/base.html" %}
+
+{% block title %}{{ p.title }} — {{ store_name }}{% endblock %}
+
+{% block extra_css %}
+  .pdp { display: grid; grid-template-columns: 1fr; gap: 24px; padding-top: 14px; }
+  @media (min-width: 900px) { .pdp { grid-template-columns: 1.1fr 1fr; gap: 56px; padding-top: 22px; } }
+  .pdp-media {
+    position: relative; border-radius: 22px; overflow: hidden; background: var(--sand); aspect-ratio: 4 / 5;
+  }
+  .pdp-media img { width: 100%; height: 100%; object-fit: cover; }
+  .pdp-media .badge { top: 16px; right: 16px; font-size: 13px; padding: 5px 12px; }
+  @media (min-width: 900px) { .pdp-media-wrap { position: sticky; top: 130px; align-self: start; } }
+
+  .pdp-info { padding-top: 4px; }
+  .pdp-cat { color: var(--accent); font-weight: 700; font-size: 14px; }
+  .pdp-info h1 { margin: 4px 0 12px; font-size: clamp(24px, 4vw, 34px); line-height: 1.3; font-weight: 800; letter-spacing: -.4px; }
+  .pdp-price { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 6px; }
+  .pdp-price .price { font-size: 26px; }
+  .pdp-price .old-price { font-size: 17px; }
+  .save-pill { background: #f7e3dd; color: var(--sale); font-weight: 700; font-size: 13px; padding: 3px 10px; border-radius: 999px; }
+  .tax-note { color: var(--muted); font-size: 13px; margin-bottom: 18px; }
+  .pdp-desc { color: var(--ink-2); margin: 0 0 22px; white-space: pre-line; }
+  .stock { display: inline-flex; align-items: center; gap: 6px; font-size: 14px; font-weight: 700; margin-bottom: 20px; }
+  .stock::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: currentColor; }
+  .stock.in { color: var(--ok); }
+  .stock.out { color: var(--sale); }
+
+  .opt-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
+  .opt-head b { font-size: 15px; }
+  .opt-head b span { color: var(--muted); font-weight: 500; }
+  .size-help {
+    border: 0; background: none; padding: 4px 0; color: var(--accent); font-weight: 700; font-size: 14px;
+    display: inline-flex; align-items: center; gap: 6px; text-decoration: underline; text-underline-offset: 4px;
+  }
+  .size-help svg { width: 18px; height: 18px; }
+  .sizes { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 8px; }
+  .size {
+    min-width: 54px; height: 46px; padding: 0 14px; border-radius: 12px; border: 1.5px solid var(--line);
+    background: var(--surface); font-weight: 700; font-size: 15px; transition: all .15s;
+  }
+  .size:hover { border-color: var(--ink-2); }
+  .size.on { border-color: var(--ink); background: var(--ink); color: #fff; }
+  .size-error { color: var(--sale); font-size: 13px; min-height: 20px; margin-bottom: 8px; }
+
+  .buy-row { display: flex; gap: 10px; margin: 6px 0 14px; }
+  .qty {
+    display: inline-flex; align-items: center; border: 1.5px solid var(--line); border-radius: 999px;
+    height: 50px; background: var(--surface); flex-shrink: 0;
+  }
+  .qty button { width: 42px; height: 100%; border: 0; background: none; font-size: 20px; }
+  .qty input {
+    width: 34px; text-align: center; border: 0; background: none; font: inherit; font-weight: 700; font-size: 16px;
+    -moz-appearance: textfield;
+  }
+  .qty input::-webkit-outer-spin-button, .qty input::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+  .buy-row .btn { flex: 1; }
+  .assist-card {
+    display: flex; gap: 12px; align-items: center; background: var(--sand); border-radius: 16px; padding: 14px 16px;
+    margin: 4px 0 22px; font-size: 14px; color: var(--ink-2);
+  }
+  .assist-card svg { width: 28px; height: 28px; color: var(--accent); flex-shrink: 0; }
+  .assist-card b { color: var(--ink); display: block; }
+
+  details { border-top: 1px solid var(--line); }
+  details:last-of-type { border-bottom: 1px solid var(--line); }
+  summary {
+    list-style: none; cursor: pointer; padding: 16px 0; font-weight: 700; display: flex; justify-content: space-between; align-items: center;
+  }
+  summary::-webkit-details-marker { display: none; }
+  summary::after { content: "+"; font-size: 22px; font-weight: 400; color: var(--muted); transition: transform .2s; }
+  details[open] summary::after { transform: rotate(45deg); }
+  details .acc-body { padding: 0 0 18px; color: var(--ink-2); font-size: 15px; }
+  details ul { margin: 0; padding-right: 18px; }
+{% endblock %}
+
+{% block content %}
+<div class="wrap">
+  <nav class="breadcrumb" aria-label="مسار التصفح">
+    <a href="/demo/">الرئيسية</a><span>/</span>
+    {% if p.category_slug %}<a href="/demo/#cat-{{ p.category_slug }}">{{ p.category_label }}</a><span>/</span>{% endif %}
+    <span>{{ p.title }}</span>
+  </nav>
+
+  <div class="pdp">
+    <div class="pdp-media-wrap">
+      <div class="pdp-media">
+        {% if p.on_sale %}<span class="badge badge-sale">خصم {{ p.discount }}%</span>{% endif %}
+        {% if not p.in_stock %}<span class="badge badge-oos">نفدت الكمية</span>{% endif %}
+        <img src="{{ p.image }}" alt="{{ p.title }}">
+      </div>
+    </div>
+
+    <div class="pdp-info">
+      {% if p.category_label %}<div class="pdp-cat">{{ p.category_label }}</div>{% endif %}
+      <h1>{{ p.title }}</h1>
+      <div class="pdp-price">
+        <span class="price{% if p.on_sale %} on-sale{% endif %}">{{ p.price }} <span class="cur">ر.س</span></span>
+        {% if p.on_sale %}
+          <span class="old-price">{{ p.old_price }} ر.س</span>
+          <span class="save-pill">وفّر {{ p.discount }}%</span>
+        {% endif %}
+      </div>
+      <div class="tax-note">السعر شامل ضريبة القيمة المضافة</div>
+
+      {% if p.in_stock %}<div class="stock in">متوفر — يُشحن خلال 24 ساعة</div>
+      {% else %}<div class="stock out">نفدت الكمية حالياً</div>{% endif %}
+
+      {% if description %}<p class="pdp-desc">{{ description|striptags|truncatewords:60 }}</p>{% endif %}
+
+      <form id="buy-form" onsubmit="return false">
+        {% if p.sizes %}
+          <div class="opt-head">
+            <b>{{ p.size_key|default:"المقاس" }}: <span id="size-picked">اختر المقاس</span></b>
+            <button type="button" class="size-help" id="size-help">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M3 17 17 3l4 4L7 21H3v-4Z"/><path d="m7 13 2 2M10 10l2 2M13 7l2 2"/></svg>
+              اعرف مقاسك
+            </button>
+          </div>
+          <div class="sizes" role="radiogroup" aria-label="المقاس">
+            {% for s in p.sizes %}<button type="button" class="size" role="radio" aria-checked="false" data-size="{{ s }}">{{ s }}</button>{% endfor %}
+          </div>
+          <div class="size-error" id="size-error" aria-live="polite"></div>
+        {% endif %}
+
+        <div class="buy-row">
+          <div class="qty" aria-label="الكمية">
+            <button type="button" data-qty="+1" aria-label="زيادة الكمية">+</button>
+            <input type="number" id="qty" value="1" min="1" max="99" inputmode="numeric" aria-label="الكمية">
+            <button type="button" data-qty="-1" aria-label="إنقاص الكمية">−</button>
+          </div>
+          <button type="submit" class="btn" id="add-btn" {% if not p.in_stock %}disabled{% endif %}>
+            {% if p.in_stock %}أضف إلى السلة{% else %}نفدت الكمية{% endif %}
+          </button>
+        </div>
+      </form>
+
+      <div class="assist-card">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a8 8 0 0 1-11.6 7.1L4 20l1-4.6A8 8 0 1 1 21 12Z"/><path d="M8.5 11h.01M12 11h.01M15.5 11h.01"/></svg>
+        <div><b>محتار في المقاس أو التنسيق؟</b>اسأل مساعدنا الذكي، يقترح عليك المقاس الأنسب وقطعاً تتناسق معها.</div>
+      </div>
+
+      <details open>
+        <summary>تفاصيل المنتج</summary>
+        <div class="acc-body">
+          <ul>
+            <li>رمز المنتج: {{ p.obj.sku }}</li>
+            {% if p.category_label %}<li>القسم: {{ p.category_label }}</li>{% endif %}
+            <li>العناية: يُفضّل الغسيل على البارد أو التنظيف الجاف</li>
+          </ul>
+        </div>
+      </details>
+      <details>
+        <summary>الشحن والتوصيل</summary>
+        <div class="acc-body">
+          شحن مجاني للطلبات التي تتجاوز 299 ر.س، ويصل طلبك خلال 2 إلى 5 أيام عمل لجميع مدن المملكة. يمكنك تتبّع شحنتك برسالة نصية فور خروجها من المستودع.
+        </div>
+      </details>
+      <details>
+        <summary>الاستبدال والإرجاع</summary>
+        <div class="acc-body">
+          يمكنك استبدال المنتج أو إرجاعه مجاناً خلال 14 يوماً من الاستلام، بشرط أن يكون بحالته الأصلية مع البطاقة والتغليف. يُعاد المبلغ إلى وسيلة الدفع نفسها خلال 5 إلى 7 أيام عمل.
+        </div>
+      </details>
+    </div>
+  </div>
+
+  {% if related %}
+  <section class="section">
+    <div class="section-head">
+      <div><h2>قد يعجبك أيضاً</h2><p>اخترنا لك قطعاً تتناسق مع ذوقك</p></div>
+    </div>
+    <div class="grid">
+      {% for c in related %}{% include "apitokens/demo/_card.html" %}{% endfor %}
+    </div>
+  </section>
+  {% endif %}
+</div>
+{% endblock %}
+
+{% block scripts %}
+{{ product_key|json_script:"demo-current-product" }}
+{{ size_message|json_script:"demo-size-message" }}
+<script>
+  (function () {
+    var key = JSON.parse(document.getElementById("demo-current-product").textContent);
+    var product = window.DemoCart.find(key);
+    var picked = "";
+    var hasSizes = !!document.querySelector(".size");
+    var errorEl = document.getElementById("size-error");
+
+    document.querySelectorAll(".size").forEach(function (btn) {
+      btn.addEventListener("click", function () {
+        picked = btn.dataset.size;
+        document.querySelectorAll(".size").forEach(function (b) {
+          var on = b === btn;
+          b.classList.toggle("on", on);
+          b.setAttribute("aria-checked", on ? "true" : "false");
+        });
+        document.getElementById("size-picked").textContent = picked;
+        if (errorEl) errorEl.textContent = "";
+      });
+    });
+
+    var qtyInput = document.getElementById("qty");
+    document.querySelectorAll("[data-qty]").forEach(function (btn) {
+      btn.addEventListener("click", function () {
+        var v = (parseInt(qtyInput.value, 10) || 1) + parseInt(btn.dataset.qty, 10);
+        qtyInput.value = Math.max(1, Math.min(99, v));
+      });
+    });
+
+    document.getElementById("buy-form").addEventListener("submit", function () {
+      if (!product || !product.in_stock) return;
+      if (hasSizes && !picked) {
+        errorEl.textContent = "يرجى اختيار المقاس أولاً";
+        return;
+      }
+      window.DemoCart.add(product, picked, qtyInput.value);
+    });
+
+    // "اعرف مقاسك" بيفتح ويدجت الشات (إذا تحمّل) برسالة جاهزة
+    var help = document.getElementById("size-help");
+    if (help) help.addEventListener("click", function () {
+      var msg = JSON.parse(document.getElementById("demo-size-message").textContent);
+      if (window.ControlWidget && typeof window.ControlWidget.open === "function") {
+        window.ControlWidget.open(msg);
+      }
+    });
+  })();
+</script>
+{% endblock %}

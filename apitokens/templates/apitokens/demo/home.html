@@ -1,0 +1,177 @@
+{% extends "apitokens/demo/base.html" %}
+
+{% block extra_css %}
+  .hero {
+    position: relative; overflow: hidden; margin-top: 20px; border-radius: 26px;
+    background:
+      radial-gradient(120% 90% at 100% 0%, #efe2d1 0%, transparent 60%),
+      radial-gradient(90% 80% at 0% 100%, #e4d3bf 0%, transparent 55%),
+      linear-gradient(135deg, #f6eee4, #ead9c5);
+    display: grid; grid-template-columns: 1fr; align-items: center;
+  }
+  .hero::before {
+    /* زخرفة هندسية خفيفة */
+    content: ""; position: absolute; inset: 0; opacity: .35; pointer-events: none;
+    background-image: radial-gradient(circle at 1px 1px, rgba(140, 94, 60, .35) 1px, transparent 0);
+    background-size: 22px 22px;
+    mask-image: linear-gradient(to left, #000, transparent 70%);
+    -webkit-mask-image: linear-gradient(to left, #000, transparent 70%);
+  }
+  .hero-text { position: relative; padding: 40px 22px; max-width: 600px; }
+  .hero-cta .btn { padding-left: 20px; padding-right: 20px; }
+  @media (max-width: 480px) { .hero-cta .btn { height: 46px; font-size: 15px; padding-left: 18px; padding-right: 18px; } }
+  .hero-kicker {
+    display: inline-block; font-size: 13px; font-weight: 700; color: var(--accent-dark);
+    background: rgba(255,255,255,.6); padding: 5px 14px; border-radius: 999px; margin-bottom: 16px;
+  }
+  .hero h1 { margin: 0 0 12px; font-size: clamp(32px, 6vw, 56px); line-height: 1.15; font-weight: 800; letter-spacing: -.8px; }
+  .hero h1 em { font-style: normal; color: var(--accent); white-space: nowrap; }
+  .hero p { margin: 0 0 26px; color: var(--ink-2); font-size: 17px; max-width: 440px; }
+  .hero-cta { display: flex; gap: 10px; flex-wrap: wrap; }
+  .hero-art { display: none; position: relative; height: 100%; min-height: 420px; }
+  .arch {
+    position: absolute; bottom: 0; border-radius: 999px 999px 0 0; overflow: hidden;
+    background: var(--sand-2); box-shadow: 0 20px 40px -20px rgba(60,40,20,.4);
+  }
+  .arch img { width: 100%; height: 100%; object-fit: cover; }
+  .arch-1 { width: 46%; height: 88%; left: 8%; }
+  .arch-2 { width: 36%; height: 66%; left: 56%; border: 6px solid #f6eee4; border-bottom: 0; }
+  @media (min-width: 860px) {
+    .hero { grid-template-columns: 1.05fr 1fr; min-height: 480px; }
+    .hero-text { padding: 56px 56px; }
+    .hero-art { display: block; }
+  }
+
+  /* بالموبايل شريط أفقي، وبالشاشات الكبيرة صف واحد مهما كان عدد الفئات */
+  .cats {
+    display: grid; grid-auto-flow: column; grid-auto-columns: 40%; gap: 12px;
+    overflow-x: auto; scroll-snap-type: x mandatory; padding-bottom: 8px; scrollbar-width: none;
+  }
+  .cats::-webkit-scrollbar { display: none; }
+  .cats > * { scroll-snap-align: start; }
+  @media (min-width: 720px) {
+    .cats { grid-auto-flow: row; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 18px; overflow: visible; }
+  }
+  .cat-tile {
+    position: relative; display: block; aspect-ratio: 4 / 5; border-radius: var(--radius); overflow: hidden;
+    background: var(--sand);
+  }
+  .cat-tile img { width: 100%; height: 100%; object-fit: cover; transition: transform .6s; }
+  .cat-tile:hover img { transform: scale(1.05); }
+  .cat-tile::after { content: ""; position: absolute; inset: 0; background: linear-gradient(to top, rgba(30,20,12,.62), transparent 55%); }
+  .cat-tile span {
+    position: absolute; z-index: 1; bottom: 14px; right: 16px; left: 16px; color: #fff;
+    font-weight: 800; font-size: 18px; line-height: 1.3; display: flex; flex-direction: column;
+  }
+  .cat-tile small { font-weight: 500; font-size: 12px; opacity: .85; }
+
+  .sale-banner {
+    margin-top: 48px; border-radius: 22px; padding: 26px; background: var(--ink); color: #fff;
+    display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 16px;
+  }
+  .sale-banner h3 { margin: 0; font-size: 22px; }
+  .sale-banner p { margin: 4px 0 0; color: #cfc3b6; font-size: 14px; }
+  .sale-banner .code {
+    border: 1.5px dashed #c99f7b; color: #f1cfae; padding: 8px 18px; border-radius: 12px; font-weight: 800; letter-spacing: 1px;
+  }
+{% endblock %}
+
+{% block content %}
+<div class="wrap">
+  <section class="hero">
+    <div class="hero-text">
+      <span class="hero-kicker">تشكيلة الموسم الجديد</span>
+      <h1>أناقتك تبدأ <em>من هنا</em></h1>
+      <p>تصاميم عصرية بلمسة أصيلة، وخامات فاخرة مختارة بعناية لكل مناسباتك.</p>
+      <div class="hero-cta">
+        <a class="btn" href="#new">تسوّق الجديد</a>
+        <a class="btn btn-light" href="#sale">اكتشف العروض</a>
+      </div>
+    </div>
+    <div class="hero-art" aria-hidden="true">
+      {% if new_arrivals.0 %}<div class="arch arch-1"><img src="{{ new_arrivals.0.image }}" alt=""></div>{% endif %}
+      {% if new_arrivals.1 %}<div class="arch arch-2"><img src="{{ new_arrivals.1.image }}" alt=""></div>{% endif %}
+    </div>
+  </section>
+
+  {% if categories %}
+  <section class="section">
+    <div class="section-head">
+      <div><h2>تسوّق حسب القسم</h2><p>كل ما تحتاجه لإطلالة متكاملة</p></div>
+    </div>
+    <div class="cats">
+      {% for c in categories|slice:":8" %}
+        <a class="cat-tile" href="#cat-{{ c.slug }}">
+          <img src="{{ c.image }}" alt="{{ c.label }}" loading="lazy">
+          <span>{{ c.label }} <small>{{ c.count }} منتج</small></span>
+        </a>
+      {% endfor %}
+    </div>
+  </section>
+  {% endif %}
+
+  {% if new_arrivals %}
+  <section class="section" id="new">
+    <div class="section-head">
+      <div><h2>وصل حديثاً</h2><p>أحدث القطع في المتجر هذا الأسبوع</p></div>
+      <a class="more" href="#all">عرض الكل ←</a>
+    </div>
+    <div class="strip">
+      {% for c in new_arrivals %}{% include "apitokens/demo/_card.html" %}{% endfor %}
+    </div>
+  </section>
+  {% endif %}
+
+  {% if sale_products %}
+  <div class="sale-banner">
+    <div>
+      <h3>عروض حصرية لفترة محدودة</h3>
+      <p>خصومات على قطع مختارة، والكميات محدودة.</p>
+    </div>
+    <span class="code">حتى {{ max_discount }}% خصم</span>
+  </div>
+  <section class="section" id="sale">
+    <div class="section-head">
+      <div><h2>عروض</h2><p>أسعار مميزة على تشكيلة مختارة</p></div>
+    </div>
+    <div class="grid">
+      {% for c in sale_products %}{% include "apitokens/demo/_card.html" %}{% endfor %}
+    </div>
+  </section>
+  {% endif %}
+
+  <div id="all">
+  {% for sec in sections %}
+  <section class="section" id="cat-{{ sec.slug }}">
+    <div class="section-head">
+      <div><h2>{{ sec.label }}</h2><p>{{ sec.count }} منتج</p></div>
+    </div>
+    <div class="grid">
+      {% for c in sec.products %}{% include "apitokens/demo/_card.html" %}{% endfor %}
+    </div>
+  </section>
+  {% empty %}
+  <p class="section">لا توجد منتجات حالياً.</p>
+  {% endfor %}
+  </div>
+
+  <div class="perks">
+    <div class="perk">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7h11v9H3zM14 10h4l3 3v3h-7"/><circle cx="7" cy="18" r="1.8"/><circle cx="17" cy="18" r="1.8"/></svg>
+      <b>شحن سريع</b><span>توصيل خلال 2–5 أيام عمل</span>
+    </div>
+    <div class="perk">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12a8 8 0 1 0 3-6.2"/><path d="M4 4v4h4"/></svg>
+      <b>إرجاع مجاني</b><span>خلال 14 يوماً من الاستلام</span>
+    </div>
+    <div class="perk">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="10" width="16" height="10" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/></svg>
+      <b>دفع آمن</b><span>مدى، Apple Pay، والبطاقات</span>
+    </div>
+    <div class="perk">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a8 8 0 0 1-11.6 7.1L4 20l1-4.6A8 8 0 1 1 21 12Z"/></svg>
+      <b>مساعدة فورية</b><span>اسأل مساعدنا الذكي عن المقاس والتنسيق</span>
+    </div>
+  </div>
+</div>
+{% endblock %}

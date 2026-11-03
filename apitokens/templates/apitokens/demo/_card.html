@@ -1,0 +1,15 @@
+<a href="{{ c.url }}" class="card{% if not c.in_stock %} oos{% endif %}">
+  <div class="card-media">
+    {% if c.on_sale %}<span class="badge badge-sale">خصم {{ c.discount }}%</span>{% endif %}
+    {% if not c.in_stock %}<span class="badge badge-oos">نفدت الكمية</span>{% endif %}
+    <img src="{{ c.image }}" alt="{{ c.title }}" loading="lazy">
+  </div>
+  <div class="card-body">
+    {% if c.category_label %}<div class="card-cat">{{ c.category_label }}</div>{% endif %}
+    <h3 class="card-title">{{ c.title }}</h3>
+    <div class="price-row">
+      <span class="price{% if c.on_sale %} on-sale{% endif %}">{{ c.price }} <span class="cur">ر.س</span></span>
+      {% if c.on_sale %}<span class="old-price">{{ c.old_price }} ر.س</span>{% endif %}
+    </div>
+  </div>
+</a>
