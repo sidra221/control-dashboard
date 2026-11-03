@@ -195,6 +195,7 @@ SIZE_REPLY = {
         "missing_none": "مقاسك المناسب في «{title}» هو {size}، بس للأسف مو متوفر حالياً.",
         "approx": " (تقديري حسب جدول مقاسات عام)",
         "cta": " تقدر تطلبه الحين بمقاسك من زر الشراء 👇",
+        "ask": "أبشر! عطني طولك ووزنك (والخصر إذا تعرفه)، وأطلع لك مقاسك بالضبط 👌",
     },
     "en": {
         "fit": "Your size in “{title}” is {size} ✓",
@@ -202,6 +203,7 @@ SIZE_REPLY = {
         "missing_none": "Your size in “{title}” is {size}, but it's out of stock right now.",
         "approx": " (estimated from a standard size chart)",
         "cta": " You can order it in your size with the buy button below 👇",
+        "ask": "Sure! Tell me your height and weight (and waist if you know it), and I'll find your exact size 👌",
     },
 }
 
@@ -784,6 +786,9 @@ def chat(request):
             reply_text = FALLBACK_DISCOUNT_REPLY[lang].format(**discount_offer)
         elif size_advice:
             reply_text = size_advice["text"]
+        elif any(c["name"] == "recommend_size" for c in result.tool_calls):
+            # الموديل نادى أداة المقاس قبل ما ياخد القياسات — منسأل عنها بدل رد عام.
+            reply_text = SIZE_REPLY[lang]["ask"]
         else:
             reply_text = FALLBACK_REPHRASE_REPLY[lang]
 

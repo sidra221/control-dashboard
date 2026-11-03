@@ -2082,3 +2082,17 @@ class DemoStoreTests(TestCase):
                 self.assertEqual(self.client.get(url).status_code, 404, url)
         with override_settings(DEMO_STORE_KEY="NOT-A-REAL-TOKEN"):
             self.assertEqual(self.client.get("/demo/").status_code, 404)
+
+
+class SizeAskTests(TestCase):
+    def test_size_tool_without_measurements_asks_for_them(self):
+        merchant = ApiToken.objects.create(label="m", image_quota=5)
+        Product.objects.create(merchant=merchant, sku="D-1", title="فستان", price="100", category="فساتين",
+                               image_url="https://x/d.jpg", options={"المقاس": ["S", "M"]})
+        with patch("apitokens.widget_views.llm.get_provider", return_value=FakeProvider()), \
+                patch("apitokens.widget_views.llm.chat_with_retry") as mock_chat:
+            mock_chat.return_value = fake_result(tool_calls=[{"name": "recommend_size", "input": {"sku": "D-1"}}])
+            data = self.client.post("/widget/chat/", data=json.dumps({"messages": [{"role": "user", "content": "ساعدني أعرف مقاسي"}]}),
+                                    content_type="application/json", HTTP_X_API_TOKEN=merchant.token).json()
+        self.assertIn("طولك ووزنك", data["reply"])
+        self.assertIsNone(data["size_advice"])
