@@ -2031,7 +2031,7 @@ class DemoStoreTests(TestCase):
         self.assertIn("/demo/#cat-عبايات", html)  # القائمة بتنط عليه
         self.assertNotIn("/demo/c/", html)  # ما في صفحة فئات
         self.assertIn("/demo/products/abaya-1/", html)
-        self.assertIn('<script src="/static/apitokens/embed.js" data-store-key="DEMOSTOREKEY0001"></script>', html)
+        self.assertRegex(html, r'<script src="/static/apitokens/embed\.js\?v=\d+" data-store-key="DEMOSTOREKEY0001"></script>')
         self.assertIn("window.ControlCart", html)
         self.assertIn('"1001"', html)  # خريطة المنتجات بمفتاح external_id
 

@@ -91,6 +91,16 @@ def fmt_price(value):
     return f"{value:,.2f}"
 
 
+def _widget_version():
+    """رقم نسخة embed.js من وقت تعديله — حتى يشوف المتصفح التحديث فوراً بالديمو
+    بدل نسخته المخزّنة."""
+    path = settings.BASE_DIR / "apitokens" / "static" / "apitokens" / "embed.js"
+    try:
+        return int(path.stat().st_mtime)
+    except OSError:
+        return 0
+
+
 def card(product):
     on_sale = bool(product.compare_at_price and product.compare_at_price > product.price)
     discount = 0
@@ -172,7 +182,7 @@ def render_demo(request, template, merchant, cards, extra=None):
         "currency": "ر.س",
         "categories": categories_of(cards),
         "products_map": products_json(cards),
-        "widget_src": static("apitokens/embed.js"),
+        "widget_src": static("apitokens/embed.js") + f"?v={_widget_version()}",
         "store_key": merchant.token,
     }
     context.update(extra or {})
