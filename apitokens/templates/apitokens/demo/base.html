@@ -74,18 +74,6 @@
   .cart-badge.bump { animation: bump .4s; }
   @keyframes bump { 50% { transform: scale(1.35); } }
 
-  .main-nav { border-top: 1px solid var(--line); }
-  .main-nav ul {
-    list-style: none; margin: 0 auto; padding: 0 20px; display: flex; gap: 6px;
-    overflow-x: auto; scrollbar-width: none; max-width: var(--wrap);
-  }
-  .main-nav ul::-webkit-scrollbar { display: none; }
-  .main-nav a {
-    display: block; white-space: nowrap; padding: 11px 12px; font-size: 15px; font-weight: 500;
-    color: var(--ink-2); border-bottom: 2px solid transparent; transition: color .2s, border-color .2s;
-  }
-  .main-nav a:hover, .main-nav a.active { color: var(--ink); border-color: var(--accent); }
-  .main-nav a.sale-link { color: var(--sale); }
 
   /* أزرار */
   .btn {
@@ -235,15 +223,6 @@
         </a>
       </div>
     </div>
-    <nav class="main-nav" aria-label="الأقسام">
-      <ul>
-        <li><a href="/demo/" class="{% if request.path == '/demo/' %}active{% endif %}">الرئيسية</a></li>
-        {% for c in categories %}
-          <li><a href="/demo/#cat-{{ c.slug }}">{{ c.label }}</a></li>
-        {% endfor %}
-        <li><a href="/demo/#sale" class="sale-link">العروض</a></li>
-      </ul>
-    </nav>
   </header>
 
   <main>
