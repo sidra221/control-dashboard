@@ -1753,3 +1753,133 @@ class ZidDashboardTests(TestCase):
     def test_requires_staff(self):
         self.client.logout()
         self.assertEqual(self.client.get("/zid/").status_code, 302)
+
+
+class TryOnLimitSettingsTests(TestCase):
+    def setUp(self):
+        from django.contrib.auth import get_user_model
+        self.client.force_login(get_user_model().objects.create_user("staff3", password="x", is_staff=True))
+        self.merchant = ApiToken.objects.create(label="m", image_quota=10)
+
+    def test_defaults(self):
+        self.assertEqual((self.merchant.tryons_per_shopper, self.merchant.tryon_limit_days), (2, 30))
+
+    def test_merchant_page_saves_limit(self):
+        resp = self.client.post(f"/{self.merchant.pk}/catalog/",
+                                {"action": "tryon_limit", "tryons_per_shopper": "3", "tryon_limit_days": "7"})
+        self.assertEqual(resp.status_code, 302)
+        self.merchant.refresh_from_db()
+        self.assertEqual((self.merchant.tryons_per_shopper, self.merchant.tryon_limit_days), (3, 7))
+
+    def test_invalid_values_rejected_and_clamped(self):
+        self.client.post(f"/{self.merchant.pk}/catalog/",
+                         {"action": "tryon_limit", "tryons_per_shopper": "abc", "tryon_limit_days": "7"})
+        self.merchant.refresh_from_db()
+        self.assertEqual(self.merchant.tryons_per_shopper, 2)
+        self.client.post(f"/{self.merchant.pk}/catalog/",
+                         {"action": "tryon_limit", "tryons_per_shopper": "-5", "tryon_limit_days": "0"})
+        self.merchant.refresh_from_db()
+        self.assertEqual((self.merchant.tryons_per_shopper, self.merchant.tryon_limit_days), (0, 1))
+        self.assertIn("حد تجربة اللبس", self.client.get(f"/{self.merchant.pk}/catalog/").content.decode())
+
+
+@override_settings(KIEAI_API_KEY="kie-test")
+class TryOnShopperLimitTests(TestCase):
+    def setUp(self):
+        self.merchant = ApiToken.objects.create(label="m", image_quota=100, tryons_per_shopper=2, tryon_limit_days=30)
+        Product.objects.create(merchant=self.merchant, sku="D1", title="فستان", price="10",
+                               image_url="https://x/d.jpg", category="dresses")
+
+    def tryon(self, shopper="shopper-aaaa1111", ip="10.0.0.1"):
+        from django.core.files.uploadedfile import SimpleUploadedFile
+        photo = SimpleUploadedFile("me.jpg", b"\xff\xd8fakejpeg", content_type="image/jpeg")
+        with patch("apitokens.widget_views.kieai.generate_tryon", return_value="https://cdn/result.jpg"):
+            return self.client.post(
+                "/widget/tryon/", {"sku": "D1", "photo": photo, "shopper_id": shopper},
+                HTTP_X_API_TOKEN=self.merchant.token, HTTP_X_FORWARDED_FOR=ip,
+            ).json()
+
+    def test_shopper_gets_exactly_the_limit(self):
+        first, second, third = self.tryon(), self.tryon(), self.tryon()
+        self.assertTrue(first["ok"] and second["ok"])
+        self.assertEqual((first["shopper_remaining"], second["shopper_remaining"]), (1, 0))
+        self.assertEqual((third["ok"], third["error"]), (False, "shopper_limit_reached"))
+        self.merchant.refresh_from_db()
+        self.assertEqual(self.merchant.images_used, 2)  # المرفوض ما بيخصم من رصيد التاجر
+
+    def test_other_shoppers_unaffected(self):
+        self.tryon(), self.tryon()
+        self.assertTrue(self.tryon(shopper="shopper-bbbb2222", ip="10.0.0.2")["ok"])
+
+    def test_clearing_browser_id_still_capped_by_ip(self):
+        results = [self.tryon(shopper=f"fresh-id-{i:08d}") for i in range(7)]
+        self.assertEqual([r["ok"] for r in results], [True] * 6 + [False])
+
+    def test_limit_resets_after_period(self):
+        from datetime import timedelta
+        from django.utils import timezone
+        from .models import TryOnRecord
+        self.tryon(), self.tryon()
+        TryOnRecord.objects.update(created_at=timezone.now() - timedelta(days=31))
+        self.assertTrue(self.tryon()["ok"])
+
+    def test_zero_means_unlimited(self):
+        self.merchant.tryons_per_shopper = 0
+        self.merchant.save()
+        results = [self.tryon() for _ in range(4)]
+        self.assertTrue(all(r["ok"] for r in results))
+        self.assertIsNone(results[-1]["shopper_remaining"])
+
+
+class SizingTests(TestCase):
+    def test_parse_chart_and_round_trip(self):
+        from .services import sizing
+        chart = sizing.parse_chart("# comment\nS, 150-162, 46-56, 62-68\nM، 158-170، 55-66، -\n")
+        self.assertEqual(chart[0], {"size": "S", "height": [150, 162], "weight": [46, 56], "waist": [62, 68]})
+        self.assertNotIn("waist", chart[1])
+        self.assertEqual(sizing.parse_chart(sizing.chart_to_text(chart)), chart)
+
+    def test_parse_chart_rejects_bad_lines(self):
+        from .services import sizing
+        for bad in ("M, tall", "M", ", 150-160"):
+            with self.assertRaises(sizing.SizeChartError):
+                sizing.parse_chart(bad)
+
+    def test_recommend_by_measures(self):
+        from .services import sizing
+        chart = sizing.DEFAULT_CHART
+        self.assertEqual(sizing.recommend(chart, {"height": 165, "weight": 60}), "M")
+        self.assertEqual(sizing.recommend(chart, {"waist": 80}), "L")
+        self.assertEqual(sizing.recommend(chart, {"height": 152, "weight": 44}), "XS")
+        self.assertEqual(sizing.recommend(chart, {"height": 195, "weight": 120}), "XXL")
+        self.assertIsNone(sizing.recommend(chart, {}))
+
+    def test_advise_respects_available_sizes(self):
+        from .services import sizing
+        chart = sizing.DEFAULT_CHART
+        self.assertEqual(sizing.advise(chart, {"height": 165, "weight": 60}, ["S", "M", "L"]),
+                         {"size": "M", "available": True, "alternative": None})
+        advice = sizing.advise(chart, {"height": 165, "weight": 60}, ["S", "L"])
+        self.assertEqual((advice["size"], advice["available"], advice["alternative"]), ("M", False, "L"))
+        self.assertEqual(sizing.advise(chart, {"weight": 60}, [])["available"], True)
+
+    def test_product_sizes_reads_size_option_only(self):
+        from .services import sizing
+        product = Product(options={"اللون": ["أسود"], "المقاس": ["S", "M"]})
+        self.assertEqual(sizing.product_sizes(product), ["S", "M"])
+        self.assertEqual(sizing.product_sizes(Product(options={"Size": ["L"]})), ["L"])
+        self.assertEqual(sizing.product_sizes(Product(options={})), [])
+
+    def test_dashboard_saves_and_deletes_chart(self):
+        from django.contrib.auth import get_user_model
+        from .models import SizeChart
+        self.client.force_login(get_user_model().objects.create_user("staff4", password="x", is_staff=True))
+        merchant = ApiToken.objects.create(label="m", image_quota=1)
+        url = f"/{merchant.pk}/catalog/"
+        self.client.post(url, {"action": "size_chart", "category": "فساتين", "chart": "S, 150-160, 45-55, 60-66"})
+        self.assertEqual(SizeChart.objects.get(merchant=merchant, category="فساتين").chart[0]["size"], "S")
+        self.client.post(url, {"action": "size_chart", "category": "", "chart": "M, bad"})
+        self.assertFalse(SizeChart.objects.filter(merchant=merchant, category="").exists())
+        self.assertIn("S, 150-160, 45-55, 60-66", self.client.get(url).content.decode())
+        self.client.post(url, {"action": "size_chart_delete", "category": "فساتين"})
+        self.assertFalse(SizeChart.objects.exists())

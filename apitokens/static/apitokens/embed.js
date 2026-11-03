@@ -25,6 +25,16 @@
     .replace(/[^A-Za-z0-9_-]/g, "")
     .slice(0, 64);
   var shownSkus = [];
+  // معرّف ثابت للزبون (بيضل بعد تحديث الصفحة) — منه بيتحسب حد تجارب اللبس.
+  var SHOPPER_ID = (function () {
+    var key = "cw_shopper_" + STORE_KEY.slice(0, 8);
+    try {
+      var saved = window.localStorage.getItem(key);
+      if (saved) return saved;
+      window.localStorage.setItem(key, SESSION_ID);
+    } catch (e) {}
+    return SESSION_ID;
+  })();
   // جوا متجر Shopify فعلي: منقدر نضيف للسلة مباشرة ونعلّم السلة بمعرّف المحادثة.
   var IS_SHOPIFY = !!(window.Shopify && window.Shopify.shop);
   // جوا متجر سلة: مكتبة سلة (Twilight) بتضيف للسلة، ورقم السلة بيربط الطلب بالمحادثة.
@@ -582,6 +592,7 @@
     invalid_token: "فيه مشكلة في إعداد المتجر — تواصل مع صاحب المتجر.",
     token_disabled: "الخدمة موقوفة مؤقتاً لهذا المتجر.",
     quota_exceeded: "خلص رصيد الصور المسموح لهذي الفترة.",
+    shopper_limit_reached: "استخدمت كل تجارب اللبس المتاحة لك حالياً 🙏 تقدر تكمل تسوّقك وأساعدك تختار المقاس واللون المناسب.",
     assistant_not_configured: "المساعد الذكي مو جاهز للحين.",
     assistant_unavailable: "فيه ضغط على المساعد الذكي الحين، جرّب بعد شوي 🙏",
     tryon_not_configured: "خاصية تجربة اللبس مو جاهزة للحين.",
@@ -667,6 +678,7 @@
     form.append("sku", sku);
     form.append("photo", photo);
     form.append("session_id", SESSION_ID);
+    form.append("shopper_id", SHOPPER_ID);
 
     fetch(API_BASE + "/widget/tryon/", {
       method: "POST",
@@ -683,7 +695,10 @@
           return;
         }
         addTryonResultCard(data.image_url, null);
-        addBotMessage("وش رأيك؟ عجبتك الإطلالة؟ 😊");
+        var followUp = "وش رأيك؟ عجبتك الإطلالة؟ 😊";
+        if (data.shopper_remaining === 1) followUp += " وباقي لك تجربة وحدة 😉";
+        if (data.shopper_remaining === 0) followUp += " وهذي كانت آخر تجربة لك حالياً.";
+        addBotMessage(followUp);
       })
       .catch(function () {
         loadingEl.remove();

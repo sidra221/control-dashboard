@@ -1,3 +1,4 @@
+import hashlib
 import json
 import logging
 import re
@@ -11,7 +12,7 @@ from django.utils import timezone
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_http_methods
 
-from .models import ApiToken, Conversation, Product, SallaConnection, ZidConnection
+from .models import ApiToken, Conversation, Product, SallaConnection, TryOnRecord, ZidConnection
 from .services import catalog as catalog_service
 from .services import kieai, llm
 
@@ -928,6 +929,36 @@ def page_product(request):
         }
     )
 
+# عنوان IP واحد ممكن يشاركه كذا زبون (شبكة الجوال، المكتب) — حدّه أرحم من
+# حد الزبون بأضعاف، هدفه بس يمنع اللي بيمسح بيانات متصفحه ليعيد التجربة.
+TRYON_IP_LIMIT_MULTIPLIER = 3
+
+
+def _client_ip_hash(request):
+    """بصمة للـ IP (ما منخزّن العنوان نفسه). nginx بيمرّر العنوان الحقيقي."""
+    forwarded = request.headers.get("X-Forwarded-For", "")
+    ip = (forwarded.split(",")[0].strip() if forwarded else "") or request.headers.get(
+        "X-Real-IP", ""
+    ) or request.META.get("REMOTE_ADDR", "")
+    if not ip:
+        return ""
+    return hashlib.sha256(f"{settings.SECRET_KEY}:{ip}".encode()).hexdigest()
+
+
+def _shopper_tryons_left(merchant, shopper_id, ip_hash):
+    """كم تجربة باقية لهالزبون بالفترة الحالية، أو None إذا التاجر ما حاطط حد."""
+    limit = merchant.tryons_per_shopper
+    if not limit:
+        return None
+    since = timezone.now() - timedelta(days=merchant.tryon_limit_days)
+    recent = TryOnRecord.objects.filter(merchant=merchant, created_at__gte=since)
+    used_by_shopper = recent.filter(shopper_id=shopper_id).count() if shopper_id else 0
+    used_by_ip = recent.filter(ip_hash=ip_hash).count() if ip_hash else 0
+    if used_by_ip >= limit * TRYON_IP_LIMIT_MULTIPLIER:
+        return 0
+    return max(0, limit - used_by_shopper)
+
+
 TRYON_PROMPT = (
     "A photorealistic, high-quality photo of the exact same person from the first image, now "
     "wearing the exact clothing item shown in the second image, fitted naturally and accurately "
@@ -962,6 +993,9 @@ def tryon(request):
     if not settings.KIEAI_API_KEY:
         return _cors_response({"ok": False, "error": "tryon_not_configured"}, status=503)
 
+    shopper_id = _clean_session_id(request.POST.get("shopper_id"))
+    ip_hash = _client_ip_hash(request)
+
     with transaction.atomic():
         merchant = (
             ApiToken.objects.select_for_update().filter(token=token_value).first()
@@ -970,6 +1004,10 @@ def tryon(request):
             return _cors_response({"ok": False, "error": "invalid_token"}, status=401)
         if not merchant.is_active:
             return _cors_response({"ok": False, "error": "token_disabled"}, status=403)
+        if _shopper_tryons_left(merchant, shopper_id, ip_hash) == 0:
+            return _cors_response(
+                {"ok": False, "error": "shopper_limit_reached", "shopper_remaining": 0}, status=200
+            )
 
         period_end = merchant.period_start + timedelta(days=merchant.period_days)
         images_used = 0 if timezone.now() >= period_end else merchant.images_used
@@ -996,6 +1034,7 @@ def tryon(request):
     with transaction.atomic():
         merchant = ApiToken.objects.select_for_update().get(pk=merchant.pk)
         result = merchant.consume_quota(1)
+        TryOnRecord.objects.create(merchant=merchant, shopper_id=shopper_id, ip_hash=ip_hash)
 
     session_id = _clean_session_id(request.POST.get("session_id"))
     if session_id:
@@ -1009,5 +1048,6 @@ def tryon(request):
             "ok": True,
             "image_url": image_url,
             "remaining": result.get("remaining"),
+            "shopper_remaining": _shopper_tryons_left(merchant, shopper_id, ip_hash),
         }
     )

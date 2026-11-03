@@ -15,11 +15,12 @@ from django.views.decorators.http import require_http_methods
 
 from .i18n import LANGUAGES, t
 from .models import (
-    ApiToken, Conversation, DiscountCode, Product, SallaConnection, ShopifyConnection, ZidConnection,
+    ApiToken, Conversation, DiscountCode, Product, SallaConnection, ShopifyConnection, SizeChart, ZidConnection,
     ZidSubscription,
 )
 from .services import catalog as catalog_service
 from .services import salla as salla_service
+from .services import sizing
 from .services import shopify as shopify_service
 from .services import zid as zid_service
 
@@ -100,6 +101,37 @@ def catalog(request, pk):
     merchant = get_object_or_404(ApiToken, pk=pk)
     lang = request.session.get("lang", "ar")
 
+    if request.method == "POST" and request.POST.get("action") in ("size_chart", "size_chart_delete"):
+        category = request.POST.get("category", "").strip()[:120]
+        if request.POST.get("action") == "size_chart_delete":
+            SizeChart.objects.filter(merchant=merchant, category=category).delete()
+            messages.success(request, t("msg_size_chart_deleted", lang))
+            return redirect("apitokens:catalog", pk=pk)
+        try:
+            chart = sizing.parse_chart(request.POST.get("chart", ""))
+        except sizing.SizeChartError as exc:
+            messages.error(request, t("err_size_chart_invalid", lang) % {"where": exc})
+            return redirect("apitokens:catalog", pk=pk)
+        if not chart:
+            messages.error(request, t("err_size_chart_empty", lang))
+            return redirect("apitokens:catalog", pk=pk)
+        SizeChart.objects.update_or_create(merchant=merchant, category=category, defaults={"chart": chart})
+        messages.success(request, t("msg_size_chart_saved", lang))
+        return redirect("apitokens:catalog", pk=pk)
+
+    if request.method == "POST" and request.POST.get("action") == "tryon_limit":
+        try:
+            per_shopper = max(0, min(int(request.POST.get("tryons_per_shopper", "")), 1000))
+            days = max(1, min(int(request.POST.get("tryon_limit_days", "")), 365))
+        except ValueError:
+            messages.error(request, t("err_tryon_limit_invalid", lang))
+            return redirect("apitokens:catalog", pk=pk)
+        merchant.tryons_per_shopper = per_shopper
+        merchant.tryon_limit_days = days
+        merchant.save(update_fields=["tryons_per_shopper", "tryon_limit_days"])
+        messages.success(request, t("msg_tryon_limit_saved", lang))
+        return redirect("apitokens:catalog", pk=pk)
+
     if request.method == "POST" and request.POST.get("action") == "store_info":
         merchant.store_info = request.POST.get("store_info", "").strip()[:8000]
         merchant.currency = request.POST.get("currency", "").strip().upper()[:8]
@@ -123,7 +155,14 @@ def catalog(request, pk):
     return render(
         request,
         "apitokens/catalog.html",
-        {"merchant": merchant, "products": products},
+        {
+            "merchant": merchant,
+            "products": products,
+            "size_charts": [
+                {"category": c.category, "text": sizing.chart_to_text(c.chart)}
+                for c in merchant.size_charts.order_by("category")
+            ],
+        },
     )
 
 

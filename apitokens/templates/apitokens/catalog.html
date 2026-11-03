@@ -25,6 +25,58 @@
   </div>
 
   <div class="card">
+    <h2>{{ T.size_chart_title }}</h2>
+    <p class="card-note">{{ T.size_chart_note }}</p>
+    {% for c in size_charts %}
+    <div class="size-chart">
+      <strong>{{ c.category|default:T.size_chart_all }}</strong>
+      <pre>{{ c.text }}</pre>
+      <form method="post">
+        {% csrf_token %}
+        <input type="hidden" name="action" value="size_chart_delete">
+        <input type="hidden" name="category" value="{{ c.category }}">
+        <button type="submit" class="btn-toggle">{{ T.size_chart_delete }}</button>
+      </form>
+    </div>
+    {% endfor %}
+    <form class="store-info" method="post">
+      {% csrf_token %}
+      <input type="hidden" name="action" value="size_chart">
+      <div class="field">
+        <label for="category">{{ T.size_chart_category_label }}</label>
+        <input type="text" id="category" name="category" maxlength="120">
+      </div>
+      <div class="field">
+        <label for="chart">{{ T.size_chart_label }}</label>
+        <textarea id="chart" name="chart" rows="7" dir="ltr" placeholder="S, 150-162, 46-56, 62-68
+M, 158-170, 55-66, 68-76
+L, 165-176, 65-78, 76-84"></textarea>
+      </div>
+      <button type="submit" class="btn-primary">{{ T.save_btn }}</button>
+    </form>
+  </div>
+
+  <div class="card">
+    <h2>{{ T.tryon_limit_title }}</h2>
+    <p class="card-note">{{ T.tryon_limit_note }}</p>
+    <form class="store-info tryon-limit" method="post">
+      {% csrf_token %}
+      <input type="hidden" name="action" value="tryon_limit">
+      <div class="field">
+        <label for="tryons_per_shopper">{{ T.tryons_per_shopper_label }}</label>
+        <input type="number" id="tryons_per_shopper" name="tryons_per_shopper" min="0" max="1000"
+               value="{{ merchant.tryons_per_shopper }}" required>
+      </div>
+      <div class="field">
+        <label for="tryon_limit_days">{{ T.tryon_limit_days_label }}</label>
+        <input type="number" id="tryon_limit_days" name="tryon_limit_days" min="1" max="365"
+               value="{{ merchant.tryon_limit_days }}" required>
+      </div>
+      <button type="submit" class="btn-primary">{{ T.save_btn }}</button>
+    </form>
+  </div>
+
+  <div class="card">
     <h2>{{ T.store_info_title }}</h2>
     <p class="card-note">{{ T.store_info_note }}</p>
     <form class="store-info" method="post">
@@ -85,6 +137,8 @@
 {% endblock %}
 
 {% block extra_style %}
+  .size-chart { display: flex; align-items: flex-start; gap: 12px; padding: 10px 0; border-bottom: 1px solid var(--border, #eee); }
+  .size-chart pre { flex: 1; margin: 0; direction: ltr; text-align: left; font-size: 12px; overflow-x: auto; }
   form.store-info { display: flex; flex-direction: column; gap: 14px; }
   form.store-info textarea { width: 100%; font: inherit; padding: 10px; border-radius: 8px; border: 1px solid var(--line, #ddd); background: transparent; color: inherit; }
 {% endblock %}
