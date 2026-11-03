@@ -2028,7 +2028,7 @@ class DemoStoreTests(TestCase):
         self.assertIn("400 ر.س", html)
         self.assertIn("نفدت الكمية", html)
         self.assertIn('id="cat-عبايات"', html)  # قسم الفئة بالرئيسية
-        self.assertIn("/demo/#cat-عبايات", html)  # القائمة بتنط عليه
+        self.assertIn("#cat-عبايات", html)  # القائمة بتنط عليه
         self.assertNotIn("/demo/c/", html)  # ما في صفحة فئات
         self.assertIn("/demo/products/abaya-1/", html)
         self.assertRegex(html, r'<script src="/static/apitokens/embed\.js\?v=\d+" data-store-key="DEMOSTOREKEY0001"></script>')

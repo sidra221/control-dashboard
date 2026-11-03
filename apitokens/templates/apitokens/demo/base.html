@@ -208,26 +208,12 @@
 </style>
 </head>
 <body>
-  <div class="announce">شحن مجاني للطلبات فوق 299 ر.س &nbsp;•&nbsp; إرجاع مجاني خلال 14 يوماً</div>
-
   <header class="site-header">
     <div class="wrap header-row">
       <a href="/demo/" class="logo" aria-label="{{ store_name }} — الصفحة الرئيسية">
         <b>{{ store_name }}</b>
         <small>ELEGANCE · RIYADH</small>
       </a>
-      <div class="header-actions">
-        <a class="icon-btn" href="/demo/#all" aria-label="بحث">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
-        </a>
-        <a class="icon-btn" href="#" aria-label="حسابي" onclick="return false">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><circle cx="12" cy="8" r="4"/><path d="M4 21c1.5-4 4.5-6 8-6s6.5 2 8 6"/></svg>
-        </a>
-        <a class="icon-btn" href="/demo/cart/" aria-label="سلة التسوق">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M5 8h14l-1.2 11.2a2 2 0 0 1-2 1.8H8.2a2 2 0 0 1-2-1.8L5 8Z"/><path d="M9 8V6.5a3 3 0 0 1 6 0V8"/></svg>
-          <span class="cart-badge" data-cart-count>0</span>
-        </a>
-      </div>
     </div>
   </header>
 
@@ -236,41 +222,9 @@
   </main>
 
   <footer class="site-footer">
-    <div class="wrap">
-      <div class="footer-grid">
-        <div>
-          <div class="logo"><b>{{ store_name }}</b><small>ELEGANCE · RIYADH</small></div>
-          <p style="margin:14px 0 0;max-width:340px">أزياء عصرية بلمسة أصيلة، نختار كل قطعة بعناية لتناسب ذوقك ومناسباتك، من الإطلالات اليومية حتى السهرات.</p>
-        </div>
-        <div>
-          <h4>تسوّق</h4>
-          <ul>
-            {% for c in categories|slice:":5" %}<li><a href="/demo/#cat-{{ c.slug }}">{{ c.label }}</a></li>{% endfor %}
-            <li><a href="/demo/#sale">العروض</a></li>
-          </ul>
-        </div>
-        <div>
-          <h4>خدمة العملاء</h4>
-          <ul>
-            <li><a href="#" onclick="return false">الشحن والتوصيل</a></li>
-            <li><a href="#" onclick="return false">الاستبدال والإرجاع</a></li>
-            <li><a href="#" onclick="return false">دليل المقاسات</a></li>
-            <li><a href="#" onclick="return false">الأسئلة الشائعة</a></li>
-          </ul>
-        </div>
-        <div>
-          <h4>تواصل معنا</h4>
-          <ul>
-            <li>المساعد الذكي متاح على مدار الساعة</li>
-            <li>من الأحد إلى الخميس، 9 ص – 10 م</li>
-            <li>المملكة العربية السعودية</li>
-          </ul>
-        </div>
-      </div>
-      <div class="footer-bottom">
-        <span>© 2026 {{ store_name }} — متجر تجريبي لأغراض العرض فقط.</span>
-        <div class="pay-icons"><span>مدى</span><span>VISA</span><span>Apple Pay</span><span>STC Pay</span><span>تابي</span></div>
-      </div>
+    <div class="wrap footer-bottom">
+      <span>© {{ store_name }}</span>
+      <span>متجر تجريبي لعرض مساعد التسوق الذكي</span>
     </div>
   </footer>
 
