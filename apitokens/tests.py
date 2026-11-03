@@ -1927,6 +1927,8 @@ class SizeAdviceChatTests(TestCase):
         self.assertIn("مقاسك المناسب في «فستان ميدي» هو M ✓", data["reply"])
         self.assertIn("تقديري", data["reply"])
         self.assertEqual((data["size_advice"]["size"], data["size_advice"]["approximate"]), ("M", True))
+        self.assertEqual(data["size_advice"]["card"]["sku"], "DRESS-1")
+        self.assertNotIn("text", data["size_advice"])
         tool_names = [t["name"] for t in mock_chat.call_args[0][3]]
         self.assertIn("recommend_size", tool_names)
 

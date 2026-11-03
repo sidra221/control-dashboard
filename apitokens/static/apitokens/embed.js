@@ -727,8 +727,20 @@
           if (data.discount_offer) {
             addDiscountMessage(data.discount_offer);
           }
-          if (data.size_advice && data.size_advice.available && data.size_advice.sku) {
-            markSize(data.size_advice.sku, data.size_advice.size);
+          var advice = data.size_advice;
+          if (advice && advice.available && advice.sku) {
+            markSize(advice.sku, advice.size);
+            // كرت جديد تحت الرد بالمقاس وزر السلة — الكرت القديم غالباً طلع لفوق.
+            var shownNow = (data.recommendations || []).some(function (r) {
+              return r.sku === advice.sku;
+            });
+            if (advice.card && !shownNow) addRecommendationCard(advice.card);
+            // المتجر بيقدر يختار المقاس بصفحته (متجر الديمو بيعمل هيك).
+            try {
+              window.dispatchEvent(new CustomEvent("control:size-recommended", {
+                detail: { sku: advice.sku, size: advice.size, product_id: advice.card && advice.card.product_id },
+              }));
+            } catch (e) {}
           }
         }
         if (data.reply) {

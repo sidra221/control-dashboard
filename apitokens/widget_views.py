@@ -904,7 +904,13 @@ def _size_advice(tool_calls, merchant, products, page_product, shown_skus, lang)
         text += texts["approx"]
     if advice["available"]:
         text += texts["cta"]
-    return {**advice, "sku": product.sku, "approximate": approximate, "text": text}
+    card = {
+        **_product_card(product, merchant.currency),
+        "reason": "",
+        "tryon_supported": product.supports_tryon,
+        "tryon_button_label": TRYON_BUTTON_LABELS[lang]["self"],
+    }
+    return {**advice, "sku": product.sku, "approximate": approximate, "text": text, "card": card}
 
 
 @csrf_exempt

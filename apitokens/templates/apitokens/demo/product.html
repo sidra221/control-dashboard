@@ -202,6 +202,15 @@
       });
     });
 
+    // المساعد رشّح مقاس لهالمنتج — منختاره بصفحة المنتج كمان.
+    window.addEventListener("control:size-recommended", function (e) {
+      var d = e.detail || {};
+      if (!product || (d.product_id !== product.product_id && d.sku !== product.sku)) return;
+      document.querySelectorAll(".size").forEach(function (btn) {
+        if (String(btn.dataset.size).toUpperCase() === String(d.size).toUpperCase()) btn.click();
+      });
+    });
+
     var qtyInput = document.getElementById("qty");
     document.querySelectorAll("[data-qty]").forEach(function (btn) {
       btn.addEventListener("click", function () {

@@ -11,5 +11,10 @@
       <span class="price{% if c.on_sale %} on-sale{% endif %}">{{ c.price }} <span class="cur">ر.س</span></span>
       {% if c.on_sale %}<span class="old-price">{{ c.old_price }} ر.س</span>{% endif %}
     </div>
+    {% if c.sizes %}
+    <div class="card-sizes" aria-label="المقاسات المتوفرة">
+      {% for s in c.sizes %}<span>{{ s }}</span>{% endfor %}
+    </div>
+    {% endif %}
   </div>
 </a>
