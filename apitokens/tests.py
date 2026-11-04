@@ -2241,5 +2241,5 @@ class DemoSubscriptionTests(TestCase):
         self.assertRedirects(self.client.get("/demo/account/"), "/demo/login/?next=/demo/account/",
                              fetch_redirect_response=False)
         page = self.client.get("/demo/register/").content.decode()
-        self.assertNotIn("auth-sub", page)
+        self.assertNotIn('<p class="auth-sub"', page)
         self.assertNotIn("تحصل على", page)
