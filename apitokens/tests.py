@@ -2011,6 +2011,14 @@ class DemoStoreTests(TestCase):
             price="420.00", image_url="https://example.com/b.jpg", category="عبايات", in_stock=False,
         )
         self.client = Client()
+        # المتجر بيفتح على تسجيل الدخول — منفوت بحساب حتى نختبر الصفحات نفسها
+        from .models import DemoCustomer
+        customer = DemoCustomer(merchant=self.merchant, name="زائر", email="visitor@demo.test")
+        customer.set_password("visitor-pass-1")
+        customer.save()
+        session = self.client.session
+        session["demo_customer_id"] = customer.pk
+        session.save()
 
     def test_helpers_derive_handles(self):
         from .demo_views import demo_product_url
@@ -2126,8 +2134,18 @@ class DemoAccountTests(TestCase):
     def test_pages_render_and_guest_header_offers_signup(self):
         for url in ("/demo/login/", "/demo/register/"):
             self.assertEqual(self.client.get(url).status_code, 200, url)
-        html = self.client.get("/demo/").content.decode()
-        self.assertIn("/demo/register/", html)
+        self.assertIn("/demo/register/", self.client.get("/demo/login/").content.decode())
+
+    def test_guest_is_sent_to_login_then_back(self):
+        self.assertRedirects(self.client.get("/demo/"), "/demo/login/?next=/demo/", fetch_redirect_response=False)
+        self.assertRedirects(self.client.get("/demo/products/d1/"), "/demo/login/?next=/demo/products/d1/",
+                             fetch_redirect_response=False)
+        self.assertRedirects(self.client.get("/demo/cart/"), "/demo/login/?next=/demo/cart/",
+                             fetch_redirect_response=False)
+        r = self.client.post("/demo/register/?next=/demo/", {"name": "سارة", "email": "n@example.com",
+                                                             "password": "secret12", "next": "/demo/"})
+        self.assertRedirects(r, "/demo/", fetch_redirect_response=False)
+        self.assertEqual(self.client.get("/demo/").status_code, 200)
 
     def test_register_logs_in_and_header_shows_allowance(self):
         r = self.signup(self.client)

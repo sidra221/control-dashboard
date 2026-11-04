@@ -6,7 +6,7 @@
 """
 
 from decimal import Decimal
-from urllib.parse import urlparse
+from urllib.parse import quote, urlparse
 
 from django.conf import settings
 from django.http import Http404
@@ -240,9 +240,19 @@ def all_cards(merchant):
 
 # ---------------------------------------------------------------- الصفحات
 
+def _login_redirect(request, merchant):
+    """متجر الديمو بيفتح على تسجيل الدخول: بلا حساب ما في تصفّح. بعد الدخول
+    أو إنشاء الحساب بيرجع للصفحة اللي كان طالبها."""
+    if current_customer(request, merchant) is not None:
+        return None
+    return redirect("/demo/login/?next=" + quote(request.get_full_path()))
+
+
 @require_GET
 def home(request):
     merchant = demo_merchant()
+    if (gate := _login_redirect(request, merchant)) is not None:
+        return gate
     cards = all_cards(merchant)
     newest = sorted(cards, key=lambda c: c["obj"].created_at, reverse=True)
     newest = [c for c in newest if c["in_stock"]][:8] or newest[:8]
@@ -258,6 +268,8 @@ def home(request):
 @require_GET
 def product(request, handle):
     merchant = demo_merchant()
+    if (gate := _login_redirect(request, merchant)) is not None:
+        return gate
     cards = all_cards(merchant)
     current = next((c for c in cards if c["handle"] == handle), None)
     if current is None:
@@ -281,6 +293,8 @@ def product(request, handle):
 @require_GET
 def cart(request):
     merchant = demo_merchant()
+    if (gate := _login_redirect(request, merchant)) is not None:
+        return gate
     return render_demo(request, "cart.html", merchant, all_cards(merchant))
 
 
