@@ -9,7 +9,7 @@
     <input type="hidden" name="next" value="{{ next }}">
     <h1>إنشاء حساب</h1>
     <p class="auth-sub">
-      {% if allowance.limit %}يحصل كل حساب على {{ allowance.limit }} تجربة لبس افتراضي مجاناً.{% else %}أنشئ حسابك لتجربة الأزياء على صورتك.{% endif %}
+      {% if allowance.limit %}مع اشتراكك تحصل على {{ allowance.limit }} تجربة لبس افتراضي، وتتجدد مع كل تجديد للاشتراك.{% else %}أنشئ حسابك لتجربة الأزياء على صورتك.{% endif %}
     </p>
     {% if error %}<div class="auth-error" role="alert">{{ error }}</div>{% endif %}
     <label for="name">الاسم</label>
