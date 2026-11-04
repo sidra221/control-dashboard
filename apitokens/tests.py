@@ -2134,7 +2134,7 @@ class DemoAccountTests(TestCase):
         self.assertEqual(r.status_code, 302)
         html = self.client.get("/demo/").content.decode()
         self.assertIn("مرحباً، سارة", html)
-        self.assertIn("تبقّت لك تجربتان", html)
+        self.assertIn("تبقّت لك تجربتان", self.client.get("/demo/account/").content.decode())
 
     def test_register_validation_and_duplicate_email(self):
         self.assertIn("بريد إلكتروني صحيح", self.signup(self.client, email="nope").content.decode())
@@ -2168,13 +2168,13 @@ class DemoAccountTests(TestCase):
         again = Client()
         again.post("/demo/login/", {"email": "a@example.com", "password": "secret12"})
         self.assertEqual(self.tryon(again, shopper="other-browser-99")["error"], "shopper_limit_reached")
-        self.assertIn("جدّد اشتراكك", again.get("/demo/").content.decode())
+        self.assertIn("انتهت التجارب", again.get("/demo/account/").content.decode())
 
     def test_changing_dashboard_limit_applies_to_accounts(self):
         self.signup(self.client)
         self.merchant.tryons_per_shopper = 3
         self.merchant.save()
-        self.assertIn("تبقّت لك 3 تجارب", self.client.get("/demo/").content.decode())
+        self.assertIn("تبقّت لك 3 تجارب", self.client.get("/demo/account/").content.decode())
         results = [self.tryon(self.client)["ok"] for _ in range(4)]
         self.assertEqual(results, [True, True, True, False])
 
@@ -2219,9 +2219,8 @@ class DemoSubscriptionTests(TestCase):
 
     def test_header_chip_and_account_page(self):
         home = self.client.get("/demo/").content.decode()
-        self.assertIn('id="tryon-chip"', home)
-        self.assertIn("جدّد اشتراكك", home)
-        self.assertNotIn("تجارب اللبس: ", home)
+        self.assertIn('href="/demo/account/"', home)
+        self.assertNotIn('id="tryon-chip"', home)
         page = self.client.get("/demo/account/").content.decode()
         self.assertIn("انتهت التجارب", page)
         self.assertIn("استخدمت <b>2</b> من 2", page)
