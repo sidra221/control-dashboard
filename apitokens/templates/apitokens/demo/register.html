@@ -4,6 +4,7 @@
 
 {% block content %}
 <div class="wrap">
+  <div class="auth-brand"><b>{{ store_name }}</b><small>ELEGANCE · RIYADH</small></div>
   <form class="auth-card" method="post" action="/demo/register/">
     {% csrf_token %}
     <input type="hidden" name="next" value="{{ next }}">

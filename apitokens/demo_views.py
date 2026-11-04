@@ -310,7 +310,8 @@ def _safe_next(request, default="/demo/"):
 
 
 def _auth_page(request, merchant, template, extra):
-    context = {"next": _safe_next(request)}
+    # صفحات الدخول والتسجيل لحالها: بلا هيدر المتجر ولا فوتر ولا المساعد.
+    context = {"next": _safe_next(request), "bare": True}
     context.update(extra)
     return render_demo(request, template, merchant, [], context)
 

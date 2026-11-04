@@ -4,11 +4,11 @@
 
 {% block content %}
 <div class="wrap">
+  <div class="auth-brand"><b>{{ store_name }}</b><small>ELEGANCE · RIYADH</small></div>
   <form class="auth-card" method="post" action="/demo/login/">
     {% csrf_token %}
     <input type="hidden" name="next" value="{{ next }}">
     <h1>تسجيل الدخول</h1>
-    <p class="auth-sub">أهلاً بعودتك. سجّل دخولك لتتابع تجارب اللبس الافتراضي الخاصة بحسابك.</p>
     {% if error %}<div class="auth-error" role="alert">{{ error }}</div>{% endif %}
     <label for="email">البريد الإلكتروني</label>
     <input type="email" id="email" name="email" value="{{ email }}" autocomplete="email" required dir="ltr">

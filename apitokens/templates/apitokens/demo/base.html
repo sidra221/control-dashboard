@@ -81,6 +81,13 @@
     font-size: 11.5px; font-weight: 600; color: var(--ink-2); text-align: center; line-height: 1.6;
   }
 
+  body.bare { min-height: 100vh; display: flex; flex-direction: column; justify-content: center; }
+  body.bare main { padding: 24px 0 48px; }
+  body.bare .auth-card { margin-top: 0; }
+  .auth-brand { text-align: center; margin: 0 0 18px; }
+  .auth-brand b { display: block; font-size: 30px; font-weight: 800; letter-spacing: -.3px; }
+  .auth-brand small { font-size: 11px; color: var(--muted); letter-spacing: 2px; font-weight: 500; }
+
   /* أزرار */
   .btn {
     display: inline-flex; align-items: center; justify-content: center; gap: 8px;
@@ -245,7 +252,8 @@
   {% block extra_css %}{% endblock %}
 </style>
 </head>
-<body>
+<body{% if bare %} class="bare"{% endif %}>
+  {% if not bare %}
   <header class="site-header">
     <div class="wrap header-row">
       <a href="/demo/" class="logo" aria-label="{{ store_name }} — الصفحة الرئيسية">
@@ -264,17 +272,20 @@
       </div>
     </div>
   </header>
+  {% endif %}
 
   <main>
     {% block content %}{% endblock %}
   </main>
 
+  {% if not bare %}
   <footer class="site-footer">
     <div class="wrap footer-bottom">
       <span>© {{ store_name }}</span>
       <span>متجر تجريبي لعرض مساعد التسوق الذكي</span>
     </div>
   </footer>
+  {% endif %}
 
   <div class="toast" id="demo-toast" role="status" aria-live="polite">
     <span>تمت الإضافة إلى السلة ✓</span>
@@ -407,6 +418,8 @@
   })();
   </script>
   {% block scripts %}{% endblock %}
+  {% if not bare %}
   <script src="{{ widget_src }}" data-store-key="{{ store_key }}"></script>
+  {% endif %}
 </body>
 </html>

@@ -2136,6 +2136,14 @@ class DemoAccountTests(TestCase):
             self.assertEqual(self.client.get(url).status_code, 200, url)
         self.assertIn("/demo/register/", self.client.get("/demo/login/").content.decode())
 
+    def test_login_and_register_are_standalone(self):
+        for url in ("/demo/login/", "/demo/register/"):
+            html = self.client.get(url).content.decode()
+            self.assertNotIn("embed.js", html, url)
+            self.assertNotIn('class="site-header"', html, url)
+            self.assertNotIn('class="site-footer"', html, url)
+            self.assertIn("auth-brand", html, url)
+
     def test_guest_is_sent_to_login_then_back(self):
         self.assertRedirects(self.client.get("/demo/"), "/demo/login/?next=/demo/", fetch_redirect_response=False)
         self.assertRedirects(self.client.get("/demo/products/d1/"), "/demo/login/?next=/demo/products/d1/",
