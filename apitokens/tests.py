@@ -2128,7 +2128,6 @@ class DemoAccountTests(TestCase):
             self.assertEqual(self.client.get(url).status_code, 200, url)
         html = self.client.get("/demo/").content.decode()
         self.assertIn("/demo/register/", html)
-        self.assertIn("احصل على 2 تجربة لبس", html)
 
     def test_register_logs_in_and_header_shows_allowance(self):
         r = self.signup(self.client)

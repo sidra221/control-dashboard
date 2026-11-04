@@ -355,7 +355,8 @@
     panel.classList.remove("open");
   });
 
-  setInterval(function () {
+  // أول تنبيه بعد ثواني من فتح الصفحة، وبعدها كل 15 ثانية لحد ما يفتح الزبون المحادثة.
+  function showNudge() {
     if (hasEngaged || panel.classList.contains("open")) {
       return;
     }
@@ -373,7 +374,9 @@
     nudgeHideTimer = setTimeout(function () {
       nudge.classList.remove("open");
     }, 6000);
-  }, 30000);
+  }
+  setTimeout(showNudge, 4000);
+  setInterval(showNudge, 15000);
 
   function scrollToBottom() {
     msgsEl.scrollTop = msgsEl.scrollHeight;

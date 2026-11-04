@@ -253,7 +253,6 @@
           {% endif %}
           <form method="post" action="/demo/logout/">{% csrf_token %}<button class="link-btn" type="submit">تسجيل الخروج</button></form>
         {% else %}
-          {% if allowance.limit %}<span class="who">أنشئ حساباً واحصل على {{ allowance.limit }} تجربة لبس</span>{% endif %}
           <a href="/demo/login/?next={{ request.path|urlencode }}">تسجيل الدخول</a>
           <a href="/demo/register/?next={{ request.path|urlencode }}">إنشاء حساب</a>
         {% endif %}

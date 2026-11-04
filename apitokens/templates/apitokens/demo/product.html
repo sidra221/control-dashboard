@@ -103,7 +103,7 @@
       </div>
       <div class="tax-note">السعر شامل ضريبة القيمة المضافة</div>
 
-      {% if p.in_stock %}<div class="stock in">متوفر — يُشحن خلال 24 ساعة</div>
+      {% if p.in_stock %}<div class="stock in">متوفر</div>
       {% else %}<div class="stock out">نفدت الكمية حالياً</div>{% endif %}
 
       {% if description %}<p class="pdp-desc">{{ description|striptags|truncatewords:60 }}</p>{% endif %}
