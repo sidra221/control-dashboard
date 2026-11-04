@@ -209,6 +209,17 @@
   .account a, .account .link-btn { font-weight: 700; color: var(--accent); }
   .account .link-btn { border: 0; background: none; padding: 0; }
   .account .who { color: var(--ink-2); }
+  .tryon-chip {
+    display: inline-flex; align-items: center; gap: 8px; padding: 5px 12px 5px 14px;
+    background: var(--sand); border: 1px solid var(--sand-2); border-radius: 999px;
+    font-size: 13px; font-weight: 700; color: var(--accent-dark) !important; white-space: nowrap;
+  }
+  .tryon-chip svg { width: 18px; height: 18px; flex: none; }
+  .tryon-dots { display: inline-flex; gap: 4px; }
+  .tryon-dots i { width: 8px; height: 8px; border-radius: 50%; background: #d9c8b4; display: block; }
+  .tryon-dots i.on { background: var(--accent); }
+  .tryon-chip.empty { background: #f7e3dd; border-color: #ecc7bd; color: var(--sale) !important; }
+  .account .account-link { color: var(--ink-2); font-weight: 500; }
   .tryon-pill {
     background: var(--sand); border: 1px solid var(--sand-2); border-radius: 999px;
     padding: 3px 12px; font-size: 13px; font-weight: 700; color: var(--accent-dark); white-space: nowrap;
@@ -245,12 +256,14 @@
         {% if customer %}
           <span class="who">مرحباً، {{ customer.name }}</span>
           {% if allowance.limit %}
-            <span class="tryon-pill{% if allowance.left == 0 %} empty{% endif %}" id="tryon-pill" data-limit="{{ allowance.limit }}">
-              تجارب اللبس: <span id="tryon-left">{{ allowance.left }}</span> من {{ allowance.limit }}
-            </span>
-          {% else %}
-            <span class="tryon-pill">تجارب اللبس: غير محدودة</span>
+            <a class="tryon-chip{% if allowance.left == 0 %} empty{% endif %}" id="tryon-chip" href="/demo/account/"
+               data-limit="{{ allowance.limit }}" title="اشتراكي">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 8h3l2-2.5h6L17 8h3v11H4z"/><circle cx="12" cy="13" r="3.5"/></svg>
+              {% if allowance.dots %}<span class="tryon-dots" id="tryon-dots" aria-hidden="true">{% for on in allowance.dots %}<i class="{% if on %}on{% endif %}"></i>{% endfor %}</span>{% endif %}
+              <span id="tryon-label">{% if allowance.left == 0 %}جدّد اشتراكك{% else %}{{ allowance.label }}{% endif %}</span>
+            </a>
           {% endif %}
+          <a class="account-link" href="/demo/account/">اشتراكي</a>
           <form method="post" action="/demo/logout/">{% csrf_token %}<button class="link-btn" type="submit">تسجيل الخروج</button></form>
         {% else %}
           <a href="/demo/login/?next={{ request.path|urlencode }}">تسجيل الدخول</a>
@@ -380,12 +393,21 @@
     };
 
     // الويدجت بيبلّغ بعد كل تجربة لبس ناجحة، فنحدّث العدّاد بالترويسة بدون إعادة تحميل
+    function triesLabel(n) {
+      if (n === 0) return "جدّد اشتراكك";
+      if (n === 1) return "تبقّت لك تجربة واحدة";
+      if (n === 2) return "تبقّت لك تجربتان";
+      if (n <= 10) return "تبقّت لك " + n + " تجارب";
+      return "تبقّت لك " + n + " تجربة";
+    }
     document.addEventListener("controlwidget:tryon", function (e) {
       var left = e.detail && e.detail.remaining;
-      var pill = document.getElementById("tryon-pill"), num = document.getElementById("tryon-left");
-      if (!pill || !num || typeof left !== "number") return;
-      num.textContent = String(left);
-      pill.classList.toggle("empty", left === 0);
+      var chip = document.getElementById("tryon-chip");
+      if (!chip || typeof left !== "number") return;
+      document.getElementById("tryon-label").textContent = triesLabel(left);
+      var dots = document.querySelectorAll("#tryon-dots i");
+      for (var i = 0; i < dots.length; i++) dots[i].classList.toggle("on", i < left);
+      chip.classList.toggle("empty", left === 0);
     });
 
     window.addEventListener("storage", function (e) { if (e.key === KEY) updateBadge(); });

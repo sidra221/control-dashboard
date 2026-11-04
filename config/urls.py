@@ -36,5 +36,6 @@ urlpatterns = [
     path("demo/register/", demo_views.register, name="demo-register"),
     path("demo/login/", demo_views.login, name="demo-login"),
     path("demo/logout/", demo_views.logout, name="demo-logout"),
+    path("demo/account/", demo_views.account, name="demo-account"),
     path("", include("apitokens.urls")),
 ]

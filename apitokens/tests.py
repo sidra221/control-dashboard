@@ -2134,7 +2134,7 @@ class DemoAccountTests(TestCase):
         self.assertEqual(r.status_code, 302)
         html = self.client.get("/demo/").content.decode()
         self.assertIn("مرحباً، سارة", html)
-        self.assertIn('id="tryon-left">2</span> من 2', html)
+        self.assertIn("تبقّت لك تجربتان", html)
 
     def test_register_validation_and_duplicate_email(self):
         self.assertIn("بريد إلكتروني صحيح", self.signup(self.client, email="nope").content.decode())
@@ -2168,13 +2168,13 @@ class DemoAccountTests(TestCase):
         again = Client()
         again.post("/demo/login/", {"email": "a@example.com", "password": "secret12"})
         self.assertEqual(self.tryon(again, shopper="other-browser-99")["error"], "shopper_limit_reached")
-        self.assertIn('id="tryon-left">0</span>', again.get("/demo/").content.decode())
+        self.assertIn("جدّد اشتراكك", again.get("/demo/").content.decode())
 
     def test_changing_dashboard_limit_applies_to_accounts(self):
         self.signup(self.client)
         self.merchant.tryons_per_shopper = 3
         self.merchant.save()
-        self.assertIn('id="tryon-left">3</span> من 3', self.client.get("/demo/").content.decode())
+        self.assertIn("تبقّت لك 3 تجارب", self.client.get("/demo/").content.decode())
         results = [self.tryon(self.client)["ok"] for _ in range(4)]
         self.assertEqual(results, [True, True, True, False])
 
@@ -2199,3 +2199,47 @@ class DemoAccountTests(TestCase):
         r = self.client.post("/widget/page-product/", data=json.dumps({"page_url": "https://x/", "shopper_id": "anything-1234"}),
                              content_type="application/json", HTTP_X_API_TOKEN=self.merchant.token).json()
         self.assertEqual(r["tryons_left"], 0)
+
+
+@override_settings(DEMO_STORE_KEY="DEMOSUBKEY00001")
+class DemoSubscriptionTests(TestCase):
+    def setUp(self):
+        from .models import DemoCustomer, TryOnRecord
+        self.merchant = ApiToken.objects.create(label="ديمو", image_quota=50, token="DEMOSUBKEY00001", tryons_per_shopper=2)
+        Product.objects.create(merchant=self.merchant, sku="D1", external_id="d1", title="فستان", price="10",
+                               image_url="https://x/d.jpg", category="فساتين")
+        self.customer = DemoCustomer(merchant=self.merchant, name="سارة", email="sara@demo.test")
+        self.customer.set_password("demo-pass-1")
+        self.customer.save()
+        TryOnRecord.objects.create(merchant=self.merchant, shopper_id=self.customer.shopper_id)
+        TryOnRecord.objects.create(merchant=self.merchant, shopper_id=self.customer.shopper_id)
+        session = self.client.session
+        session["demo_customer_id"] = self.customer.pk
+        session.save()
+
+    def test_header_chip_and_account_page(self):
+        home = self.client.get("/demo/").content.decode()
+        self.assertIn('id="tryon-chip"', home)
+        self.assertIn("جدّد اشتراكك", home)
+        self.assertNotIn("تجارب اللبس: ", home)
+        page = self.client.get("/demo/account/").content.decode()
+        self.assertIn("انتهت التجارب", page)
+        self.assertIn("استخدمت <b>2</b> من 2", page)
+        self.assertIn("جدّد الاشتراك", page)
+
+    def test_renew_restores_tryons(self):
+        from .models import TryOnRecord
+        resp = self.client.post("/demo/account/", {"action": "renew"})
+        self.assertRedirects(resp, "/demo/account/?renewed=1", fetch_redirect_response=False)
+        self.assertFalse(TryOnRecord.objects.filter(shopper_id=self.customer.shopper_id).exists())
+        page = self.client.get("/demo/account/?renewed=1").content.decode()
+        self.assertIn("تم تجديد اشتراكك", page)
+        self.assertIn("تبقّت لك تجربتان", page)
+
+    def test_account_requires_login_and_register_has_no_tryon_text(self):
+        self.client.post("/demo/logout/")
+        self.assertRedirects(self.client.get("/demo/account/"), "/demo/login/?next=/demo/account/",
+                             fetch_redirect_response=False)
+        page = self.client.get("/demo/register/").content.decode()
+        self.assertNotIn("auth-sub", page)
+        self.assertNotIn("تحصل على", page)

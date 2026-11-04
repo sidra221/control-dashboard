@@ -18,7 +18,7 @@ from django.utils.http import url_has_allowed_host_and_scheme
 from django.utils.text import slugify
 from django.views.decorators.http import require_GET, require_http_methods
 
-from .models import ApiToken, DemoCustomer
+from .models import ApiToken, DemoCustomer, TryOnRecord
 from .widget_views import DEMO_CUSTOMER_SESSION_KEY, _shopper_tryons_left
 
 DEMO_PRODUCTS_PREFIX = "/demo/products/"
@@ -187,13 +187,35 @@ def current_customer(request, merchant):
     return DemoCustomer.objects.filter(pk=customer_id, merchant=merchant).first()
 
 
+def tries_label(left):
+    """نص عدد التجارب الباقية بالعربي (المثنى والجمع صح)."""
+    if left == 0:
+        return "انتهت تجاربك"
+    if left == 1:
+        return "تبقّت لك تجربة واحدة"
+    if left == 2:
+        return "تبقّت لك تجربتان"
+    if 3 <= left <= 10:
+        return f"تبقّت لك {left} تجارب"
+    return f"تبقّت لك {left} تجربة"
+
+
 def tryon_allowance(merchant, customer):
     """عدد التجارب الكلي والمتبقي لحساب الزبون (None للمتبقي = بلا حد). الحد بيجي
     من إعداد التاجر بالداشبورد، فأي تعديل عليه بينعكس فوراً على كل الحسابات."""
     limit = merchant.tryons_per_shopper
     if customer is None or not limit:
         return {"limit": limit, "left": None}
-    return {"limit": limit, "left": _shopper_tryons_left(merchant, customer.shopper_id, "")}
+    left = _shopper_tryons_left(merchant, customer.shopper_id, "")
+    return {
+        "limit": limit,
+        "left": left,
+        "used": limit - left,
+        "label": tries_label(left),
+        # النقاط بتطلع بس للباقات الصغيرة، غير هيك بيكفي الرقم
+        "dots": [i < left for i in range(limit)] if limit <= 10 else [],
+        "percent_used": round((limit - left) * 100 / limit),
+    }
 
 
 def render_demo(request, template, merchant, cards, extra=None):
@@ -329,6 +351,22 @@ def login(request):
             return redirect(_safe_next(request))
         error = "البريد الإلكتروني أو كلمة المرور غير صحيحة."
     return _auth_page(request, merchant, "login.html", {"email": email, "error": error})
+
+
+@require_http_methods(["GET", "POST"])
+def account(request):
+    """صفحة "اشتراكي": الباقة واستهلاكها وزر التجديد. التجديد تجريبي بلا دفع —
+    بيرجّع تجارب الحساب كاملة حتى يشوف المدير الدورة كلها."""
+    merchant = demo_merchant()
+    customer = current_customer(request, merchant)
+    if customer is None:
+        return redirect("/demo/login/?next=/demo/account/")
+    renewed = False
+    if request.method == "POST" and request.POST.get("action") == "renew":
+        TryOnRecord.objects.filter(merchant=merchant, shopper_id=customer.shopper_id).delete()
+        return redirect("/demo/account/?renewed=1")
+    renewed = request.GET.get("renewed") == "1"
+    return render_demo(request, "account.html", merchant, [], {"renewed": renewed})
 
 
 @require_http_methods(["POST"])
