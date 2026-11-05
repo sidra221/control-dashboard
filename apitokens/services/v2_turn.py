@@ -5,16 +5,22 @@
 من قاعدة البيانات — ما بنصدّق ولا بنقرا أي تاريخ/هوية من العميل.
 """
 
+import dataclasses
 import logging
 import re
 import time
+from concurrent.futures import ThreadPoolExecutor
 
+from django.conf import settings
 from django.db.models import F
 from django.utils import timezone
 
 from .. import widget_views as wv
-from ..models import ProductReaction
-from . import llm, memory, understanding
+from ..models import Message, ProductReaction
+from . import contracts, llm, memory, understanding
+
+# خيط واحد يكفي: المحلّل استدعاء شبكة بس (ما بيلمس القاعدة)، والبائع بيشتغل بالخيط الرئيسي.
+_ANALYZER_POOL = ThreadPoolExecutor(max_workers=4, thread_name_prefix="v2-analyzer")
 
 logger = logging.getLogger(__name__)
 
@@ -52,13 +58,14 @@ def run_chat(merchant, body):
     if not memory.acquire_turn(conversation):
         return None, ("turn_in_progress", 409), memory.issue_tokens(ctx)
     try:
-        payload, error = _process(ctx, merchant, text, client_msg_id, page_url, started)
+        process = _process_legacy if settings.V2_SELLER_MODE == "legacy" else _process_loop
+        payload, error = process(ctx, merchant, text, client_msg_id, page_url, started)
         return payload, error, (memory.issue_tokens(ctx) if error else None)
     finally:
         memory.release_turn(conversation)
 
 
-def _process(ctx, merchant, text, client_msg_id, page_url, started):
+def _process_legacy(ctx, merchant, text, client_msg_id, page_url, started):
     conversation = ctx.conversation
     now = timezone.now()
 
@@ -183,5 +190,283 @@ def _process(ctx, merchant, text, client_msg_id, page_url, started):
         latency_ms=int((time.monotonic() - started) * 1000),
         models_used={"seller": getattr(llm.get_provider(), "model", ""),
                      "analyzer": getattr(llm.get_provider(role="analyzer"), "model", "")},
+    )
+    return {**payload, **memory.issue_tokens(ctx), "turn": turn_no}, None
+
+
+# ======================================================================
+# المسار الجديد: فهم ← متطلبات صلبة ← مرشّحين ← مرحلة بيع وسياسة ← بائع بحلقة أدوات
+# ======================================================================
+
+CLOSE_EVENTS = ("tried_on", "buy_click", "add_to_cart")
+SLOT_KEYS = {"category": "category", "occasion": "occasion", "color": "color", "size": "size", "budget_max": "budget"}
+
+
+@dataclasses.dataclass
+class Plan:
+    """كل شي بيعتمد عليه الرد. بنبنيه قبل التحليل (speculative) وبعده؛ لو تطابقوا بنستخدم
+    رد البائع المبكر بدون إعادة (النتيجة نفسها بالضبط، أسرع)."""
+
+    requirements: object
+    strategy: object
+    search: object
+    memory_section: str
+    approved_offer: object
+    stage: str
+    readiness: str
+
+    def same_as(self, other):
+        def sig(p):
+            return (
+                p.requirements,
+                dataclasses.replace(p.strategy, state_updates={}),
+                [(c.product.sku, c.exact) for c in p.search.candidates],
+                p.search.note,
+                p.memory_section,
+                p.approved_offer,
+            )
+
+        return sig(self) == sig(other)
+
+
+def _engaged_product(ctx, page_product, merchant):
+    if page_product is not None:
+        return page_product
+    last = (
+        ProductReaction.objects.filter(
+            conversation=ctx.conversation, reaction__in=("liked", "asked", "tried_on", "shown", "viewed")
+        ).order_by("-id").first()
+    )
+    return merchant.products.filter(sku=last.sku).first() if last else None
+
+
+def _build_plan(ctx, merchant, *, validated, window, text, page_product, shown, turn_no, products):
+    from . import policy, recommend, stage as stage_mod
+
+    conversation = ctx.conversation
+    facts = memory.active_facts(ctx.profile)
+    excluded = memory.excluded_skus(ctx.profile)
+    exempt = frozenset(r["sku"] for r in validated.reactions if r["type"] in ("asked", "liked")) if validated else frozenset()
+    requirements = recommend.requirements_from_facts(facts, excluded_skus=excluded, exempt_skus=exempt)
+
+    reactions = list(ProductReaction.objects.filter(conversation=conversation).values_list("reaction", flat=True))
+    events = {r for r in reactions if r in ("tried_on", "buy_click", "add_to_cart", "liked", "asked", "rejected")}
+    shown_count = len(set(shown))
+    liked_or_asked = sum(1 for r in reactions if r in ("liked", "asked"))
+    objections = memory.open_objections(conversation)
+    signals = validated.signals if validated else {
+        "intent": "other", "readiness": "", "hesitation_reason": "", "asks_discount": False, "wants_alternative": False,
+    }
+
+    state = dict(conversation.state or {})
+    stage = stage_mod.next_stage(
+        previous=state.get("stage"), signals=signals, open_objections=[o.type for o in objections],
+        shown_count=shown_count, liked_or_asked_count=liked_or_asked, events=events, turn_no=turn_no,
+        wants_alternative=bool(signals.get("wants_alternative")),
+    )
+    readiness = stage_mod.readiness_of(signals, events, [o.type for o in objections])
+
+    query_bits = [text]
+    for fact in facts:
+        if fact.key in ("occasion", "style", "material", "brand") and fact.polarity == "like" and fact.source == "explicit":
+            query_bits.append(fact.value)
+    search = recommend.search(products, requirements, query=" ".join(query_bits), limit=8, shown_skus=shown)
+
+    known_slots = set()
+    for fact in facts:
+        if fact.source == "explicit" and fact.polarity == "like" and fact.key in SLOT_KEYS and fact.subject in ("self", "gift"):
+            known_slots.add(SLOT_KEYS[fact.key])
+    assistant_questions = sum(
+        1 for content in Message.objects.filter(conversation=conversation, role="assistant").values_list("content", flat=True)
+        if "?" in content or "؟" in content
+    )
+    strategy = policy.decide(
+        stage=stage, signals=signals, readiness=readiness,
+        objections=[(o.type, o.sku) for o in objections],
+        engaged_product=_engaged_product(ctx, page_product, merchant), turn_no=turn_no,
+        shown_count=shown_count, known_slots=known_slots,
+        questions_asked_in_conversation=assistant_questions, requirements=requirements,
+        discount_codes=list(merchant.discount_codes.all()), offer_history=memory.offer_history(ctx.profile, conversation),
+        search_result=search, conversation_state=state, now=timezone.now(),
+    )
+    approved = None
+    if strategy.discount.allowed and strategy.discount.code is not None:
+        approved = {"code": strategy.discount.code.code, "description": strategy.discount.code.description}
+    constraints = memory.compile_constraints(ctx, merchant.currency)
+    memory_section = memory.build_memory_section(ctx, constraints, merchant.currency)
+    return Plan(requirements, strategy, search, memory_section, approved, stage, readiness), constraints
+
+
+def _run_seller(ctx, merchant, plan, *, window, lang, shown, page_product, page_note, customer_texts):
+    from . import seller_v2
+
+    return seller_v2.run_seller(
+        contracts.SellerInput(
+            merchant=merchant, window=window, lang=lang, memory_section=plan.memory_section,
+            strategy=plan.strategy, requirements=plan.requirements, prefetched=plan.search,
+            shown_skus=list(shown), page_product=page_product, page_note=page_note or "",
+            store_info=merchant.store_info, currency=merchant.currency, approved_offer=plan.approved_offer,
+            customer_texts=customer_texts,
+        )
+    )
+
+
+def _merge_state(state, updates):
+    for key, value in (updates or {}).items():
+        if isinstance(value, dict) and isinstance(state.get(key), dict):
+            state[key] = {**state[key], **value}
+        else:
+            state[key] = value
+    return state
+
+
+def _process_loop(ctx, merchant, text, client_msg_id, page_url, started):
+    conversation = ctx.conversation
+    now = timezone.now()
+    timings = {}
+
+    user_message = memory.find_user_message(conversation, client_msg_id)
+    if user_message is None:
+        memory.add_message(conversation, "user", text, client_msg_id=client_msg_id)
+        from ..models import Conversation
+
+        Conversation.objects.filter(pk=conversation.pk).update(turn_count=F("turn_count") + 1, last_activity_at=now)
+        conversation.turn_count += 1
+    turn_no = conversation.turn_count
+
+    page_product = wv._find_page_product(merchant, page_url)
+    if page_product is not None:
+        memory.record_view(ctx, page_product, turn_no)
+    if page_product is not None and turn_no == 1 and not ProductReaction.objects.filter(
+        conversation=conversation, sku=page_product.sku, reaction="shown"
+    ).exists():
+        # الودجت فتح المحادثة بكرت هالمنتج (ترحيب صفحة المنتج): معروض للزبون، ما نكرّره.
+        memory.record_reaction(ctx, page_product, "shown", turn_no)
+
+    window = memory.recent_window(conversation)
+    lang = wv._customer_lang(window)
+    customer_texts = [m["content"] for m in window if m["role"] == "user"]
+    shown = memory.shown_skus(conversation)
+    products = list(merchant.products.filter(in_stock=True))
+    page_note = None
+    if page_product is not None and not ctx.new_conversation and turn_no > 1:
+        page_note = (
+            f"\nThe customer is now viewing the product page of {page_product.sku} ({page_product.title}). "
+            "It may not be the item you were discussing: treat \"it\"/\"this\" as this product only when their "
+            f"message points to it. Don't recommend {page_product.sku} again unless they want to buy it.\n"
+        )
+    kw = dict(window=window, lang=lang, shown=shown, page_product=page_product, page_note=page_note,
+              customer_texts=customer_texts)
+
+    before_constraints = memory.compile_constraints(ctx, merchant.currency)
+    refs = memory.recent_product_refs(ctx, page_product)
+    products_by_sku = {p.sku: p for p in merchant.products.filter(sku__in=list(refs))}
+    viewing_line = ""
+    if page_product is not None:
+        opened_after = memory.viewed_after(conversation, page_product.sku, memory.last_assistant_time(conversation))
+        viewing_line = (
+            f"{page_product.sku} — {page_product.title} — {page_product.price}"
+            + (" (OPENED AFTER the assistant's last message)" if opened_after else " (already open during the assistant's last message)")
+        )
+    memory_lines = memory.memory_lines_for_analyzer(ctx, before_constraints)
+    product_lines = "\n".join(f"{sku} — {title} — {price}" for sku, (title, price) in refs.items())
+    analyzer_provider = llm.get_provider(role="analyzer")
+    worth = _worth_analyzing(text)
+
+    def analyze():
+        t0 = time.monotonic()
+        raw = understanding.analyze(analyzer_provider, window, memory_lines, product_lines, viewing_line) if worth else None
+        timings["analyzer_ms"] = int((time.monotonic() - t0) * 1000)
+        return raw
+
+    plan_args = dict(window=window, text=text, page_product=page_product, shown=shown, turn_no=turn_no, products=products)
+    speculative = settings.V2_SPECULATIVE and worth
+    early_plan = early_out = early_error = future = None
+    if speculative:
+        early_plan, _ = _build_plan(ctx, merchant, validated=None, **plan_args)
+        future = _ANALYZER_POOL.submit(analyze)
+        t0 = time.monotonic()
+        try:
+            early_out = _run_seller(ctx, merchant, early_plan, **kw)
+        except llm.LLMError as exc:
+            early_error = exc
+        timings["early_seller_ms"] = int((time.monotonic() - t0) * 1000)
+        raw = future.result()
+    else:
+        raw = analyze()
+
+    validated = understanding.Validated()
+    if raw is not None:
+        validated = understanding.validate(
+            raw, user_texts=customer_texts, products_by_sku=products_by_sku, merchant_currency=merchant.currency,
+        )
+    changes = memory.apply_validated(ctx, validated, products_by_sku, turn_no)
+    plan, constraints = _build_plan(ctx, merchant, validated=validated, **plan_args)
+
+    reran = True
+    if early_out is not None and early_plan.same_as(plan):
+        out, reran = early_out, False
+    elif early_error is not None and early_plan.same_as(plan):
+        raise early_error
+    else:
+        t0 = time.monotonic()
+        out = _run_seller(ctx, merchant, plan, **kw)
+        timings["seller_ms"] = int((time.monotonic() - t0) * 1000)
+    timings.setdefault("seller_ms", timings.get("early_seller_ms", 0))
+
+    state = _merge_state(dict(conversation.state or {}), plan.strategy.state_updates)
+    state["stage"], state["readiness"] = plan.stage, plan.readiness
+    conversation.state = state
+    conversation.save(update_fields=["state"])
+
+    cards = out.recommendations
+    product_map = {p.sku: p for p in products if p.sku in {c["sku"] for c in cards}}
+    for card in cards:
+        memory.record_reaction(ctx, product_map.get(card["sku"]) or card["sku"], "shown", turn_no, title=card.get("title", ""))
+    payload = {
+        "ok": True, "reply": out.reply,
+        "recommendation": cards[0] if cards else None, "recommendations": cards,
+        "discount_offer": out.discount_offer,
+        "size_advice": {k: v for k, v in out.size_advice.items() if k != "text"} if out.size_advice else None,
+    }
+    stored = {k: payload[k] for k in ("reply", "recommendation", "recommendations", "discount_offer", "size_advice")}
+    memory.add_message(conversation, "assistant", out.reply, meta={"reply_to": client_msg_id, "response": stored})
+    skus = list(conversation.recommended_skus)
+    skus.extend(c["sku"] for c in cards if c["sku"] not in skus)
+    conversation.recommended_skus = skus
+    fields = ["recommended_skus"]
+    if out.discount_offer and not conversation.discount_code:
+        conversation.discount_code = out.discount_offer["code"]
+        fields.append("discount_code")
+    conversation.save(update_fields=fields)
+
+    total_ms = int((time.monotonic() - started) * 1000)
+    timings.update({"total_ms": total_ms, "steps": out.steps, **{k: v for k, v in out.timings.items() if k != "seller_ms"}})
+    req = plan.requirements
+    verdict = plan.strategy.discount
+    memory.save_trace(
+        ctx, turn_no,
+        analyzer={"summary": validated.summary(), "analyzer_called": worth, "analyzer_ok": raw is not None, "timings": timings},
+        memory_changes=changes,
+        constraints={
+            "stage": plan.stage, "readiness": plan.readiness,
+            "discount": {"allowed": verdict.allowed, "reason": verdict.reason, "trigger": verdict.trigger,
+                         "rule_trace": verdict.rule_trace},
+            "requirements": {
+                "budget_max": str(req.budget_max) if req.budget_max is not None else None,
+                "colors": list(req.colors), "avoid_colors": list(req.avoid_colors),
+                "sizes": list(req.sizes), "categories": list(req.categories),
+                "excluded": sorted(req.excluded_skus), "exempt": sorted(req.exempt_skus),
+            },
+            "candidates": [c.product.sku for c in plan.search.candidates],
+            "search": {"exact": plan.search.exact_count, "relaxed": list(plan.search.relaxed_fields),
+                       "dropped": plan.search.dropped, "note": plan.search.note},
+            "speculative": {"enabled": bool(speculative), "reused": speculative and not reran},
+            "tool_events": out.tool_events,
+        },
+        guard=out.guard,
+        llm_calls=(1 if worth else 0) + (out.llm_calls if not reran else (early_out.llm_calls if early_out else 0) + out.llm_calls),
+        latency_ms=total_ms,
+        models_used={"seller": getattr(llm.get_provider(), "model", ""), "analyzer": getattr(analyzer_provider, "model", "")},
     )
     return {**payload, **memory.issue_tokens(ctx), "turn": turn_no}, None
