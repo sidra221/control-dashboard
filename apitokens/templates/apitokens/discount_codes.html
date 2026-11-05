@@ -24,6 +24,15 @@
         <label for="description">{{ T.discount_description_label }}</label>
         <input type="text" id="description" name="description" placeholder="{{ T.discount_description_placeholder }}">
       </div>
+      <div class="field">
+        <label for="starts_at">{{ T.discount_starts_at_label }}</label>
+        <input type="datetime-local" id="starts_at" name="starts_at">
+      </div>
+      <div class="field">
+        <label for="expires_at">{{ T.discount_expires_at_label }}</label>
+        <input type="datetime-local" id="expires_at" name="expires_at">
+        <small class="hint">{{ T.discount_dates_hint }}</small>
+      </div>
       <button type="submit" class="btn-primary">{{ T.add_discount_btn }}</button>
     </form>
   </div>
@@ -37,6 +46,7 @@
         <tr>
           <th>{{ T.th_code }}</th>
           <th>{{ T.th_description }}</th>
+          <th>{{ T.th_validity }}</th>
           <th>{{ T.th_status }}</th>
           <th></th>
         </tr>
@@ -46,10 +56,17 @@
         <tr>
           <td><code>{{ c.code }}</code></td>
           <td>{{ c.description }}</td>
+          <td class="validity">
+            {% if c.starts_at %}<div>{{ T.discount_starts_prefix }} {{ c.starts_at|date:"Y-m-d H:i" }}</div>{% endif %}
+            {% if c.expires_at %}<div>{{ T.discount_expires_prefix }} {{ c.expires_at|date:"Y-m-d H:i" }}</div>{% endif %}
+            {% if not c.starts_at and not c.expires_at %}<span class="muted">{{ T.discount_no_limit }}</span>{% endif %}
+          </td>
           <td>
             <span class="badge {% if c.is_active %}active{% else %}inactive{% endif %}">
               {% if c.is_active %}{{ T.status_active }}{% else %}{{ T.status_inactive }}{% endif %}
             </span>
+            {% if c.is_expired %}<span class="badge inactive">{{ T.status_expired }}</span>{% endif %}
+            {% if c.not_started %}<span class="badge inactive">{{ T.status_not_started }}</span>{% endif %}
           </td>
           <td>
             <form method="post">
@@ -72,4 +89,7 @@
 
 {% block extra_style %}
   form.discount-form { display: flex; flex-direction: column; gap: 14px; max-width: 420px; }
+  td.validity { font-size: 13px; white-space: nowrap; }
+  td.validity .muted { color: var(--muted); }
+  small.hint { color: var(--muted); font-size: 12px; }
 {% endblock %}

@@ -27,6 +27,9 @@ INFERABLE = frozenset({"color", "style", "occasion", "category", "material", "br
 REACTIONS = ("liked", "rejected", "asked", "neutral")
 REASONS = ("price", "style", "color", "fit", "quality", "material", "other", "unknown")
 OBJECTIONS = ("price", "competitor_price", "trust", "quality", "fit", "shipping", "timing", "other")
+INTENTS = ("browse", "search", "ask_info", "compare", "object", "reject", "accept", "buy", "ask_discount", "chitchat", "other")
+SIGNAL_READINESS = ("browsing", "interested", "hesitant", "ready")
+HESITATION_REASONS = ("price", "style", "fit", "trust", "timing", "other")
 TOPICS = ("shipping", "returns", "payment", "size_guide", "materials", "stock", "discount", "try_on", "other")
 
 MAX_VALUE_CHARS = 80
@@ -106,6 +109,20 @@ ANALYZE_TOOL = {
             "resolved_objections": {"type": "array", "items": {"type": "string", "enum": list(OBJECTIONS)}},
             "questions_asked": {"type": "array", "items": {"type": "string", "enum": list(TOPICS)}},
             "gender": {"type": "string", "enum": ["female", "male", "unknown"]},
+            "signals": {
+                "type": "object",
+                "description": "How the customer is doing right now, judged from the MEANING of the latest message in context.",
+                "properties": {
+                    "intent": {"type": "string", "enum": list(INTENTS), "description": "What the latest message is mainly doing."},
+                    "readiness": {"type": "string", "enum": list(SIGNAL_READINESS)},
+                    "hesitation_reason": {
+                        "type": "string", "enum": list(HESITATION_REASONS) + [""],
+                        "description": "Why the customer is unsure; empty when not hesitating.",
+                    },
+                    "asks_discount": {"type": "boolean", "description": "The customer asks for a discount, a code, a better price or a deal."},
+                    "wants_alternative": {"type": "boolean", "description": "The customer wants to see something different or other options."},
+                },
+            },
         },
     },
 }
@@ -140,6 +157,19 @@ resolved_objections: types the customer now says are settled.
 - questions_asked: topics the customer asked about in the latest message.
 - Understand every Arabic dialect (Saudi, Gulf, Levantine/Syrian, Egyptian, Maghrebi), MSA, Arabizi and \
 other languages. Quote in the original language.
+- `signals` (always fill it, judging the MEANING of the latest message in context — keywords are not enough):
+  - intent: browse (just looking), search (asks for something specific), ask_info (a question about \
+product/shipping/size/payment), compare (weighs options), object (a concern or doubt), reject (does not want \
+what was shown), accept (agrees / likes / wants it), buy (wants to order or pay now), ask_discount (asks for a \
+discount/code/better price), chitchat (greetings, thanks, small talk), other.
+  - readiness: "ready" ONLY when the customer clearly decided to buy now (asks how to pay or order, says \
+they'll take it, asks for the payment/checkout link). "hesitant" when interested but unsure: comparing, \
+price worry, doubts, "I'll think about it", "let me ask my husband/sister". "interested" when positive but \
+no decision yet. "browsing" otherwise (just looking, greetings, general questions).
+  - hesitation_reason (only when hesitant): price | style | fit | trust | timing | other; otherwise "".
+  - asks_discount: true only if the customer asks for a discount, a code or a lower price.
+  - wants_alternative: true if the customer asks for other options or something different.
+  Leave a field out if you cannot tell. Never infer "ready" from politeness or from a compliment.
 - Nothing new → return empty lists. Never invent."""
 
 
@@ -194,6 +224,8 @@ class Validated:
     gender: str = ""
     pending: object = None  # {"type": "currency", "amount": "500", "currency": "USD"}
     dropped: list = field(default_factory=list)
+    # إشارات الحالة (نيّة/جاهزية/تردّد): دايماً dict بالمفاتيح الخمسة؛ القيم غير المعروفة = الافتراضي
+    signals: dict = field(default_factory=lambda: default_signals())
 
     def summary(self):
         return {
@@ -203,7 +235,41 @@ class Validated:
             "objections": [{"type": o["type"], "sku": o["sku"]} for o in self.objections],
             "resolved": self.resolved, "topics": self.topics, "gender": self.gender,
             "pending": self.pending, "dropped": self.dropped,
+            "signals": dict(self.signals),
         }
+
+
+def default_signals():
+    return {"intent": "other", "readiness": "", "hesitation_reason": "",
+            "asks_discount": False, "wants_alternative": False}
+
+
+def _as_bool(value):
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        return value.strip().lower() in ("true", "yes")
+    return False
+
+
+def sanitize_signals(raw, dropped=None):
+    """إشارات المحلّل ← dict ثابت الشكل. أي قيمة خارج القائمة بتنرمي (بتنزل للافتراضي).
+    ما في اقتباس مطلوب: هدول إشارات مساعدة للسياسة، والقرار الحقيقي (خصم/مرحلة) بيتخذ بالكود
+    وبيتقاطع مع أحداث موثوقة (نقرة شراء، سلة...)."""
+    out = default_signals()
+    if not isinstance(raw, dict):
+        return out
+    for key, allowed in (("intent", INTENTS), ("readiness", SIGNAL_READINESS), ("hesitation_reason", HESITATION_REASONS)):
+        value = raw.get(key)
+        if value is None or value == "":
+            continue
+        if isinstance(value, str) and value.strip().lower() in allowed:
+            out[key] = value.strip().lower()
+        elif dropped is not None:
+            dropped.append(f"signals:bad_{key}")
+    for key in ("asks_discount", "wants_alternative"):
+        out[key] = _as_bool(raw.get(key))
+    return out
 
 
 def _as_list(value):
@@ -304,6 +370,7 @@ def validate(raw, *, user_texts, products_by_sku, merchant_currency):
     out.topics = [t for t in (raw.get("questions_asked") or []) if t in TOPICS]
     gender = raw.get("gender")
     out.gender = gender if gender in ("female", "male") else ""
+    out.signals = sanitize_signals(raw.get("signals"), out.dropped)
     return out
 
 
