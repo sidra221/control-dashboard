@@ -501,6 +501,20 @@ def _fix_dialect(text, cards, lang):
     return text, sorted(found)
 
 
+MIN_UNSHOWN_TO_HIDE_SEARCH = 2
+
+
+def _tools_for_turn(inp):
+    """لو جاهزين مرشّحين كفاية ما انعرضوا (من وحدة التوصيات، بنفس الرسالة والمتطلبات) منخبّي أداة
+    البحث: الموديل كان يبحث من جديد رغم القائمة وبيضيّع جولة كاملة (+2-3 ثوانٍ)."""
+    candidates = list(getattr(inp.prefetched, "candidates", None) or [])
+    shown = set(inp.shown_skus or [])
+    unshown = [c for c in candidates if c.product.sku not in shown]
+    if len(unshown) >= MIN_UNSHOWN_TO_HIDE_SEARCH:
+        return [t for t in TOOLS if t["name"] != "search_products"]
+    return TOOLS
+
+
 def run_seller(inp, *, provider=None):
     """يشغّل حلقة البائع ويرجّع contracts.SellerOutput. بيرمي llm.LLMError لو المزوّد واقع
     من أول خطوة (وقتها ما في شي نعرضه)؛ بالخطوات اللاحقة بنختم بردّ ثابت بدل الفشل."""
@@ -510,6 +524,7 @@ def run_seller(inp, *, provider=None):
     recommend = prompts_v2.get_recommend()
     turn = _Turn(inp, recommend)
     system_prompt = prompts_v2.build_system_prompt(inp)
+    tools_now = _tools_for_turn(inp)
     last_user_text = inp.window[-1]["content"] if inp.window else ""
     offer = dict(inp.approved_offer) if inp.approved_offer else None
 
@@ -526,7 +541,7 @@ def run_seller(inp, *, provider=None):
         step_started = _now()
         try:
             step = llm.chat_step_with_retry(
-                provider, system_prompt, transcript, TOOLS, tool_choice="none" if final else None
+                provider, system_prompt, transcript, tools_now, tool_choice="none" if final else None
             )
         except llm.LLMError:
             if llm_calls == 0:
@@ -604,7 +619,7 @@ def run_seller(inp, *, provider=None):
         llm_calls += 1
         try:
             regen = llm.chat_step_with_retry(
-                provider, system_prompt + correction, transcript, TOOLS, tool_choice="none"
+                provider, system_prompt + correction, transcript, tools_now, tool_choice="none"
             )
             new_raw = (regen.text or "").strip()
             # تصحيح لغة ما نجح ← منبقي على القديم (نفس سلوك v1)

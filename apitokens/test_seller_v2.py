@@ -780,10 +780,14 @@ class PromptTests(SellerBase):
         prompt = self.prompt(memory_section="\nCUSTOMER MEMORY — budget 200 SAR\n", store_info="Shipping takes 3 days.",
                              shown_skus=["GOWN", "RED"])
         marker = "CANDIDATES"
-        payload = prompt[prompt.index(marker):].split("\n", 1)[1]
+        section = prompt[prompt.index(marker):]
+        payload = next(line for line in section.splitlines() if line.startswith("[{"))
         rows = json.loads(payload)
         self.assertEqual([r["sku"] for r in rows], ["GREEN", "RED"])
         self.assertEqual(rows[0]["why"], ["color green"])
+        self.assertTrue(rows[1].get("already_shown"))      # RED على الشاشة: معلَّم
+        self.assertNotIn("already_shown", rows[0])
+        self.assertIn("already_shown are already on the customer's screen", section)
         self.assertIn("CUSTOMER MEMORY — budget 200 SAR", prompt)
         self.assertIn("Shipping takes 3 days.", prompt)
         self.assertIn("don't show these cards again): GOWN, RED", prompt)
@@ -856,7 +860,27 @@ class PromptTests(SellerBase):
         script = Script(S(GOOD_REPLY))
         self.run_seller(script, strategy=Strategy(directives=["DIRECTIVE X"]))
         self.assertIn("DIRECTIVE X", script.calls[0]["system"])
-        self.assertEqual([t["name"] for t in script.calls[0]["tools"]],
-                         ["search_products", "get_product", "compare_products", "show_product", "recommend_size"])
+        self.assertEqual({t["name"] for t in script.calls[0]["tools"]},
+                         {"search_products", "get_product", "compare_products", "show_product", "recommend_size"}
+                         - ({"search_products"} if len(script.calls[0]["tools"]) == 4 else set()))
         for tool in script.calls[0]["tools"]:
             self.assertEqual(tool["parameters"]["type"], "object")
+
+
+class SearchToolVisibilityTests(SellerBase):
+    """مرشّحين كفاية جاهزين ← أداة البحث مخفية (بتوفّر جولة LLM كاملة)."""
+
+    def tools_sent(self, **over):
+        script = Script(S(GOOD_REPLY))
+        self.run_seller(script, **over)
+        return [t["name"] for t in script.calls[0]["tools"]]
+
+    def test_search_is_hidden_with_two_unshown_prefetched_candidates(self):
+        names = self.tools_sent()   # الافتراضي بالـ fixture: مرشّحين اثنين غير معروضين
+        self.assertNotIn("search_products", names)
+        self.assertIn("show_product", names)
+
+    def test_search_stays_when_candidates_are_few_or_already_shown(self):
+        shown = [c.product.sku for c in self.make_input().prefetched.candidates]
+        self.assertIn("search_products", self.tools_sent(shown_skus=shown))
+        self.assertIn("search_products", self.tools_sent(prefetched=SearchResult()))

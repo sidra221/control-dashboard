@@ -182,7 +182,13 @@ def _candidates_section(inp, recommend):
             "Nothing in the catalog fits right now: say so honestly in one short phrase and ask the customer "
             "ONE question about what to adjust. Show no card."
         )
-    rows = recommend.describe_candidates(candidates, inp.currency) if candidates else []
+    rows = [dict(r) for r in (recommend.describe_candidates(candidates, inp.currency) if candidates else [])]
+    shown = set(inp.shown_skus or [])
+    for row in rows:
+        if row.get("sku") in shown:
+            row["already_shown"] = True   # كرته على شاشة الزبون: ما منعيد عرضه
+    if any(r.get("already_shown") for r in rows):
+        lines.append("Candidates marked already_shown are already on the customer's screen: choose among the others.")
     lines.append(json.dumps(rows, ensure_ascii=False, default=str))
     return "\n".join(lines)
 
