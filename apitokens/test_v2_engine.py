@@ -534,3 +534,41 @@ class LegacyFlagTests(EngineBase):
             data = self.w.say("هلا")
         self.assertTrue(data["ok"])
         self.assertEqual(self.brain.step_calls, [])  # مسار الحلقة ما اشتغل
+
+
+class TenantIsolationInTheLoopTests(EngineBase):
+    def test_tools_prompt_and_discounts_never_cross_merchants(self):
+        other = ApiToken.objects.create(label="تاجر ثاني", token="ENGOTHER00001", image_quota=1, currency="SAR", engine="v2")
+        Product.objects.create(merchant=other, sku="SECRET_SKU", title="منتج سري للتاجر الثاني", price="50", category="dresses",
+                               image_url="https://x/s.jpg", options={"Size": ["M"], "Color": ["Black"]},
+                               product_url="https://other.example.com/products/secret")
+        DiscountCode.objects.create(merchant=other, code="OTHERONLY", description="خصم 50% للتاجر الثاني")
+        DiscountCode.objects.create(merchant=self.merchant, code="SAVE10", description="خصم 10% على كل المنتجات")
+        self.brain.turn(
+            step("", show("SECRET_SKU"), ("get_product", {"sku": "SECRET_SKU"}), ("search_products", {"query": "منتج سري"})),
+            step("ما لقيته عندنا، هذا أقرب شي.", show("RED_M")),
+            analysis={},
+        )
+        data = self.w.say("وريني فستان")
+        first_prompt = self.brain.step_calls[0]["system"]
+        for leak in ("SECRET_SKU", "منتج سري", "OTHERONLY", "خصم 50%"):
+            self.assertNotIn(leak, first_prompt)
+        tool_results = [json.loads(m["content"]) for m in self.brain.step_calls[1]["transcript"] if m["role"] == "tool"]
+        self.assertEqual(tool_results[0]["status"], "unknown_sku")
+        self.assertEqual(tool_results[1]["error"], "unknown_sku")
+        self.assertNotIn("SECRET_SKU", json.dumps(tool_results[2], ensure_ascii=False))
+        self.assertEqual([c["sku"] for c in data["recommendations"]], ["RED_M"])
+
+    def test_memory_of_one_merchant_does_not_filter_or_leak_into_another(self):
+        other = ApiToken.objects.create(label="تاجر ثاني", token="ENGOTHER00002", image_quota=1, currency="SAR", engine="v2")
+        Product.objects.create(merchant=other, sku="RED_M", title="فستان أحمر عند التاجر الثاني", price="999", category="dresses",
+                               image_url="https://x/o.jpg", options={"Size": ["M"], "Color": ["Red"]})
+        self.brain.turn(step("حلو."), analysis={"preferences": [pref("budget_max", "100", "ميزانيتي 100")]})
+        self.w.say("ميزانيتي 100")
+        self.brain.turn(step("أهلين!"), analysis={})
+        stranger = Widget(other, ip="7.7.7.7")
+        stranger.say("هلا")
+        system = self.brain.last_system
+        self.assertNotIn("budget up to 100", system)
+        self.assertNotIn("فستان أحمر مورّد", system)
+        self.assertIn("فستان أحمر عند التاجر الثاني", system)
