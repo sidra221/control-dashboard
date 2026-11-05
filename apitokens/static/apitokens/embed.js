@@ -25,16 +25,6 @@
     .replace(/[^A-Za-z0-9_-]/g, "")
     .slice(0, 64);
   var shownSkus = [];
-  // معرّف ثابت للزبون (بيضل بعد تحديث الصفحة) — منه بيتحسب حد تجارب اللبس.
-  var SHOPPER_ID = (function () {
-    var key = "cw_shopper_" + STORE_KEY.slice(0, 8);
-    try {
-      var saved = window.localStorage.getItem(key);
-      if (saved) return saved;
-      window.localStorage.setItem(key, SESSION_ID);
-    } catch (e) {}
-    return SESSION_ID;
-  })();
   // جوا متجر Shopify فعلي: منقدر نضيف للسلة مباشرة ونعلّم السلة بمعرّف المحادثة.
   var IS_SHOPIFY = !!(window.Shopify && window.Shopify.shop);
   // جوا متجر سلة: مكتبة سلة (Twilight) بتضيف للسلة، ورقم السلة بيربط الطلب بالمحادثة.
@@ -62,31 +52,18 @@
     return /[\u0600-\u06FF]/.test(lastUser) || !lastUser ? "ar" : "en";
   }
 
-  // لما تخلص تجارب الزبون: كل أزرار التجربة بتصير رمادية ومعطّلة (والجديدة كمان).
-  var tryonsExhausted = false;
-  function disableTryons() {
-    tryonsExhausted = true;
-    if (typeof msgsEl === "undefined" || !msgsEl) return;
-    var buttons = msgsEl.querySelectorAll("button.tryon");
-    for (var i = 0; i < buttons.length; i++) {
-      buttons[i].disabled = true;
-      buttons[i].textContent = "خلصت تجاربك 🙏";
-    }
-  }
-
   // لو الزبون فاتح صفحة منتج من الكتالوج، منفتح المحادثة على هالمنتج نفسه.
   var pageProduct = null;
   var pageProductReady = fetch(API_BASE + "/widget/page-product/", {
     method: "POST",
     headers: { "Content-Type": "application/json", "X-Api-Token": STORE_KEY },
-    body: JSON.stringify({ page_url: window.location.href, shopper_id: SHOPPER_ID }),
+    body: JSON.stringify({ page_url: window.location.href }),
   })
     .then(function (r) {
       return r.json();
     })
     .then(function (data) {
       if (data && data.ok && data.product) pageProduct = data.product;
-      if (data && data.tryons_left === 0) disableTryons();
     })
     .catch(function () {});
 
@@ -223,7 +200,6 @@
     "  border: none; cursor: pointer; width: 100%; margin-top: 6px; font-family: inherit;",
     "}",
     ".card button.tryon { background: #eef0ff; color: #4f46e5; }",
-    ".card button.tryon:disabled { background: #eceef2; color: #9aa0ab; cursor: not-allowed; }",
     ".card a.buy, .card button.addcart { background: linear-gradient(135deg, #6366f1, #4f46e5); color: #fff; }",
     ".typing { align-self: flex-start; font-size: 12px; color: #9095ab; padding: 0 4px; }",
     ".msg.writing::after { content: '▍'; margin-inline-start: 1px; opacity: .6; animation: sw-blink 1s steps(1) infinite; }",
@@ -544,10 +520,6 @@
     tryBtn.className = "tryon";
     if (rec.tryon_supported === false) tryBtn.style.display = "none";
     tryBtn.textContent = rec.tryon_button_label || "جرّب شكلك فيه 📸";
-    if (tryonsExhausted) {
-      tryBtn.disabled = true;
-      tryBtn.textContent = "خلصت تجاربك 🙏";
-    }
     tryBtn.addEventListener("click", function () {
       if (savedPhoto) {
         runTryon(rec.sku, savedPhoto);
@@ -783,7 +755,6 @@
     form.append("sku", sku);
     form.append("photo", photo);
     form.append("session_id", SESSION_ID);
-    form.append("shopper_id", SHOPPER_ID);
 
     fetch(API_BASE + "/widget/tryon/", {
       method: "POST",
@@ -796,24 +767,11 @@
       .then(function (data) {
         loadingEl.remove();
         if (!data.ok) {
-          if (data.error === "shopper_limit_reached") {
-            disableTryons();
-            addBotMessage(
-              "خلصت تجارب اللبس في اشتراكك 🙏 جدّد اشتراكك عشان تحصل على تجارب جديدة، " +
-                "وإلى ذاك الوقت أبشر، أساعدك تختار المقاس واللون اللي يناسبك 👌"
-            );
-            return;
-          }
           addErrorMessage(friendlyError(data.error));
           return;
         }
         addTryonResultCard(data.image_url, null);
         addBotMessage("وش رأيك؟ عجبتك الإطلالة؟ 😊");
-        if (data.shopper_remaining === 0) disableTryons();
-        // للمتجر المضيف (متل عدّاد التجارب بمتجر الديمو)
-        try {
-          document.dispatchEvent(new CustomEvent("controlwidget:tryon", { detail: { remaining: data.shopper_remaining } }));
-        } catch (e) {}
       })
       .catch(function () {
         loadingEl.remove();

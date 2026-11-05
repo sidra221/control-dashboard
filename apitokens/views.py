@@ -119,19 +119,6 @@ def catalog(request, pk):
         messages.success(request, t("msg_size_chart_saved", lang))
         return redirect("apitokens:catalog", pk=pk)
 
-    if request.method == "POST" and request.POST.get("action") == "tryon_limit":
-        try:
-            per_shopper = max(0, min(int(request.POST.get("tryons_per_shopper", "")), 1000))
-            days = max(1, min(int(request.POST.get("tryon_limit_days", "")), 365))
-        except ValueError:
-            messages.error(request, t("err_tryon_limit_invalid", lang))
-            return redirect("apitokens:catalog", pk=pk)
-        merchant.tryons_per_shopper = per_shopper
-        merchant.tryon_limit_days = days
-        merchant.save(update_fields=["tryons_per_shopper", "tryon_limit_days"])
-        messages.success(request, t("msg_tryon_limit_saved", lang))
-        return redirect("apitokens:catalog", pk=pk)
-
     if request.method == "POST" and request.POST.get("action") == "store_info":
         merchant.store_info = request.POST.get("store_info", "").strip()[:8000]
         merchant.currency = request.POST.get("currency", "").strip().upper()[:8]

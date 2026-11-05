@@ -72,14 +72,6 @@ TRANSLATIONS = {
     "store_info_placeholder": {"ar": "مثلاً: التوصيل خلال 2-4 أيام داخل المدينة، الإرجاع خلال 14 يوم...", "en": "e.g. Delivery in 2-4 days within the city, returns within 14 days..."},
     "save_btn": {"ar": "حفظ", "en": "Save"},
     "msg_store_info_saved": {"ar": "تم حفظ معلومات المتجر", "en": "Store info saved"},
-    "tryon_limit_title": {"ar": "حد تجربة اللبس لكل عميل", "en": "Try-on limit per shopper"},
-    "tryon_limit_note": {
-        "ar": "يمنع عميلاً واحداً من استهلاك رصيد الصور كاملاً. ضع 0 لإلغاء الحد.",
-        "en": "Stops a single shopper from using up the whole image quota. Set 0 for no limit.",
-    },
-    "tryons_per_shopper_label": {"ar": "عدد التجارب لكل عميل", "en": "Try-ons per shopper"},
-    "tryon_limit_days_label": {"ar": "خلال (يوماً)", "en": "Within (days)"},
-    "msg_tryon_limit_saved": {"ar": "تم حفظ حد التجارب", "en": "Try-on limit saved"},
     "size_chart_title": {"ar": "جدول المقاسات", "en": "Size chart"},
     "size_chart_note": {
         "ar": "يستخدمه المساعد لترشيح المقاس المناسب من طول العميل ووزنه وخصره. سطر لكل مقاس بالصيغة: المقاس، الطول (سم)، الوزن (كغ)، الخصر (سم)، مثل: M, 158-170, 55-66, 68-76. ضع «-» لأي قياس غير معروف. اترك الفئة فارغة ليكون الجدول عاماً لكل المنتجات. عند عدم وجود جدول يستخدم المساعد جدولاً قياسياً تقريبياً.",
@@ -93,7 +85,6 @@ TRANSLATIONS = {
     "msg_size_chart_deleted": {"ar": "تم حذف جدول المقاسات", "en": "Size chart deleted"},
     "err_size_chart_invalid": {"ar": "صيغة غير صحيحة في %(where)s", "en": "Invalid format at %(where)s"},
     "err_size_chart_empty": {"ar": "أدخل مقاساً واحداً على الأقل", "en": "Enter at least one size"},
-    "err_tryon_limit_invalid": {"ar": "أدخل أرقاماً صحيحة", "en": "Enter whole numbers"},
 
     # ===== shopify_connect.html =====
     "shopify_page_title_prefix": {"ar": "ربط Shopify — ", "en": "Connect Shopify — "},

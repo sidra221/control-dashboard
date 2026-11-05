@@ -2,7 +2,6 @@ import re
 import secrets
 
 from django.conf import settings
-from django.contrib.auth.hashers import check_password, make_password
 from django.db import models
 from django.utils import timezone
 
@@ -48,11 +47,6 @@ class ApiToken(models.Model):
             "بالرد على الزبون. لو المتجر مربوط بـ Shopify بتتعبّى لحالها من سياسات المتجر."
         ),
     )
-    # حد تجربة اللبس لكل زبون، حتى ما يخلّص زبون واحد رصيد التاجر كله.
-    tryons_per_shopper = models.PositiveIntegerField(
-        "عدد التجارب لكل زبون", default=2, help_text="0 = بلا حد",
-    )
-    tryon_limit_days = models.PositiveIntegerField("مدة حد التجارب (أيام)", default=30)
     created_by = models.ForeignKey(
         settings.AUTH_USER_MODEL,
         on_delete=models.SET_NULL,
@@ -384,53 +378,6 @@ class Conversation(models.Model):
     @property
     def converted(self):
         return bool(self.order_id)
-
-
-class TryOnRecord(models.Model):
-    """تجربة لبس ناجحة لزبون — منها منعدّ حد التجارب لكل زبون. منعدّ
-    بمعرّف الزبون (محفوظ بمتصفحه) وبعنوانه (IP، مخزّن كبصمة مش كعنوان) حتى ما
-    يقدر يتحايل بمسح بيانات المتصفح."""
-
-    merchant = models.ForeignKey(ApiToken, on_delete=models.CASCADE, related_name="tryon_records")
-    shopper_id = models.CharField(max_length=64, blank=True, default="", db_index=True)
-    ip_hash = models.CharField(max_length=64, blank=True, default="", db_index=True)
-    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
-
-    class Meta:
-        verbose_name = "تجربة لبس"
-        verbose_name_plural = "تجارب اللبس"
-
-
-class DemoCustomer(models.Model):
-    """حساب زبون بمتجر الديمو (/demo/) — منه منعرض إنو لكل حساب عدد تجارب لبس
-    محدد (tryons_per_shopper من الداشبورد). منفصل عن مستخدمي الداشبورد (Staff)."""
-
-    merchant = models.ForeignKey(ApiToken, on_delete=models.CASCADE, related_name="demo_customers")
-    name = models.CharField("الاسم", max_length=80)
-    email = models.EmailField("البريد الإلكتروني")
-    password = models.CharField(max_length=128)
-    created_at = models.DateTimeField(auto_now_add=True)
-
-    class Meta:
-        verbose_name = "حساب زبون (ديمو)"
-        verbose_name_plural = "حسابات زبائن (ديمو)"
-        constraints = [
-            models.UniqueConstraint(fields=["merchant", "email"], name="unique_demo_customer_email"),
-        ]
-
-    def __str__(self):
-        return f"{self.name} <{self.email}>"
-
-    def set_password(self, raw):
-        self.password = make_password(raw)
-
-    def check_password(self, raw):
-        return check_password(raw, self.password)
-
-    @property
-    def shopper_id(self):
-        """المعرّف اللي بينحسب عليه حد التجارب — ثابت لكل حساب مهما تغيّر المتصفح."""
-        return f"acct-{self.pk}"
 
 
 class SizeChart(models.Model):

@@ -81,13 +81,6 @@
     font-size: 11.5px; font-weight: 600; color: var(--ink-2); text-align: center; line-height: 1.6;
   }
 
-  body.bare { min-height: 100vh; display: flex; flex-direction: column; justify-content: center; }
-  body.bare main { padding: 24px 0 48px; }
-  body.bare .auth-card { margin-top: 0; }
-  .auth-brand { text-align: center; margin: 0 0 18px; }
-  .auth-brand b { display: block; font-size: 30px; font-weight: 800; letter-spacing: -.3px; }
-  .auth-brand small { font-size: 11px; color: var(--muted); letter-spacing: 2px; font-weight: 500; }
-
   /* أزرار */
   .btn {
     display: inline-flex; align-items: center; justify-content: center; gap: 8px;
@@ -211,81 +204,29 @@
   .modal h3 { margin: 0 0 8px; font-size: 20px; }
   .modal p { margin: 0 0 20px; color: var(--ink-2); }
 
-  /* الحساب */
-  .account { display: flex; align-items: center; gap: 10px; font-size: 14px; flex-wrap: wrap; justify-content: flex-end; }
-  .account a, .account .link-btn { font-weight: 700; color: var(--accent); }
-  .account .link-btn { border: 0; background: none; padding: 0; }
-  .account .who { color: var(--ink-2); }
-  .tryon-chip {
-    display: inline-flex; align-items: center; gap: 8px; padding: 5px 12px 5px 14px;
-    background: var(--sand); border: 1px solid var(--sand-2); border-radius: 999px;
-    font-size: 13px; font-weight: 700; color: var(--accent-dark) !important; white-space: nowrap;
-  }
-  .tryon-chip svg { width: 18px; height: 18px; flex: none; }
-  .tryon-dots { display: inline-flex; gap: 4px; }
-  .tryon-dots i { width: 8px; height: 8px; border-radius: 50%; background: #d9c8b4; display: block; }
-  .tryon-dots i.on { background: var(--accent); }
-  .tryon-chip.empty { background: #f7e3dd; border-color: #ecc7bd; color: var(--sale) !important; }
-  .account .account-link { color: var(--ink-2); font-weight: 500; }
-  .tryon-pill {
-    background: var(--sand); border: 1px solid var(--sand-2); border-radius: 999px;
-    padding: 3px 12px; font-size: 13px; font-weight: 700; color: var(--accent-dark); white-space: nowrap;
-  }
-  .tryon-pill.empty { background: #f7e3dd; border-color: #ecc7bd; color: var(--sale); }
-  .auth-card {
-    max-width: 420px; margin: 40px auto 0; background: var(--surface); border: 1px solid var(--line);
-    border-radius: 22px; padding: 30px 26px 26px; box-shadow: var(--shadow);
-  }
-  .auth-card h1 { margin: 0 0 6px; font-size: 26px; font-weight: 800; }
-  .auth-sub { margin: 0 0 18px; color: var(--ink-2); font-size: 14px; }
-  .auth-card label { display: block; margin: 12px 0 5px; font-size: 14px; font-weight: 700; }
-  .auth-card input[type=text], .auth-card input[type=email], .auth-card input[type=password] {
-    width: 100%; height: 48px; padding: 0 14px; border: 1.5px solid var(--line); border-radius: var(--radius-sm);
-    background: var(--bg); font: inherit; color: var(--ink);
-  }
-  .auth-card input:focus { outline: 0; border-color: var(--accent); }
-  .auth-card .btn { width: 100%; margin-top: 20px; }
-  .auth-error { background: #f7e3dd; color: var(--sale); border-radius: var(--radius-sm); padding: 10px 14px; font-size: 14px; margin-bottom: 6px; }
-  .auth-alt { margin: 16px 0 0; text-align: center; font-size: 14px; color: var(--ink-2); }
-  .auth-alt a { color: var(--accent); font-weight: 700; }
-
   {% block extra_css %}{% endblock %}
 </style>
 </head>
-<body{% if bare %} class="bare"{% endif %}>
-  {% if not bare %}
+<body>
   <header class="site-header">
     <div class="wrap header-row">
       <a href="/demo/" class="logo" aria-label="{{ store_name }} — الصفحة الرئيسية">
         <b>{{ store_name }}</b>
         <small>ELEGANCE · RIYADH</small>
       </a>
-      <div class="account" id="account">
-        {% if customer %}
-          <span class="who">مرحباً، {{ customer.name }}</span>
-          <a class="account-link" href="/demo/account/">اشتراكي</a>
-          <form method="post" action="/demo/logout/">{% csrf_token %}<button class="link-btn" type="submit">تسجيل الخروج</button></form>
-        {% else %}
-          <a href="/demo/login/?next={{ request.path|urlencode }}">تسجيل الدخول</a>
-          <a href="/demo/register/?next={{ request.path|urlencode }}">إنشاء حساب</a>
-        {% endif %}
-      </div>
     </div>
   </header>
-  {% endif %}
 
   <main>
     {% block content %}{% endblock %}
   </main>
 
-  {% if not bare %}
   <footer class="site-footer">
     <div class="wrap footer-bottom">
       <span>© {{ store_name }}</span>
       <span>متجر تجريبي لعرض مساعد التسوق الذكي</span>
     </div>
   </footer>
-  {% endif %}
 
   <div class="toast" id="demo-toast" role="status" aria-live="polite">
     <span>تمت الإضافة إلى السلة ✓</span>
@@ -395,31 +336,11 @@
       }
     };
 
-    // الويدجت بيبلّغ بعد كل تجربة لبس ناجحة، فنحدّث العدّاد بالترويسة بدون إعادة تحميل
-    function triesLabel(n) {
-      if (n === 0) return "جدّد اشتراكك";
-      if (n === 1) return "تبقّت لك تجربة واحدة";
-      if (n === 2) return "تبقّت لك تجربتان";
-      if (n <= 10) return "تبقّت لك " + n + " تجارب";
-      return "تبقّت لك " + n + " تجربة";
-    }
-    document.addEventListener("controlwidget:tryon", function (e) {
-      var left = e.detail && e.detail.remaining;
-      var chip = document.getElementById("tryon-chip");
-      if (!chip || typeof left !== "number") return;
-      document.getElementById("tryon-label").textContent = triesLabel(left);
-      var dots = document.querySelectorAll("#tryon-dots i");
-      for (var i = 0; i < dots.length; i++) dots[i].classList.toggle("on", i < left);
-      chip.classList.toggle("empty", left === 0);
-    });
-
     window.addEventListener("storage", function (e) { if (e.key === KEY) updateBadge(); });
     updateBadge(false);
   })();
   </script>
   {% block scripts %}{% endblock %}
-  {% if not bare %}
   <script src="{{ widget_src }}" data-store-key="{{ store_key }}"></script>
-  {% endif %}
 </body>
 </html>
