@@ -172,8 +172,9 @@ ANALYZER_MODEL = os.environ.get("ANALYZER_MODEL", "").strip()
 # مسار البائع بمحرّك v2: "loop" (الافتراضي) = حلقة أدوات بنتائج راجعة للموديل + توصيات ببيانات الكتالوج
 # + مراحل بيع وسياسة خصم بالكود؛ "legacy" = مسار المرحلة 1 (استدعاء واحد) — للرجوع السريع عند أي مشكلة.
 V2_SELLER_MODE = os.environ.get("V2_SELLER_MODE", "loop").strip().lower()
-# تشغيل المحلّل والبائع بالتوازي (speculative) وإعادة البائع بس لو التحليل غيّر الخطة. 0 = تتابعي.
-V2_SPECULATIVE = os.environ.get("V2_SPECULATIVE", "1") == "1"
+# تشغيل المحلّل والبائع بالتوازي (speculative) وإعادة البائع بس لو التحليل غيّر الخطة. افتراضياً 0:
+# القياس الحي أثبت إنه بيزيد الزمن (الخطة بتتغيّر تقريباً كل دور فبنهدر استدعاء بائع).
+V2_SPECULATIVE = os.environ.get("V2_SPECULATIVE", "0") == "1"
 # عمر توكنات الهوية (v2): الجلسة تتجدد مع كل دور؛ الاحتفاظ الفعلي بالبيانات = profile_retention_days.
 V2_SESSION_TTL_SECONDS = int(os.environ.get("V2_SESSION_TTL_SECONDS", str(24 * 3600)))
 V2_SHOPPER_TTL_SECONDS = int(os.environ.get("V2_SHOPPER_TTL_SECONDS", str(180 * 24 * 3600)))

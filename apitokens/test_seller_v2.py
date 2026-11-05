@@ -226,11 +226,23 @@ class LoopTests(SellerBase):
         self.assertEqual([c["sku"] for c in out.recommendations], ["GREEN"])
         self.assertEqual(self.fake.search_calls[0]["query"], "green dress")
 
-    def test_tool_only_step_without_text_always_continues(self):
-        script = Script(S("", show("GREEN")), S(GOOD_REPLY))
+    def test_tool_only_show_step_uses_the_first_card_reason_as_the_reply_in_one_call(self):
+        # OpenAI يرسل show_product بلا نص كثير: بدل جولة كاملة (~2 ث) الـ reason هو الرد
+        script = Script(S("", show("GREEN", reason=GOOD_REASON)))
+        out = self.run_seller(script)
+        self.assertEqual(out.llm_calls, 1)
+        self.assertEqual((out.reply, [c["sku"] for c in out.recommendations]), (GOOD_REASON, ["GREEN"]))
+        self.assertIn({"name": "reason_as_reply", "input": {}, "status": "used"}, out.tool_events)
+
+    def test_tool_only_step_continues_when_there_is_no_usable_reason_or_a_tool_failed(self):
+        script = Script(S("", show("GREEN", reason="")), S(GOOD_REPLY))
         out = self.run_seller(script)
         self.assertEqual(out.llm_calls, 2)
-        self.assertEqual((out.reply, [c["sku"] for c in out.recommendations]), (GOOD_REPLY, ["GREEN"]))
+        self.assertEqual(out.reply, GOOD_REPLY)
+        inp = self.make_input(requirements=Requirements(budget_max=Decimal("200")))
+        script = Script(S("", show("PRICEY", reason=GOOD_REASON)), S(GOOD_REPLY_2, show("GREEN")))
+        out = self.run_seller(script, inp)
+        self.assertEqual(out.llm_calls, 2)
 
     def test_show_error_then_self_correction(self):
         inp = self.make_input(requirements=Requirements(budget_max=Decimal("200")))
@@ -730,11 +742,10 @@ class DialectAndLanguageTests(SellerBase):
         self.assertNotEqual(saudi.find_non_saudi(SYRIAN_REPLY), [])   # الفحص نفسه شغّال
 
     def test_fallback_texts_are_composed_when_no_text(self):
-        # كرت + نية شراء + بلا نص ← جملة الشراء الثابتة
-        out = self.run_seller(Script(S("", show("GREEN", reason=GOOD_REASON)), S("")),
+        # كرت بسبب فاضي + نية شراء + بلا نص ← جملة الشراء الثابتة
+        out = self.run_seller(Script(S("", show("GREEN", reason="")), S("")),
                               window=[{"role": "user", "content": "كيف اطلبه؟"}], customer_texts=["كيف اطلبه؟"])
         self.assertEqual(out.reply, wv.PURCHASE_REPLY["ar"])
-        self.assertEqual(out.recommendations[0]["reason"], wv.PURCHASE_REPLY["ar"])
 
     def test_offer_only_fallback_reply_contains_code_once(self):
         out = self.run_seller(Script(S(""), S(""), S("")), approved_offer={"code": "SAVE10", "description": "خصم 10%"})

@@ -88,7 +88,7 @@ and write your reply in the same step: no search needed.
 - `search_products` only when the candidates don't fit; `get_product` for full facts about one sku; \
 `compare_products` when the customer compares two or three items.
 - `show_product` is the ONLY way a product card reaches the customer; naming a product in text without \
-it shows nothing. Maximum 3 cards per reply. Write the text in the same step as the show_product calls.
+it shows nothing. Maximum 3 cards per reply. Write the text in the same step as the show_product calls; if you write no separate text, the `reason` of the FIRST card is sent as your complete reply, so make it a full, natural reply (1-3 short sentences, may mention the other cards and include the one allowed question).
 - If `show_product` returns a status other than "shown": duplicate means the card is already on screen \
 (answer in text, do not retry); violates_requirement means it breaks something the customer confirmed \
 (choose another candidate or explain honestly); card_limit means stop showing.

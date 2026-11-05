@@ -253,11 +253,10 @@ class HardRequirementsTests(EngineBase):
         self.assertTrue(all(float(r["price"]) <= 200 for r in result["results"]))
 
     def test_duplicate_calls_and_duplicate_cards_are_prevented(self):
-        self.brain.turn(step("", show("RED_M"), show("RED_M")), step("تمام، هذا الثاني.", show("PNK_M")), analysis={})
+        self.brain.turn(step("", show("RED_M", "هذا حلو ويناسب المناسبة"), show("RED_M", "هذا حلو ويناسب المناسبة")), analysis={})
         data = self.w.say("وريني")
-        skus = [c["sku"] for c in data["recommendations"]]
-        self.assertEqual(len(skus), len(set(skus)))
-        self.brain.turn(step("", show("RED_M")), step("هذا كرته معروض فوق.", ), analysis={})
+        self.assertEqual([c["sku"] for c in data["recommendations"]], ["RED_M"])   # الطلب المكرر ما انعرض مرتين
+        self.brain.turn(step("", show("RED_M")), step("هذا كرته معروض فوق، اضغط زر الشراء تحته."), analysis={})
         again = self.w.say("وش رايك فيه؟")
         self.assertEqual(again["recommendations"], [])
 

@@ -356,6 +356,12 @@ def apply_objections(ctx, validated, turn):
     return created
 
 
+def resolve_open_objections(conversation, turn):
+    return Objection.objects.filter(conversation=conversation, status="open").update(
+        status="resolved", resolved_turn=turn
+    )
+
+
 def open_objections(conversation):
     return list(Objection.objects.filter(conversation=conversation, status="open").order_by("id"))
 

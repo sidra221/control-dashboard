@@ -402,6 +402,10 @@ def _process_loop(ctx, merchant, text, client_msg_id, page_url, started):
                 raw, user_texts=customer_texts, products_by_sku=products_by_sku, merchant_currency=merchant.currency,
             )
         changes = memory.apply_validated(ctx, validated, products_by_sku, turn_no)
+        sig = validated.signals or {}
+        if sig.get("readiness") == "ready" or sig.get("intent") in ("buy", "accept"):
+            # قرّر يشتري: اعتراضاته المفتوحة انحلّت (المحلّل ما بيسكّرها بنفسه دايماً).
+            memory.resolve_open_objections(ctx.conversation, turn_no)
         plan, constraints = _build_plan(ctx, merchant, validated=validated, **plan_args)
 
         reran = True
