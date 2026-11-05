@@ -382,36 +382,41 @@ def _process_loop(ctx, merchant, text, client_msg_id, page_url, started):
     plan_args = dict(window=window, text=text, page_product=page_product, shown=shown, turn_no=turn_no, products=products)
     speculative = settings.V2_SPECULATIVE and worth
     early_plan = early_out = early_error = future = None
-    if speculative:
-        early_plan, _ = _build_plan(ctx, merchant, validated=None, **plan_args)
-        future = _ANALYZER_POOL.submit(analyze)
-        t0 = time.monotonic()
-        try:
-            early_out = _run_seller(ctx, merchant, early_plan, **kw)
-        except llm.LLMError as exc:
-            early_error = exc
-        timings["early_seller_ms"] = int((time.monotonic() - t0) * 1000)
-        raw = future.result()
-    else:
-        raw = analyze()
+    try:
+        if speculative:
+            early_plan, _ = _build_plan(ctx, merchant, validated=None, **plan_args)
+            future = _ANALYZER_POOL.submit(analyze)
+            t0 = time.monotonic()
+            try:
+                early_out = _run_seller(ctx, merchant, early_plan, **kw)
+            except llm.LLMError as exc:
+                early_error = exc
+            timings["early_seller_ms"] = int((time.monotonic() - t0) * 1000)
+            raw = future.result()
+        else:
+            raw = analyze()
 
-    validated = understanding.Validated()
-    if raw is not None:
-        validated = understanding.validate(
-            raw, user_texts=customer_texts, products_by_sku=products_by_sku, merchant_currency=merchant.currency,
-        )
-    changes = memory.apply_validated(ctx, validated, products_by_sku, turn_no)
-    plan, constraints = _build_plan(ctx, merchant, validated=validated, **plan_args)
+        validated = understanding.Validated()
+        if raw is not None:
+            validated = understanding.validate(
+                raw, user_texts=customer_texts, products_by_sku=products_by_sku, merchant_currency=merchant.currency,
+            )
+        changes = memory.apply_validated(ctx, validated, products_by_sku, turn_no)
+        plan, constraints = _build_plan(ctx, merchant, validated=validated, **plan_args)
 
-    reran = True
-    if early_out is not None and early_plan.same_as(plan):
-        out, reran = early_out, False
-    elif early_error is not None and early_plan.same_as(plan):
-        raise early_error
-    else:
-        t0 = time.monotonic()
-        out = _run_seller(ctx, merchant, plan, **kw)
-        timings["seller_ms"] = int((time.monotonic() - t0) * 1000)
+        reran = True
+        if early_out is not None and early_plan.same_as(plan):
+            out, reran = early_out, False
+        elif early_error is not None and early_plan.same_as(plan):
+            raise early_error
+        else:
+            t0 = time.monotonic()
+            out = _run_seller(ctx, merchant, plan, **kw)
+            timings["seller_ms"] = int((time.monotonic() - t0) * 1000)
+    except llm.LLMError:
+        # المزوّد واقع: رسالة الزبون محفوظة، والإعادة بنفس client_msg_id بتكمل بدون تكرار.
+        logger.warning("v2_seller_unavailable merchant=%s", merchant.pk, exc_info=True)
+        return None, ("assistant_unavailable", 502)
     timings.setdefault("seller_ms", timings.get("early_seller_ms", 0))
 
     state = _merge_state(dict(conversation.state or {}), plan.strategy.state_updates)

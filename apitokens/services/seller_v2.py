@@ -194,13 +194,18 @@ class _Turn:
         self._products = None
         self._by_sku = None
         self.cards = []
-        self.shown = set(inp.shown_skus or [])
+        # الزبون طلب منتج صراحة هالدور (exempt) ← مسموح نعيد كرته حتى لو كان معروض قبل.
+        self.shown = set(inp.shown_skus or []) - set(self.req.exempt_skus)
         self.cache = {}
         self.executed = 0
         self.events = []
         self.size_advice = None
         self.size_calls = []
         self.blocked_reason = ""   # reason تبع كرت مكرر: أحياناً الموديل بيحط جوابه كله فيه
+        # بدائل قريبة صرّحت وحدة التوصيات إنها خفّفت فيها متطلب (لون/فئة) لأنه ما في تطابق تام:
+        # بتنعرض مع تنبيه. الميزانية والمقاس والرفض والمخزون ما بتتخفّف أبداً، فمحجوبة دايماً.
+        self.relaxed = {}
+        self._note_relaxed(getattr(inp.prefetched, "candidates", None) or [])
         self.handlers = {
             "search_products": self._search,
             "get_product": self._get_product,
@@ -208,6 +213,16 @@ class _Turn:
             "show_product": self._show,
             "recommend_size": self._size,
         }
+
+    def _note_relaxed(self, candidates):
+        for cand in candidates:
+            if not cand.exact and cand.relaxed:
+                self.relaxed.setdefault(cand.product.sku, set()).update(cand.relaxed)
+
+    def _unmet(self, product):
+        """متطلبات الزبون يلي المنتج ما بيحققها (بعد استثناء ما خُفّف صراحة بقائمة المرشّحين)."""
+        allowed = self.relaxed.get(product.sku, ())
+        return [v for v in self.rec.check_product(product, self.req) if v not in allowed]
 
     @property
     def products(self):
@@ -292,6 +307,7 @@ class _Turn:
             self.products, req, query=_text(args.get("query"))[:200], limit=limit,
             shown_skus=tuple(self.shown), relax=True,
         )
+        self._note_relaxed(result.candidates)
         out = {
             "ok": True,
             "results": self.rec.describe_candidates(list(result.candidates)[:limit], self.inp.currency),
@@ -333,7 +349,7 @@ class _Turn:
         product, error = self._visible(sku)
         if error:
             return {"ok": False, "error": error, "message": self._ERROR_MESSAGES[error]}
-        violations = self.rec.check_product(product, self.req)
+        violations = self._unmet(product)
         candidate = contracts.Candidate(
             product=product, exact=not violations,
             reasons=self.rec.explain(product, self.req, ""),
@@ -387,7 +403,7 @@ class _Turn:
             )
         if len(self.cards) >= MAX_CARDS:
             return refused("card_limit", f"Maximum {MAX_CARDS} cards per reply already shown. Do not show more.")
-        violations = list(self.rec.check_product(product, self.req))
+        violations = self._unmet(product)
         if violations:
             return refused(
                 "violates_requirement",

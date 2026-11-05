@@ -46,7 +46,9 @@ CODE_LEXICON = re.compile(
 )
 # كلام خصم/تخفيض: مسموح لما في عرض معتمد أو تخفيض حقيقي (compare_at) على كرت بالرد.
 DISCOUNT_LEXICON = re.compile(
-    r"خصم|خصوم|تخفيض|تنزيلات|عرض\s*خاص|عروض|عرض\s*حصري|سعر\s*خاص|تخفیف|رعایت|"
+    r"خصم|خصوم|تخفيض|تنزيلات|عرض\s*خاص|عرض\s*حصري|سعر\s*خاص|تخفیف|رعایت|"
+    # "عروض" = offers، لكن "معروض" = displayed (كلمة عادية جداً): لازم الكلمة كاملة، بدون "م" قبلها
+    r"(?<![\u0621-\u064a])(?:[وبلفك]?ال|[وبلفك])?عروض(?:نا|ك|ي|ه|ها|هم)?(?![\u0621-\u064a])|"
     r"discount|promo|markdown|special\s+(?:price|offer)|price\s+drop|(?:\d|%|٪)\s*off\b|"
     r"r[eé]duction|remise|rabais|descuento|rebaja|desconto|promo[cç][aã]o|rabatt|indirim|sconto|"
     r"khasm|5asm|takhfeed|takhfid",
