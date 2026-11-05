@@ -240,6 +240,15 @@ TRANSLATIONS = {
     "current_discount_codes": {"ar": "الأكواد الحالية", "en": "Current codes"},
     "th_code": {"ar": "الكود", "en": "Code"},
     "th_description": {"ar": "الوصف", "en": "Description"},
+    "discount_starts_at_label": {"ar": "يبدأ من (اختياري)", "en": "Starts at (optional)"},
+    "discount_expires_at_label": {"ar": "ينتهي في (اختياري)", "en": "Expires at (optional)"},
+    "discount_dates_hint": {"ar": "اترك الحقل فاضي لو ما في حد", "en": "Leave empty for no limit"},
+    "th_validity": {"ar": "الصلاحية", "en": "Validity"},
+    "discount_starts_prefix": {"ar": "يبدأ من", "en": "Starts"},
+    "discount_expires_prefix": {"ar": "ينتهي في", "en": "Expires"},
+    "discount_no_limit": {"ar": "بدون حد", "en": "No limit"},
+    "status_expired": {"ar": "منتهي", "en": "Expired"},
+    "status_not_started": {"ar": "ما بدأ بعد", "en": "Not started"},
     "empty_discount_codes": {"ar": "ما في أكواد خصم لسا — ضيف أول كود من الفورم فوق", "en": "No discount codes yet — add the first one from the form above"},
 
     # ===== conversations.html =====
@@ -278,6 +287,8 @@ TRANSLATIONS = {
     "msg_connect_sync_success": {"ar": "تم الربط والمزامنة الأولى بنجاح — الكتالوج هلأ حي", "en": "Connected and synced successfully — the catalog is now live"},
     "err_connect_sync_partial": {"ar": "تم حفظ الربط بس صار خطأ أثناء التسجيل/المزامنة: %(exc)s", "en": "Connection saved, but an error occurred during registration/sync: %(exc)s"},
     "err_discount_code_required": {"ar": "لازم تكتب الكود", "en": "You must enter the code"},
+    "err_discount_date_invalid": {"ar": "التاريخ غير صحيح — استخدم صيغة مثل 2026-12-31 أو اتركه فاضي", "en": "Invalid date — use a format like 2026-12-31 or leave it empty"},
+    "err_discount_dates_order": {"ar": "تاريخ الانتهاء لازم يكون بعد تاريخ البداية", "en": "The end date must be after the start date"},
     "msg_discount_code_added": {"ar": "تم إضافة كود الخصم", "en": "Discount code added"},
 
     # ===== period choices (ApiToken.Period) =====

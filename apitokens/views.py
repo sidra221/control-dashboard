@@ -1,6 +1,6 @@
 import csv
 import io
-from datetime import timedelta
+from datetime import datetime, time, timedelta
 from decimal import Decimal, InvalidOperation
 
 from django.conf import settings
@@ -11,6 +11,7 @@ from django.db.models import Count, Q, Sum
 from django.http import HttpResponseRedirect
 from django.shortcuts import get_object_or_404, redirect, render
 from django.utils import timezone
+from django.utils.dateparse import parse_date, parse_datetime
 from django.views.decorators.http import require_http_methods
 
 from .i18n import LANGUAGES, t
@@ -320,6 +321,26 @@ def _normalize_shop_domain(value):
     return domain
 
 
+def _parse_validity_date(raw):
+    """حقل تاريخ اختياري من الفورم. (قيمة aware | None، صحيح؟). فاضي = بلا حد؛
+    القيمة بدون منطقة زمنية بتتفسّر بالمنطقة الحالية."""
+    raw = (raw or "").strip()
+    if not raw:
+        return None, True
+    try:  # django بترمي ValueError لو الصيغة سليمة والقيمة مستحيلة (شهر 13، ساعة 25)
+        value = parse_datetime(raw)
+        if value is None:
+            day = parse_date(raw)
+            if day is None:
+                return None, False
+            value = datetime.combine(day, time.min)
+    except ValueError:
+        return None, False
+    if timezone.is_naive(value):
+        value = timezone.make_aware(value, timezone.get_current_timezone())
+    return value, True
+
+
 @staff_member_required
 def discount_codes(request, pk):
     merchant = get_object_or_404(ApiToken, pk=pk)
@@ -338,17 +359,31 @@ def discount_codes(request, pk):
 
         code = request.POST.get("code", "").strip()
         description = request.POST.get("description", "").strip()
+        starts_at, starts_ok = _parse_validity_date(request.POST.get("starts_at"))
+        expires_at, expires_ok = _parse_validity_date(request.POST.get("expires_at"))
         if not code:
             messages.error(request, t("err_discount_code_required", lang))
+        elif not (starts_ok and expires_ok):
+            messages.error(request, t("err_discount_date_invalid", lang))
+        elif starts_at and expires_at and expires_at <= starts_at:
+            messages.error(request, t("err_discount_dates_order", lang))
         else:
-            DiscountCode.objects.create(merchant=merchant, code=code, description=description)
+            DiscountCode.objects.create(
+                merchant=merchant, code=code, description=description,
+                starts_at=starts_at, expires_at=expires_at,
+            )
             messages.success(request, t("msg_discount_code_added", lang))
         return redirect("apitokens:discount-codes", pk=pk)
 
+    now = timezone.now()
+    codes = list(merchant.discount_codes.all())
+    for c in codes:
+        c.not_started = bool(c.starts_at and c.starts_at > now)
+        c.is_expired = bool(c.expires_at and c.expires_at <= now)
     return render(
         request,
         "apitokens/discount_codes.html",
-        {"merchant": merchant, "codes": merchant.discount_codes.all()},
+        {"merchant": merchant, "codes": codes},
     )
 
 

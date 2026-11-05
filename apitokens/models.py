@@ -365,6 +365,9 @@ class DiscountCode(models.Model):
         help_text="مثلاً: خصم 10% على كل المنتجات",
     )
     is_active = models.BooleanField("فعّال", default=True)
+    # فترة صلاحية اختيارية — فاضي = بلا حد. السياسة (policy.valid_codes) بتتجاهل الكود خارج الفترة.
+    starts_at = models.DateTimeField("يبدأ من", null=True, blank=True)
+    expires_at = models.DateTimeField("ينتهي في", null=True, blank=True)
     created_at = models.DateTimeField("تاريخ الإضافة", auto_now_add=True)
 
     class Meta:
