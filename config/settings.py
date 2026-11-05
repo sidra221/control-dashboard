@@ -169,8 +169,9 @@ KIEAI_API_KEY = os.environ.get("KIEAI_API_KEY", "").strip()
 # محلّل الذاكرة (v2): فاضي = نفس مزوّد وموديل الدردشة. تقدر تحط موديل أرخص/أسرع له.
 ANALYZER_PROVIDER = os.environ.get("ANALYZER_PROVIDER", "").strip()
 ANALYZER_MODEL = os.environ.get("ANALYZER_MODEL", "").strip()
-# جهد استدلال المحلّل (OpenAI Responses): low/minimal.. أو فاضي لموديلات غير استدلالية (gpt-4o-mini).
-ANALYZER_REASONING_EFFORT = os.environ.get("ANALYZER_REASONING_EFFORT", "low").strip()
+# جهد استدلال المحلّل (OpenAI Responses). غير مضبوط = السلوك الأصلي (low لو الدردشة بتستخدم استدلال).
+# قيمة فاضية = ما نبعت reasoning أبداً (لموديل غير استدلالي). ما منغيّره لأسباب أداء.
+ANALYZER_REASONING_EFFORT = os.environ["ANALYZER_REASONING_EFFORT"].strip() if "ANALYZER_REASONING_EFFORT" in os.environ else None
 # مسار البائع بمحرّك v2: "loop" (الافتراضي) = حلقة أدوات بنتائج راجعة للموديل + توصيات ببيانات الكتالوج
 # + مراحل بيع وسياسة خصم بالكود؛ "legacy" = مسار المرحلة 1 (استدعاء واحد) — للرجوع السريع عند أي مشكلة.
 V2_SELLER_MODE = os.environ.get("V2_SELLER_MODE", "loop").strip().lower()

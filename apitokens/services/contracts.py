@@ -102,6 +102,8 @@ class SellerInput:
     approved_offer: dict = None     # {"code","description"} بعد ما السياسة وافقت؛ None = ممنوع أي ذكر لخصم
     customer_texts: list = field(default_factory=list)   # لتدقيق المخرجات (أرقام الزبون)
     deadline_seconds: float = 25.0
+    # true = أداة البحث لازم تبقى ظاهرة للموديل (الزبون محتاج منتجات جديدة/إضافية، أو ما قدرنا نفهم رسالته)
+    allow_search: bool = False
 
 
 @dataclass

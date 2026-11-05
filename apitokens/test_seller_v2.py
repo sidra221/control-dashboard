@@ -880,6 +880,15 @@ class SearchToolVisibilityTests(SellerBase):
         self.assertNotIn("search_products", names)
         self.assertIn("show_product", names)
 
+    def test_search_stays_when_the_orchestrator_says_the_customer_needs_more_products(self):
+        self.assertIn("search_products", self.tools_sent(allow_search=True))
+
+    def test_search_stays_when_the_match_is_not_exact_or_has_a_note(self):
+        base = self.make_input().prefetched
+        self.assertIn("search_products", self.tools_sent(prefetched=SearchResult(candidates=base.candidates, note="no_exact_match")))
+        loose = [Candidate(product=c.product, exact=False, relaxed=("color",)) for c in base.candidates]
+        self.assertIn("search_products", self.tools_sent(prefetched=SearchResult(candidates=loose)))
+
     def test_search_stays_when_candidates_are_few_or_already_shown(self):
         shown = [c.product.sku for c in self.make_input().prefetched.candidates]
         self.assertIn("search_products", self.tools_sent(shown_skus=shown))

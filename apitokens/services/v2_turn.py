@@ -297,7 +297,24 @@ def _build_plan(ctx, merchant, *, validated, window, text, page_product, shown, 
     return Plan(requirements, strategy, search, memory_section, approved, stage, readiness), constraints
 
 
-def _run_seller(ctx, merchant, plan, *, window, lang, shown, page_product, page_note, customer_texts):
+NEEDS_SEARCH_INTENTS = frozenset({"search", "compare", "reject", "browse"})
+
+
+def _needs_search(validated, analyzer_ok):
+    """هل الزبون ممكن يحتاج منتجات جديدة/إضافية؟ (وقتها أداة البحث لازم تبقى ظاهرة.) بنفترض نعم
+    لو التحليل فشل أو ما فهمنا النية — الإخفاء مسموح بس لما نكون متأكدين."""
+    if not analyzer_ok or validated is None:
+        return True
+    sig = validated.signals or {}
+    return (
+        sig.get("intent") in NEEDS_SEARCH_INTENTS or sig.get("intent") in (None, "", "other")
+        or bool(sig.get("wants_alternative"))
+        or any(r["type"] == "rejected" for r in validated.reactions)
+    )
+
+
+def _run_seller(ctx, merchant, plan, *, window, lang, shown, page_product, page_note, customer_texts,
+                allow_search=True):
     from . import seller_v2
 
     return seller_v2.run_seller(
@@ -306,7 +323,7 @@ def _run_seller(ctx, merchant, plan, *, window, lang, shown, page_product, page_
             strategy=plan.strategy, requirements=plan.requirements, prefetched=plan.search,
             shown_skus=list(shown), page_product=page_product, page_note=page_note or "",
             store_info=merchant.store_info, currency=merchant.currency, approved_offer=plan.approved_offer,
-            customer_texts=customer_texts,
+            customer_texts=customer_texts, allow_search=allow_search,
         )
     )
 
@@ -415,7 +432,7 @@ def _process_loop(ctx, merchant, text, client_msg_id, page_url, started):
             raise early_error
         else:
             t0 = time.monotonic()
-            out = _run_seller(ctx, merchant, plan, **kw)
+            out = _run_seller(ctx, merchant, plan, allow_search=_needs_search(validated, raw is not None), **kw)
             timings["seller_ms"] = int((time.monotonic() - t0) * 1000)
     except llm.LLMError:
         # المزوّد واقع: رسالة الزبون محفوظة، والإعادة بنفس client_msg_id بتكمل بدون تكرار.

@@ -50,7 +50,8 @@ class LoopBrain:
 
     def seller(self, provider, system_prompt, transcript, tools, tool_choice=None, **kw):
         with self.lock:
-            self.step_calls.append({"system": system_prompt, "transcript": list(transcript), "choice": tool_choice})
+            self.step_calls.append({"system": system_prompt, "transcript": list(transcript), "choice": tool_choice,
+                                    "tools": [tl["name"] for tl in tools]})
             if not self.steps:
                 raise AssertionError(f"unexpected extra seller step #{len(self.step_calls)}")
             return self.steps.pop(0)
@@ -264,6 +265,45 @@ class HardRequirementsTests(EngineBase):
 # ======================================================================
 # مراحل البيع
 # ======================================================================
+
+class SearchToolVisibilityEngineTests(EngineBase):
+    """أداة البحث بتنخبّى بس لما تكون مش لازمة؛ زبون بدو منتجات جديدة/إضافية دايماً بيشوفها."""
+
+    def tools_after(self, text, analysis, **kw):
+        self.brain.turn(step("تمام."), analysis=analysis)
+        self.w.say(text)
+        return self.brain.step_calls[-1]["tools"]
+
+    def test_search_stays_when_the_customer_wants_new_or_more_products(self):
+        for intent, extra in (("search", {}), ("compare", {}), ("reject", {}), ("object", {"alt": True})):
+            brain_tools = self.tools_after(
+                f"طلب {intent}", {"signals": sig("interested", intent, alt=extra.get("alt", False))})
+            self.assertIn("search_products", brain_tools, intent)
+
+    def test_search_stays_when_the_analyzer_failed_or_the_intent_is_unknown(self):
+        self.assertIn("search_products", self.tools_after("هلا", llm.LLMError("analyzer down")))
+        self.assertIn("search_products", self.tools_after("وش عندك", {"signals": sig("browsing", "other")}))
+
+    def test_search_stays_after_a_rejection_even_with_other_intent(self):
+        self.brain.turn(step("هذا حلو.", show("RED_M", "فستان أحمر حلو")), analysis={})
+        self.w.say("وريني")
+        tools = self.tools_after("ما عجبني", {"reaction": {"sku": "RED_M", "type": "rejected", "reason_type": "style",
+                                                          "evidence": "ما عجبني"}, "signals": sig("interested", "chitchat")})
+        self.assertIn("search_products", tools)
+
+    def test_search_is_hidden_only_on_plain_turns_with_enough_exact_unshown_candidates(self):
+        for intent in ("ask_info", "chitchat", "buy"):
+            tools = self.tools_after(f"سؤال {intent}", {"signals": sig("interested", intent)})
+            self.assertNotIn("search_products", tools, intent)
+            self.assertIn("show_product", tools)
+
+    def test_search_stays_when_the_match_is_not_exact(self):
+        tools = self.tools_after("أبي فستان أخضر مقاسي M وميزانيتي 300", {
+            "signals": sig("interested", "ask_info"),
+            "preferences": [pref("color", "أخضر", "فستان أخضر"), pref("size", "M", "مقاسي M"),
+                            pref("budget_max", "300", "وميزانيتي 300")]})
+        self.assertIn("search_products", tools)   # التطابق مخفَّف (note=no_exact_match)
+
 
 class SalesStageTests(EngineBase):
     def test_stage_progression_discovery_recommendation_objection_closing(self):

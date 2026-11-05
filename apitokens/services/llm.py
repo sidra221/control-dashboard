@@ -284,8 +284,11 @@ def get_provider(role=None):
         if model:
             provider.model = model
         if isinstance(provider, OpenAIProvider) and provider.base_url is None:
-            # فاضي = ما نبعت reasoning أبداً (لازم لموديلات مش استدلالية مثل gpt-4o-mini)
-            provider.reasoning_effort = getattr(settings, "ANALYZER_REASONING_EFFORT", "low")
+            explicit = getattr(settings, "ANALYZER_REASONING_EFFORT", None)
+            if explicit is not None:
+                provider.reasoning_effort = explicit            # ضبط صريح (فاضي = ما نبعت reasoning)
+            elif provider.reasoning_effort:
+                provider.reasoning_effort = "low"               # السلوك الأصلي: المحلّل دايماً low
     return provider
 
 

@@ -505,11 +505,17 @@ MIN_UNSHOWN_TO_HIDE_SEARCH = 2
 
 
 def _tools_for_turn(inp):
-    """لو جاهزين مرشّحين كفاية ما انعرضوا (من وحدة التوصيات، بنفس الرسالة والمتطلبات) منخبّي أداة
-    البحث: الموديل كان يبحث من جديد رغم القائمة وبيضيّع جولة كاملة (+2-3 ثوانٍ)."""
-    candidates = list(getattr(inp.prefetched, "candidates", None) or [])
+    """أداة البحث بتنخبّى بس لما نكون متأكدين إنها مش لازمة: في مرشّحين كفاية ما انعرضوا،
+    وتطابقهم تام (بدون note)، والمنسّق ما طلب إبقاءها (`allow_search`: الزبون بدو منتجات جديدة أو
+    إضافية، أو ما قدرنا نفهم رسالته). أي شك ← الأداة ظاهرة."""
+    if inp.allow_search:
+        return TOOLS
+    prefetched = inp.prefetched
+    if getattr(prefetched, "note", ""):
+        return TOOLS
+    candidates = list(getattr(prefetched, "candidates", None) or [])
     shown = set(inp.shown_skus or [])
-    unshown = [c for c in candidates if c.product.sku not in shown]
+    unshown = [c for c in candidates if c.product.sku not in shown and c.exact]
     if len(unshown) >= MIN_UNSHOWN_TO_HIDE_SEARCH:
         return [t for t in TOOLS if t["name"] != "search_products"]
     return TOOLS
