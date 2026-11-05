@@ -661,6 +661,7 @@
     product_not_found: "المنتج مو موجود في الكتالوج.",
     photo_too_large: "الصورة كبيرة مرّة، جرّب صورة أصغر (أقل من 8 ميغا).",
     rate_limited: "طلباتك كثيرة بوقت قصير، جرّب بعد شوي 🙏",
+    rate_limit_unavailable: "فيه ضغط على المساعد الذكي الحين، جرّب بعد شوي 🙏",
   };
 
   function friendlyError(code) {

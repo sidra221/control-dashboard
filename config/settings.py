@@ -1,7 +1,6 @@
 from pathlib import Path
 import json
 import os
-import tempfile
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 
@@ -195,17 +194,26 @@ ZID_PLAN_QUOTAS = json.loads(
 # إيميل الدعم اللي بيظهر بصفحة سياسة الخصوصية (/privacy/).
 SUPPORT_EMAIL = os.environ.get("SUPPORT_EMAIL", "").strip()
 
-# تحديد معدّل الطلبات للـ endpoints العامة (services/ratelimit.py). file-based حتى
-# يتشاركه كل workers الـ gunicorn على نفس السيرفر بدون بنية تحتية جديدة.
-# DJANGO_CACHE_DIR لازم يكون مسار قابل للكتابة.
-CACHES = {
-    "default": {
-        "BACKEND": "django.core.cache.backends.filebased.FileBasedCache",
-        "LOCATION": os.environ.get(
-            "DJANGO_CACHE_DIR", str(Path(tempfile.gettempdir()) / "control-dashboard-cache")
-        ),
-    }
-}
+# تحديد معدّل الطلبات للـ endpoints العامة (services/ratelimit.py). العدّادات بمخزن
+# مشترك بين كل workers وسيرفرات النشر:
+#   "database" (الافتراضي) = جدول بقاعدة البيانات يلي كل نشر عندو أصلاً — بلا بنية جديدة.
+#   "cache"                = cache جانغو، بس لو CACHES مضبوط على Redis/Memcached
+#                            (فحص النظام بيرفض LocMem/File-based).
+RATE_LIMIT_BACKEND = os.environ.get("RATE_LIMIT_BACKEND", "database").strip().lower()
+# قواعد بتفشل مغلقة (503) لو مخزن العدّادات تعطّل. None = الافتراضي (الدردشة،
+# التجربة، الاستهلاك). القواعد الباقية بتفشل مفتوحة مع خطأ بالسجل.
+RATE_LIMIT_FAIL_CLOSED = None
+
+# مصادقة endpoint الاستهلاك (services/consume_auth.py). التوكن العلني القديم مقبول
+# انتقالياً بس من شبكات داخلية (افتراضياً loopback = n8n على نفس السيرفر). لو n8n على
+# سيرفر تاني: حط عنوانه هون (CIDR مفصولة بفاصلة)، والأفضل تحويله لمفتاح الاستهلاك.
+# CONSUME_LEGACY_MODE=off بيطفي المسار القديم كلياً.
+CONSUME_LEGACY_MODE = os.environ.get("CONSUME_LEGACY_MODE", "internal").strip().lower()
+CONSUME_LEGACY_ALLOWED_NETWORKS = [
+    n.strip()
+    for n in os.environ.get("CONSUME_LEGACY_ALLOWED_NETWORKS", "127.0.0.0/8,::1/128").split(",")
+    if n.strip()
+]
 # عدد الـ proxies الموثوقة قدام جانغو (nginx = 1). 0 = تجاهل X-Forwarded-For.
 TRUSTED_PROXY_COUNT = int(os.environ.get("TRUSTED_PROXY_COUNT", "1"))
 # تعديل حدود المعدّل: {"chat_ip": (20, 60)} = 20 طلب كل 60 ثانية. فاضي = الافتراضي.

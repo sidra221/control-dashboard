@@ -40,31 +40,47 @@ def set_language(request):
 @staff_member_required
 def dashboard(request):
     new_token = None
+    revealed_consume_key = None  # مرة وحدة بس: بنخزّن الـ hash، والنص ما بيرجع ينعرض
+    consume_key_owner = None
     lang = request.session.get("lang", "ar")
 
     if request.method == "POST":
-        label = request.POST.get("label", "").strip()
-        quota_raw = request.POST.get("image_quota", "").strip()
-        period = request.POST.get("period", ApiToken.Period.MONTHLY)
-
-        error = None
-        if not label:
-            error = t("err_label_required", lang)
-        elif not quota_raw.isdigit() or int(quota_raw) <= 0:
-            error = t("err_quota_invalid", lang)
-        elif period not in ApiToken.Period.values:
-            error = t("err_period_invalid", lang)
-
-        if error:
-            messages.error(request, error)
+        action = request.POST.get("action", "create")
+        if action == "rotate_consume_key":
+            target = get_object_or_404(ApiToken, pk=request.POST.get("token_pk"))
+            revealed_consume_key = target.rotate_consume_key()
+            consume_key_owner = target
+            messages.success(request, t("msg_consume_key_rotated", lang))
+        elif action == "toggle_legacy_consume":
+            target = get_object_or_404(ApiToken, pk=request.POST.get("token_pk"))
+            target.legacy_consume_enabled = not target.legacy_consume_enabled
+            target.save(update_fields=["legacy_consume_enabled"])
+            messages.success(request, t("msg_legacy_consume_toggled", lang))
         else:
-            new_token = ApiToken.objects.create(
-                label=label,
-                image_quota=int(quota_raw),
-                period=period,
-                created_by=request.user,
-            )
-            messages.success(request, t("msg_token_created", lang))
+            label = request.POST.get("label", "").strip()
+            quota_raw = request.POST.get("image_quota", "").strip()
+            period = request.POST.get("period", ApiToken.Period.MONTHLY)
+
+            error = None
+            if not label:
+                error = t("err_label_required", lang)
+            elif not quota_raw.isdigit() or int(quota_raw) <= 0:
+                error = t("err_quota_invalid", lang)
+            elif period not in ApiToken.Period.values:
+                error = t("err_period_invalid", lang)
+
+            if error:
+                messages.error(request, error)
+            else:
+                new_token = ApiToken.objects.create(
+                    label=label,
+                    image_quota=int(quota_raw),
+                    period=period,
+                    created_by=request.user,
+                )
+                revealed_consume_key = new_token.rotate_consume_key()
+                consume_key_owner = new_token
+                messages.success(request, t("msg_token_created", lang))
 
     tokens = ApiToken.objects.annotate(product_count=Count("products")).select_related(
         "shopify_connection"
@@ -81,6 +97,8 @@ def dashboard(request):
         {
             "tokens": tokens,
             "new_token": new_token,
+            "consume_key": revealed_consume_key,
+            "consume_key_owner": consume_key_owner,
             "periods": periods,
             "stats": stats,
         },

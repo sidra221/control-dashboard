@@ -432,9 +432,6 @@ class Phase0ConversationTests(TestCase):
 @patch("apitokens.widget_views.llm.get_provider", return_value=FakeProvider())
 class RateLimitTests(TestCase):
     def setUp(self):
-        from django.core.cache import cache
-
-        cache.clear()
         self.a = ApiToken.objects.create(label="A", token="RLTOKEN0000A1", image_quota=5)
         self.b = ApiToken.objects.create(label="B", token="RLTOKEN0000B1", image_quota=5)
 
@@ -471,6 +468,9 @@ class RateLimitTests(TestCase):
 
     @override_settings(RATE_LIMITS={"consume_token": (2, 60)})
     def test_consume_endpoint_limited_but_keeps_its_always_200_contract(self, _p):
+        self.a.legacy_consume_enabled = True  # n8n القديم: توكن علني من مصدر داخلي
+        self.a.save()
+
         def consume():
             return Client().post("/api/tokens/consume/", data=json.dumps({"count": 1}), content_type="application/json",
                                  HTTP_X_API_TOKEN=self.a.token)
@@ -480,11 +480,6 @@ class RateLimitTests(TestCase):
         self.assertEqual(out[2].json()["error"], "rate_limited")
         self.a.refresh_from_db()
         self.assertEqual(self.a.images_used, 2)  # الطلب المحجوب ما خصم شي
-
-    def test_cache_failure_fails_open(self, _p):
-        with patch("apitokens.services.ratelimit.cache.add", side_effect=OSError("disk full")), \
-             patch("apitokens.widget_views.llm.chat_with_retry", side_effect=lambda *a, **k: res("أهلين")):
-            self.assertEqual(self.chat(self.a).status_code, 200)
 
     @override_settings(TRUSTED_PROXY_COUNT=1)
     def test_client_ip_uses_the_address_the_proxy_appended(self, _p):
@@ -561,9 +556,6 @@ class TryOnQuotaReservationTests(TestCase):
         self.assertEqual(self.merchant.images_used, 0)
 
     def test_tryon_is_rate_limited_per_ip(self):
-        from django.core.cache import cache
-
-        cache.clear()
         self.merchant.image_quota = 100
         self.merchant.save()
         with override_settings(RATE_LIMITS={"tryon_ip": (2, 60), "tryon_token": (100, 60)}), \

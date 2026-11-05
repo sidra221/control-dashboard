@@ -36,6 +36,16 @@
   </div>
   {% endif %}
 
+  {% if consume_key %}
+  <div class="token-reveal">
+    <p>{{ T.consume_key_reveal_prefix }}{{ consume_key_owner.label }}{{ T.consume_key_reveal_suffix }}</p>
+    <div class="token-row">
+      <input type="text" readonly value="{{ consume_key }}" id="fresh-consume-key">
+      <button type="button" class="btn-copy" onclick="copyToken(this, '{{ consume_key }}')">{{ T.copy }}</button>
+    </div>
+  </div>
+  {% endif %}
+
   <div class="card">
     <h2>{{ T.generate_new_token }}</h2>
     <form class="generate" method="post">
@@ -77,6 +87,7 @@
           <th></th>
           <th></th>
           <th></th>
+          <th>{{ T.th_consume }}</th>
           <th></th>
         </tr>
       </thead>
@@ -117,6 +128,25 @@
           </td>
           <td>
             <a class="btn-toggle" href="{% url 'apitokens:discount-codes' t.pk %}">{{ T.th_discounts }}</a>
+          </td>
+          <td>
+            <div>
+              {% if t.consume_key_prefix %}<code>{{ t.consume_key_prefix }}…</code>{% else %}<span class="empty">{{ T.consume_key_none }}</span>{% endif %}
+            </div>
+            <form method="post" action="{% url 'apitokens:dashboard' %}">
+              {% csrf_token %}
+              <input type="hidden" name="action" value="rotate_consume_key">
+              <input type="hidden" name="token_pk" value="{{ t.pk }}">
+              <button type="submit" class="btn-toggle">{{ T.btn_rotate_consume }}</button>
+            </form>
+            <form method="post" action="{% url 'apitokens:dashboard' %}">
+              {% csrf_token %}
+              <input type="hidden" name="action" value="toggle_legacy_consume">
+              <input type="hidden" name="token_pk" value="{{ t.pk }}">
+              <small>{% if t.legacy_consume_enabled %}{{ T.legacy_consume_on }}{% else %}{{ T.legacy_consume_off }}{% endif %}
+                {% if t.legacy_consume_last_used_at %}· {{ T.legacy_last_used }}{{ t.legacy_consume_last_used_at|date:"Y-m-d H:i" }}{% endif %}</small>
+              <button type="submit" class="btn-toggle">{% if t.legacy_consume_enabled %}{{ T.btn_legacy_disable }}{% else %}{{ T.btn_legacy_enable }}{% endif %}</button>
+            </form>
           </td>
           <td>
             <form method="post" action="{% url 'apitokens:toggle' t.pk %}">

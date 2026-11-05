@@ -4,13 +4,23 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from .models import ApiToken
-from .services import ratelimit
+from .services import consume_auth, ratelimit
+
+
+def _limited_response(decision):
+    # دايماً HTTP 200 (عقد n8n) — النتيجة بحقل "error".
+    return Response(
+        {"ok": False, "error": "rate_limit_unavailable" if decision.unavailable else "rate_limited"}
+    )
 
 
 class ConsumeTokenView(APIView):
-    """بيستدعيها الـ n8n webhook قبل ما يكمل لـ kie.ai: بيتحقق من التوكن
+    """بيستدعيها الـ n8n webhook قبل ما يكمل لـ kie.ai: بيتحقق من الاعتماد
     وبيخصم صورة (أو أكتر) من رصيد الفترة الحالية، أو برجع خطأ إذا ما
-    في رصيد / التوكن موقوف / مش موجود أصلاً.
+    في رصيد / التاجر موقوف / الاعتماد مش صالح.
+
+    الاعتماد: X-Consume-Key (سرّي، الأساسي) أو التوكن العلني القديم لمصدر داخلي
+    بس (services/consume_auth.py). مفتاح الودجت لوحدو ما بيفوّض هالعملية.
     """
 
     authentication_classes = []
@@ -20,13 +30,19 @@ class ConsumeTokenView(APIView):
         # دائماً HTTP 200 والنتيجة الحقيقية بحقل "ok" + "error" — حتى
         # عقدة HTTP Request بـ n8n ما توقف التنفيذ على 401/403/429 (تفعيل
         # "Never Error" بيختلف اسم الباراميتر بين نسخ n8n، فمنتجنبه كلياً).
-        token_value = request.headers.get("X-Api-Token", "").strip()
-        if not token_value:
-            return Response({"ok": False, "error": "missing_token"})
+        # حد بالـ IP قبل أي بحث بقاعدة البيانات (تخمين المفاتيح).
+        decision = ratelimit.check(request, [("consume_ip", ratelimit.client_ip(request))])
+        if not decision.allowed:
+            return _limited_response(decision)
 
-        allowed, _retry = ratelimit.check(request, [("consume_token", token_value)])
-        if not allowed:
-            return Response({"ok": False, "error": "rate_limited"})
+        auth = consume_auth.authenticate(request)
+        if auth.error:
+            return Response({"ok": False, "error": auth.error})
+        merchant = auth.merchant
+
+        decision = ratelimit.check(request, [("consume_token", str(merchant.pk))])
+        if not decision.allowed:
+            return _limited_response(decision)
 
         try:
             count = int(request.data.get("count", 1))
@@ -36,11 +52,7 @@ class ConsumeTokenView(APIView):
             return Response({"ok": False, "error": "invalid_count"})
 
         with transaction.atomic():
-            token = (
-                ApiToken.objects.select_for_update()
-                .filter(token=token_value)
-                .first()
-            )
+            token = ApiToken.objects.select_for_update().filter(pk=merchant.pk).first()
             if token is None:
                 return Response({"ok": False, "error": "invalid_token"})
             if not token.is_active:

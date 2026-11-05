@@ -1,3 +1,4 @@
+import hashlib
 import re
 import secrets
 
@@ -47,6 +48,17 @@ class ApiToken(models.Model):
             "بالرد على الزبون. لو المتجر مربوط بـ Shopify بتتعبّى لحالها من سياسات المتجر."
         ),
     )
+    # مفتاح الاستهلاك (n8n): سرّي، منفصل عن `token` يلي هو مفتاح الودجت العلني. بنخزّن
+    # الـ hash بس — النص الأصلي بيظهر مرة وحدة عند التوليد/التدوير.
+    consume_key_hash = models.CharField(
+        max_length=64, unique=True, null=True, blank=True, editable=False,
+    )
+    consume_key_prefix = models.CharField(max_length=12, blank=True, default="", editable=False)
+    consume_key_rotated_at = models.DateTimeField(null=True, blank=True, editable=False)
+    # قبول التوكن العلني القديم على endpoint الاستهلاك — انتقالي لحد ما n8n يتحوّل لمفتاح
+    # الاستهلاك. التجار الموجودين قبل الفصل = True (حتى ما ينكسر n8n)، والجدد = False.
+    legacy_consume_enabled = models.BooleanField(default=False)
+    legacy_consume_last_used_at = models.DateTimeField(null=True, blank=True, editable=False)
     created_by = models.ForeignKey(
         settings.AUTH_USER_MODEL,
         on_delete=models.SET_NULL,
@@ -56,6 +68,8 @@ class ApiToken(models.Model):
         verbose_name="أنشأه",
     )
     created_at = models.DateTimeField("تاريخ الإنشاء", auto_now_add=True)
+
+    CONSUME_KEY_PREFIX = "ck_"
 
     class Meta:
         verbose_name = "توكن API"
@@ -76,6 +90,20 @@ class ApiToken(models.Model):
             candidate = secrets.token_urlsafe(32)
             if not ApiToken.objects.filter(token=candidate).exists():
                 return candidate
+
+    @staticmethod
+    def hash_consume_key(key):
+        return hashlib.sha256((key or "").encode("utf-8")).hexdigest()
+
+    def rotate_consume_key(self):
+        """بيولّد مفتاح استهلاك جديد وبيبطل القديم فوراً. بيرجّع النص الأصلي
+        (المرة الوحيدة اللي بيتوفر فيها)."""
+        key = self.CONSUME_KEY_PREFIX + secrets.token_urlsafe(32)
+        self.consume_key_hash = self.hash_consume_key(key)
+        self.consume_key_prefix = key[:8]
+        self.consume_key_rotated_at = timezone.now()
+        self.save(update_fields=["consume_key_hash", "consume_key_prefix", "consume_key_rotated_at"])
+        return key
 
     @property
     def period_days(self):
@@ -398,3 +426,20 @@ class SizeChart(models.Model):
 
     def __str__(self):
         return f"{self.merchant.label} — {self.category or '*'}"
+
+
+class RateLimitBucket(models.Model):
+    """عدّاد نافذة واحدة لقاعدة تحديد معدّل (services/ratelimit.py). بنستخدم
+    قاعدة البيانات يلي كل نشر عندو أصلاً كمخزن مشترك بين الـ workers والسيرفرات،
+    بدل ما نضيف Redis. المفتاح بيحتوي رقم النافذة فبتنتهي الصفوف القديمة لحالها."""
+
+    key = models.CharField(max_length=190, unique=True)
+    count = models.PositiveIntegerField(default=0)
+    expires_at = models.DateTimeField(db_index=True)
+
+    class Meta:
+        verbose_name = "عدّاد معدّل"
+        verbose_name_plural = "عدّادات المعدّل"
+
+    def __str__(self):
+        return f"{self.key} = {self.count}"

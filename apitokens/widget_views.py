@@ -570,12 +570,19 @@ def _merge_log(existing, window):
 
 
 def _rate_limited(request, rules_and_keys):
-    allowed, retry_after = ratelimit.check(request, rules_and_keys)
-    if allowed:
+    """None لو مسموح. 429 لو تجاوز الحد، 503 لو مخزن العدّادات تعطّل وهالقاعدة
+    حساسة (بنرفض بدل ما نوقف الحماية بصمت)."""
+    decision = ratelimit.check(request, rules_and_keys)
+    if decision.allowed:
         return None
-    logger.warning("rate_limited path=%s rules=%s", request.path, [r for r, _ in rules_and_keys])
-    response = _cors_response({"ok": False, "error": "rate_limited"}, status=429)
-    response["Retry-After"] = str(max(retry_after, 1))
+    rules = [r for r, _ in rules_and_keys]
+    if decision.unavailable:
+        logger.error("rate_limit_unavailable path=%s rules=%s", request.path, rules)
+        response = _cors_response({"ok": False, "error": "rate_limit_unavailable"}, status=503)
+    else:
+        logger.warning("rate_limited path=%s rules=%s", request.path, rules)
+        response = _cors_response({"ok": False, "error": "rate_limited"}, status=429)
+    response["Retry-After"] = str(max(decision.retry_after, 1))
     return response
 
 
