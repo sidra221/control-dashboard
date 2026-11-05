@@ -60,16 +60,32 @@
   var returningVisitor = false;
   var v2Key = "ctl_w2_" + String(STORE_KEY).slice(0, 16);
   var memState = {};
+  // موافقة الزبون على الذاكرة الدائمة (اختياري، data-consent="required"): لحد ما المتجر
+  // ينادي ControlWidget.grantConsent() التوكنات بتنحفظ بـ sessionStorage بس (بتروح مع التبويب،
+  // ولا شي بـ localStorage، فما في ذاكرة بين الزيارات). بدون الخاصية: localStorage متل قبل.
+  var CONSENT_REQUIRED = !!scriptEl && scriptEl.getAttribute("data-consent") === "required";
+  var consentKey = v2Key + "_consent";
+  var consentGranted = (function () {
+    if (!CONSENT_REQUIRED) return true;
+    try {
+      return window.localStorage.getItem(consentKey) === "1";
+    } catch (e) {
+      return false;
+    }
+  })();
+  function stateStorage() {
+    return consentGranted ? window.localStorage : window.sessionStorage;
+  }
   function loadV2State() {
     try {
-      return JSON.parse(window.localStorage.getItem(v2Key) || "{}") || {};
+      return JSON.parse(stateStorage().getItem(v2Key) || "{}") || {};
     } catch (e) {
       return memState; // التخزين محجوب (وضع خاص...): بنكمل بالذاكرة لحد ما يسكر الصفحة
     }
   }
   function saveV2State() {
     try {
-      window.localStorage.setItem(v2Key, JSON.stringify(v2state));
+      stateStorage().setItem(v2Key, JSON.stringify(v2state));
     } catch (e) {}
   }
   var v2state = loadV2State();
@@ -520,7 +536,7 @@
 
   // بيكتب رد البوت حرف حرف بدل ما يطلع دفعة وحدة. Array.from حتى ما
   // ينكسر الإيموجي لنصّين، وسرعة الكتابة بتتأقلم مع طول الرد حتى الرد الطويل
-  // ما ياخد أكتر من ~3 ثواني. onDone بيتنادى بس يخلص (لعرض الكروت بعده).
+  // ما ياخد أكتر من ~1.2 ثانية. onDone بيتنادى بس يخلص (لعرض الكروت بعده).
   var reduceMotion =
     window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 
@@ -536,7 +552,7 @@
       return;
     }
     el.classList.add("writing");
-    var delay = Math.max(8, Math.min(30, 3000 / chars.length));
+    var delay = Math.max(4, Math.min(14, 1200 / chars.length));
     var i = 0;
     (function step() {
       i++;
@@ -957,6 +973,16 @@
     savedPhoto = file;
     runTryon(pendingSku, file);
   });
+  // رجوع لوضع الجلسة بس: بنمسح علم الموافقة وأي توكنات من localStorage، وأي حالة باقية بالذاكرة
+  // (لو الـ forget فشل) بتنحفظ بـ sessionStorage بدل localStorage.
+  function revokeLocal() {
+    consentGranted = false;
+    try {
+      window.localStorage.removeItem(consentKey);
+      window.localStorage.removeItem(v2Key);
+    } catch (e) {}
+    if (v2state && Object.keys(v2state).length) saveV2State();
+  }
   // واجهة بسيطة للمتجر: زر "اعرف مقاسك" مثلاً بيفتح المحادثة وبيبعت رسالة جاهزة.
   window.ControlWidget = {
     // "انسَني": بيمسح كل اللي بنتذكره عن الزبون عند هالمتجر (للمتجر يربطها بزر/صفحة خصوصية).
@@ -966,10 +992,46 @@
         memState = v2state;
         try {
           window.localStorage.removeItem(v2Key);
+        } catch (e) {}
+        try {
+          window.sessionStorage.removeItem(v2Key);
           window.sessionStorage.removeItem(v2Key + "_open");
         } catch (e) {}
         return !!(data && data.ok);
       });
+    },
+    // موافقة الذاكرة (مع data-consent="required"): المتجر ينادي grantConsent() بعد ما الزبون يوافق
+    // بالبانر، فتنتقل التوكنات لـ localStorage وبتنحفظ من هون وطالع. بدون الخاصية: دايماً true.
+    hasConsent: function () {
+      return consentGranted;
+    },
+    grantConsent: function () {
+      if (!CONSENT_REQUIRED) return true;
+      if (consentGranted) return true;
+      consentGranted = true;
+      try {
+        window.localStorage.setItem(consentKey, "1");
+      } catch (e) {}
+      saveV2State(); // الحالة الحالية (لو في) بتنتقل لـ localStorage
+      try {
+        window.sessionStorage.removeItem(v2Key);
+      } catch (e) {}
+      return true;
+    },
+    // سحب الموافقة: نفس "انسَني" (مسح من السيرفر والمتصفح) وبعدها رجوع لوضع الجلسة بس.
+    revokeConsent: function () {
+      var wasGranted = consentGranted;
+      return window.ControlWidget.forget().then(
+        function (ok) {
+          if (CONSENT_REQUIRED) revokeLocal();
+          return ok;
+        },
+        function () {
+          // السيرفر ما ردّ: بنوقّف الحفظ الدائم فوراً (التوكنات بتضل بالجلسة عشان تنعاد المحاولة).
+          if (CONSENT_REQUIRED && wasGranted) revokeLocal();
+          return false;
+        }
+      );
     },
     open: function (message) {
       if (!panel.classList.contains("open")) openPanel();

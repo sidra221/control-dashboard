@@ -40,7 +40,7 @@ python manage.py runserver
 
 | المتغيّر | الوصف |
 | --- | --- |
-| `DJANGO_SECRET_KEY` | مفتاح سرّي لجانغو — غيّره بالإنتاج |
+| `DJANGO_SECRET_KEY` | مفتاح سرّي لجانغو — **إلزامي بالإنتاج**: أوامر `manage.py` (`migrate`/`check`/`runserver`) بترفض تشتغل (`apitokens.E003`) بمفتاح ضعيف/placeholder لأن توكنات هوية الزبون موقّعة فيه. ولّده: `python -c "import secrets;print(secrets.token_urlsafe(64))"` |
 | `DJANGO_DEBUG` | `1` محلياً، `0` بالإنتاج |
 | `DJANGO_ALLOWED_HOSTS` | النطاقات المسموحة، مفصولة بفاصلة |
 | `DJANGO_CSRF_TRUSTED_ORIGINS` | نفس الفكرة لحماية CSRF |
@@ -50,6 +50,15 @@ python manage.py runserver
 | `OPENAI_MODEL` / `OPENAI_REASONING_EFFORT` | الموديل (افتراضياً `gpt-6-luna`) وقديش يفكّر قبل الرد (`low`) |
 | `ANTHROPIC_API_KEY` / `OPENAI_API_KEY` / `GEMINI_API_KEY` / `GROQ_API_KEY` | مفتاح المزوّد المختار (حط مفتاح واحد بس حسب `LLM_PROVIDER`) |
 | `KIEAI_API_KEY` | مفتاح kie.ai لتوليد صور تجربة اللبس |
+| `ANALYZER_PROVIDER` / `ANALYZER_MODEL` | (v2) مزوّد وموديل محلّل الذاكرة — فاضي = نفس موديل الدردشة |
+| `V2_SESSION_TTL_SECONDS` / `V2_SHOPPER_TTL_SECONDS` | (v2) عمر توكن الجلسة (24 ساعة) وتوكن المتسوّق (180 يوم) |
+| `RATE_LIMIT_BACKEND` | `database` (افتراضي) أو `cache` (Redis/Memcached مشترك بس) |
+| `TRUSTED_PROXY_COUNT` | عدد الـ proxies الموثوقة قدام جانغو (`1` مع nginx) — يقرأ `X-Forwarded-For` |
+| `CONSUME_LEGACY_MODE` / `CONSUME_LEGACY_ALLOWED_NETWORKS` | `internal` (افتراضي) / `off` للتوكن العلني القديم بـ endpoint الاستهلاك، وشبكاته المسموحة |
+| `DJANGO_HSTS_SECONDS` / `POSTGRES_CONN_MAX_AGE` | مدة HSTS (30 يوم) وعمر اتصال القاعدة (60 ثانية) |
+
+للنشر والإطلاق التدريجي لـ v2 انظر [`docs/DEPLOYMENT_AND_ROLLOUT.md`](docs/DEPLOYMENT_AND_ROLLOUT.md)،
+وللخصوصية والموافقة (PDPL) [`docs/PRIVACY_AND_CONSENT.md`](docs/PRIVACY_AND_CONSENT.md).
 
 ## تدفق العمل
 
