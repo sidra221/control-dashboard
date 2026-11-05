@@ -83,10 +83,12 @@ class ScriptedLLM:
         self.calls.append({"analyzer": False, "system": system_prompt, "step": True})
         user = next(m["content"] for m in reversed(transcript) if m["role"] == "user")
         b = self.behavior(user)
-        if transcript[-1]["role"] == "tool" or not self._tool_calls(b):
+        # حلقة الأدوات الجديدة: show_product (مش recommend_product) والخصم بيجي من السياسة (ما في أداة خصم)
+        shows = [c for c in self._tool_calls(b) if c["name"] == "recommend_product"]
+        if transcript[-1]["role"] == "tool" or not shows:
             return llm.LLMStep(text=b["reply"], tool_calls=[])
-        return llm.LLMStep(text="", tool_calls=[
-            llm.ToolCall(id=f"c{i}", name=c["name"], input=c["input"]) for i, c in enumerate(self._tool_calls(b))])
+        return llm.LLMStep(text=b["reply"], tool_calls=[
+            llm.ToolCall(id=f"c{i}", name="show_product", input=c["input"]) for i, c in enumerate(shows)])
 
 
 RULES = {
@@ -955,12 +957,12 @@ class BenchRunTests(EvalCase):
                 self.assertIsNotNone(t["trace_ms"])
                 kinds = {c["kind"] for c in t["llm"]}
                 self.assertIn("seller", kinds)
-                self.assertEqual(t["timings"], {})  # المحرّك الحالي ما بيسجّل timings: متحمَّل
+                self.assertIn("total_ms", t["timings"])  # المحرّك الجديد بيسجّل timings بالـ trace
             self.assertEqual(sum(1 for t in run["turns"] if "analyzer" in {c["kind"] for c in t["llm"]}), 8)
         self.assertEqual(sum(t["cards"] for t in report["runs"][0]["turns"]), 2)
         self.assertEqual(report["stats"]["overall"]["client_s"]["n"], 16)
         self.assertIn("ALL TURNS", console)
-        self.assertIn("not present in TurnTrace.analyzer['timings']", console)
+        self.assertNotIn("not present in TurnTrace.analyzer['timings']", console)  # المحرّك الجديد بيسجّلها
         # كل run على متجر جديد: ملف زبون جديد
         from apitokens.models import CustomerProfile
         self.assertEqual(ApiToken.objects.filter(label__startswith="bench-").count(), 0)  # rollback بعد الانتهاء
@@ -1195,6 +1197,7 @@ class OptionalTraceKeysTests(TestCase):
             v2_scenarios.say("وريني", stage_is="closing")], judge=[])
         llm_script = ScriptedLLM({"هلا": {"reply": "يا هلا والله."}, "وريني": {"reply": "أبشر."}})
         with patch("apitokens.services.llm.chat_with_retry", side_effect=llm_script.chat), \
+                patch("apitokens.services.llm.chat_step_with_retry", side_effect=llm_script.step), \
                 patch("apitokens.services.llm.get_provider", side_effect=lambda role=None: FakeProvider()), \
                 patch("apitokens.services.memory.save_trace", side_effect=with_stage), \
                 patch.object(v2_scenarios, "SCENARIOS", [scenario]):
