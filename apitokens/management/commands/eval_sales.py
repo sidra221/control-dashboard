@@ -20,6 +20,7 @@ from django.test import Client
 from django.test.utils import setup_databases, setup_test_environment, teardown_databases
 
 from apitokens.models import ApiToken, DiscountCode, Product
+from apitokens.services import ratelimit
 
 ARABIC = re.compile(r"[؀-ۿ]")
 MARKDOWN = re.compile(r"\*\*|^#|^\s*[-*•]\s|^\s*\d+[.)]\s", re.MULTILINE)
@@ -151,6 +152,8 @@ class Command(BaseCommand):
         if opts["effort"] is not None:
             settings.OPENAI_REASONING_EFFORT = opts["effort"]
         setup_test_environment()  # بيسمح لـ Client يحكي مع الـ views بأي ALLOWED_HOSTS
+        # التقييم بيضرب الـ endpoint من عنوان واحد — حدود المعدّل (ratelimit.py) مش المقصودة هون.
+        settings.RATE_LIMITS = {rule: (10**9, 60) for rule in ratelimit.DEFAULT_LIMITS}
         only = set(filter(None, (opts["only"] or "").split(",")))
         scenarios = [s for s in SCENARIOS if not only or s["name"] in only]
         self.stdout.write(

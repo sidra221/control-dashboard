@@ -4,6 +4,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from .models import ApiToken
+from .services import ratelimit
 
 
 class ConsumeTokenView(APIView):
@@ -22,6 +23,10 @@ class ConsumeTokenView(APIView):
         token_value = request.headers.get("X-Api-Token", "").strip()
         if not token_value:
             return Response({"ok": False, "error": "missing_token"})
+
+        allowed, _retry = ratelimit.check(request, [("consume_token", token_value)])
+        if not allowed:
+            return Response({"ok": False, "error": "rate_limited"})
 
         try:
             count = int(request.data.get("count", 1))

@@ -52,13 +52,20 @@ class WidgetChatBackendLogicTests(TestCase):
         )
         self.client = Client()
 
-    def post(self, messages):
+    def post(self, messages, **extra):
         return self.client.post(
             "/widget/chat/",
-            data=json.dumps({"messages": messages}),
+            data=json.dumps({"messages": messages, **extra}),
             content_type="application/json",
             HTTP_X_API_TOKEN=self.merchant.token,
         )
+
+    # سياق "زبون تفاعل مع منتج": بوابة الخصم (services/policy.py) ما بتفتح قبل
+    # دورين من الزبون ومنتج معروض — هاد بيحاكي محادثة حقيقية بدل رسالة وحدة.
+    ENGAGED = [
+        {"role": "user", "content": "بدي قميص"},
+        {"role": "assistant", "content": "هاد قميص حلو إلك."},
+    ]
 
     # ---------- Fix 1: multiple recommendations ----------
 
@@ -194,7 +201,9 @@ class WidgetChatBackendLogicTests(TestCase):
         mock_chat.return_value = fake_result(
             tool_calls=[{"name": "offer_discount_code", "input": {"code": "SAVE10"}}],
         )
-        resp = self.post([{"role": "user", "content": "قررت اشتريه أكيد"}])
+        resp = self.post(
+            self.ENGAGED + [{"role": "user", "content": "مو متأكد، غالي شوي"}], shown_skus=["SHIRT-BLUE"]
+        )
         data = resp.json()
         self.assertEqual(data["discount_offer"], {"code": "SAVE10", "description": "خصم 10% على كل المنتجات"})
 
@@ -232,7 +241,9 @@ class WidgetChatBackendLogicTests(TestCase):
                 {"name": "offer_discount_code", "input": {"code": "DRESS10"}},
             ],
         )
-        data = self.post([{"role": "user", "content": "غالي شوي"}]).json()
+        data = self.post(
+            self.ENGAGED + [{"role": "user", "content": "غالي شوي"}], shown_skus=["DRESS-BLACK"]
+        ).json()
         self.assertEqual(data["discount_offer"]["code"], "DRESS10")
         self.assertIn("DRESS10", data["reply"])
 
@@ -250,7 +261,9 @@ class WidgetChatBackendLogicTests(TestCase):
                 {"name": "offer_discount_code", "input": {"code": "DRESS10"}},
             ],
         )
-        data = self.post([{"role": "user", "content": "غالي شوي"}]).json()
+        data = self.post(
+            self.ENGAGED + [{"role": "user", "content": "غالي شوي"}], shown_skus=["DRESS-BLACK"]
+        ).json()
         self.assertEqual(data["discount_offer"]["code"], "DRESS10")
         self.assertIn("فستان أنيق لسهرتك", data["reply"])
         self.assertIn("DRESS10", data["reply"])
@@ -269,7 +282,9 @@ class WidgetChatBackendLogicTests(TestCase):
         )
         forced = fake_result(tool_calls=[{"name": "recommend_product", "input": {"sku": "SHIRT-BLUE", "reason": "x"}}])
         mock_chat.side_effect = [first, forced]
-        data = self.post([{"role": "user", "content": "بدي قميص بدالو"}]).json()
+        data = self.post(
+            self.ENGAGED + [{"role": "user", "content": "بدي قميص بدالو"}], shown_skus=["SHIRT-EXPENSIVE"]
+        ).json()
         self.assertEqual([r["sku"] for r in data["recommendations"]], ["SHIRT-BLUE"])
         self.assertEqual(data["discount_offer"]["code"], "SHIRTS15")
 
@@ -356,8 +371,8 @@ class WidgetChatValidationTests(TestCase):
         self.assertEqual(resp.status_code, 401)
         self.assertEqual(resp.json()["error"], "missing_token")
 
-    def test_too_many_messages_rejected(self):
-        messages = [{"role": "user", "content": "hi"} for _ in range(31)]
+    def test_absurd_message_count_rejected(self):
+        messages = [{"role": "user", "content": "hi"} for _ in range(201)]
         resp = self.client.post(
             "/widget/chat/",
             data=json.dumps({"messages": messages}),
@@ -688,7 +703,14 @@ class WidgetChatShopifyReadyTests(TestCase):
         mock_chat.return_value = fake_result(tool_calls=[{
             "name": "offer_discount_code", "input": {"code": "SAVE10", "pitch": "معك حق، بس هالقماش بيعيش معك سنين — وخود SAVE10"},
         }])
-        data = self.post([{"role": "user", "content": "غالي شوي"}], shown_skus=["DRESS-1"]).json()
+        data = self.post(
+            [
+                {"role": "user", "content": "بدي فستان"},
+                {"role": "assistant", "content": "هاد فستان حلو إلك."},
+                {"role": "user", "content": "غالي شوي"},
+            ],
+            shown_skus=["DRESS-1"],
+        ).json()
         self.assertEqual(data["discount_offer"]["code"], "SAVE10")
         self.assertIn("بيعيش معك سنين", data["reply"])
 

@@ -1,6 +1,7 @@
 from pathlib import Path
 import json
 import os
+import tempfile
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 
@@ -193,3 +194,19 @@ ZID_PLAN_QUOTAS = json.loads(
 
 # إيميل الدعم اللي بيظهر بصفحة سياسة الخصوصية (/privacy/).
 SUPPORT_EMAIL = os.environ.get("SUPPORT_EMAIL", "").strip()
+
+# تحديد معدّل الطلبات للـ endpoints العامة (services/ratelimit.py). file-based حتى
+# يتشاركه كل workers الـ gunicorn على نفس السيرفر بدون بنية تحتية جديدة.
+# DJANGO_CACHE_DIR لازم يكون مسار قابل للكتابة.
+CACHES = {
+    "default": {
+        "BACKEND": "django.core.cache.backends.filebased.FileBasedCache",
+        "LOCATION": os.environ.get(
+            "DJANGO_CACHE_DIR", str(Path(tempfile.gettempdir()) / "control-dashboard-cache")
+        ),
+    }
+}
+# عدد الـ proxies الموثوقة قدام جانغو (nginx = 1). 0 = تجاهل X-Forwarded-For.
+TRUSTED_PROXY_COUNT = int(os.environ.get("TRUSTED_PROXY_COUNT", "1"))
+# تعديل حدود المعدّل: {"chat_ip": (20, 60)} = 20 طلب كل 60 ثانية. فاضي = الافتراضي.
+RATE_LIMITS = {}

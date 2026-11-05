@@ -37,6 +37,182 @@ class LLMResult:
     tool_calls: list = field(default_factory=list)  # [{"name": str, "input": dict}, ...]
 
 
+@dataclass
+class ToolCall:
+    id: str
+    name: str
+    input: dict
+
+
+@dataclass
+class LLMStep:
+    """خطوة وحدة من حلقة الأدوات. `raw` = عناصر المزوّد الأصلية (reasoning items
+    عند OpenAI، Content بتواقيع التفكير عند Gemini) — لازم تنرجع حرفياً بالخطوة
+    الجاية وإلا المزوّد بيرفض أو بيفقد سياق التفكير."""
+
+    text: str
+    tool_calls: list = field(default_factory=list)
+    raw: object = None
+
+
+# تاريخ بشكل موحّد بغض النظر عن المزوّد (chat_step):
+#   {"role": "user", "content": str}
+#   {"role": "assistant", "content": str, "tool_calls": [{"id","name","input"}], "raw": <LLMStep.raw>}
+#   {"role": "tool", "tool_call_id": str, "name": str, "content": str}  # نتيجة الأداة (JSON نص)
+# tool_choice: None/"auto" | "none" | {"name": "<tool>"} (إجبار أداة)
+
+
+def assistant_entry(step):
+    return {
+        "role": "assistant",
+        "content": step.text,
+        "tool_calls": [{"id": c.id, "name": c.name, "input": c.input} for c in step.tool_calls],
+        "raw": step.raw,
+    }
+
+
+def tool_entry(call, content):
+    return {"role": "tool", "tool_call_id": call.id, "name": call.name, "content": content}
+
+
+def _tool_result_object(content):
+    """Gemini بدو dict بنتيجة الأداة."""
+    try:
+        value = json.loads(content)
+    except (TypeError, ValueError):
+        return {"output": content}
+    return value if isinstance(value, dict) else {"output": value}
+
+
+def anthropic_messages(transcript):
+    out, pending = [], []
+
+    def flush():
+        if pending:
+            out.append({"role": "user", "content": list(pending)})
+            pending.clear()
+
+    for entry in transcript:
+        role = entry["role"]
+        if role == "tool":
+            pending.append(
+                {"type": "tool_result", "tool_use_id": entry["tool_call_id"], "content": entry["content"]}
+            )
+            continue
+        flush()
+        if role == "user":
+            out.append({"role": "user", "content": entry["content"]})
+        else:
+            blocks = []
+            if entry.get("content"):
+                blocks.append({"type": "text", "text": entry["content"]})
+            for call in entry.get("tool_calls") or []:
+                blocks.append(
+                    {"type": "tool_use", "id": call["id"], "name": call["name"], "input": call["input"]}
+                )
+            if blocks:
+                out.append({"role": "assistant", "content": blocks})
+    flush()
+    return out
+
+
+def openai_chat_messages(system_prompt, transcript):
+    out = [{"role": "system", "content": system_prompt}]
+    for entry in transcript:
+        role = entry["role"]
+        if role == "user":
+            out.append({"role": "user", "content": entry["content"]})
+        elif role == "tool":
+            out.append({"role": "tool", "tool_call_id": entry["tool_call_id"], "content": entry["content"]})
+        else:
+            message = {"role": "assistant", "content": entry.get("content") or None}
+            calls = entry.get("tool_calls") or []
+            if calls:
+                message["tool_calls"] = [
+                    {"id": c["id"], "type": "function",
+                     "function": {"name": c["name"], "arguments": json.dumps(c["input"], ensure_ascii=False)}}
+                    for c in calls
+                ]
+            out.append(message)
+    return out
+
+
+def responses_input(transcript):
+    items = []
+    for entry in transcript:
+        role = entry["role"]
+        if role == "user":
+            items.append({"role": "user", "content": entry["content"]})
+        elif role == "tool":
+            items.append(
+                {"type": "function_call_output", "call_id": entry["tool_call_id"], "output": entry["content"]}
+            )
+        elif entry.get("raw"):
+            items.extend(entry["raw"])  # عناصر الخرج الأصلية (فيها reasoning المشفّر)
+        else:
+            if entry.get("content"):
+                items.append({"role": "assistant", "content": entry["content"]})
+            for call in entry.get("tool_calls") or []:
+                items.append(
+                    {"type": "function_call", "call_id": call["id"], "name": call["name"],
+                     "arguments": json.dumps(call["input"], ensure_ascii=False)}
+                )
+    return items
+
+
+def gemini_contents(transcript, types):
+    contents, pending = [], []
+
+    def flush():
+        if pending:
+            contents.append(types.Content(role="user", parts=list(pending)))
+            pending.clear()
+
+    for entry in transcript:
+        role = entry["role"]
+        if role == "tool":
+            pending.append(
+                types.Part.from_function_response(
+                    name=entry["name"], response=_tool_result_object(entry["content"])
+                )
+            )
+            continue
+        flush()
+        if role == "user":
+            contents.append(types.Content(role="user", parts=[types.Part(text=entry["content"])]))
+        elif entry.get("raw") is not None:
+            contents.append(entry["raw"])  # Content الأصلي بتواقيع التفكير
+        else:
+            parts = []
+            if entry.get("content"):
+                parts.append(types.Part(text=entry["content"]))
+            for call in entry.get("tool_calls") or []:
+                parts.append(
+                    types.Part(function_call=types.FunctionCall(name=call["name"], args=call["input"]))
+                )
+            if parts:
+                contents.append(types.Content(role="model", parts=parts))
+    flush()
+    return contents
+
+
+def chat_step_with_retry(provider, system_prompt, transcript, tools, tool_choice=None,
+                         max_attempts=2, backoff_seconds=1):
+    last_error = None
+    for attempt in range(max_attempts):
+        try:
+            return provider.chat_step(system_prompt, transcript, tools, tool_choice=tool_choice)
+        except LLMError as exc:
+            last_error = exc
+            logger.warning(
+                "llm_step_failed provider=%s attempt=%s/%s error=%s",
+                type(provider).__name__, attempt + 1, max_attempts, exc,
+            )
+            if attempt < max_attempts - 1:
+                time.sleep(backoff_seconds * (attempt + 1))
+    raise last_error
+
+
 def chat_with_retry(
     provider, system_prompt, messages, tools, force_tool=None, max_attempts=2, backoff_seconds=1
 ):
@@ -66,6 +242,14 @@ def chat_with_retry(
                 time.sleep(backoff_seconds * (attempt + 1))
     logger.error("llm_all_attempts_failed provider=%s error=%s", type(provider).__name__, last_error)
     raise last_error
+
+
+def _loads(raw):
+    try:
+        value = json.loads(raw)
+    except (TypeError, ValueError):
+        return {}
+    return value if isinstance(value, dict) else {}
 
 
 def get_provider():
@@ -134,6 +318,38 @@ class AnthropicProvider:
         return LLMResult(reply_text=" ".join(text_parts).strip(), tool_calls=tool_calls)
 
 
+    def chat_step(self, system_prompt, transcript, tools, tool_choice=None):
+        import anthropic
+
+        client = anthropic.Anthropic(
+            api_key=self.api_key, timeout=REQUEST_TIMEOUT_SECONDS, max_retries=0
+        )
+        anthropic_tools = [
+            {"name": t["name"], "description": t["description"], "input_schema": t["parameters"]}
+            for t in tools
+        ]
+        if tool_choice == "none":
+            choice = {"type": "none"}
+        elif isinstance(tool_choice, dict):
+            choice = {"type": "tool", "name": tool_choice["name"]}
+        else:
+            choice = {"type": "auto"}
+        try:
+            response = client.messages.create(
+                model=self.model,
+                max_tokens=1000,
+                system=system_prompt,
+                messages=anthropic_messages(transcript),
+                tools=anthropic_tools,
+                tool_choice=choice,
+            )
+        except anthropic.APIError as exc:
+            raise LLMError(str(exc)) from exc
+        text = " ".join(b.text for b in response.content if b.type == "text").strip()
+        calls = [ToolCall(b.id, b.name, dict(b.input)) for b in response.content if b.type == "tool_use"]
+        return LLMStep(text=text, tool_calls=calls, raw=None)
+
+
 class OpenAIProvider:
     """بتخدم OpenAI، وكمان أي مزوّد متوافق مع OpenAI API (مثل Groq) عبر
     تمرير base_url — الـ endpoint نفسه بالضبط، بس سيرفر مختلف."""
@@ -197,6 +413,69 @@ class OpenAIProvider:
                 args = {}
             tool_calls.append({"name": call.function.name, "input": args})
         return LLMResult(reply_text=(choice.content or "").strip(), tool_calls=tool_calls)
+
+    def chat_step(self, system_prompt, transcript, tools, tool_choice=None):
+        import openai
+
+        client = openai.OpenAI(
+            api_key=self.api_key, base_url=self.base_url,
+            timeout=REQUEST_TIMEOUT_SECONDS, max_retries=0,
+        )
+        if tool_choice == "none":
+            choice = "none"
+        elif isinstance(tool_choice, dict):
+            choice = (
+                {"type": "function", "name": tool_choice["name"]} if self.base_url is None
+                else {"type": "function", "function": {"name": tool_choice["name"]}}
+            )
+        else:
+            choice = "auto"
+        try:
+            if self.base_url is None:
+                extra = {"reasoning": {"effort": self.reasoning_effort}} if self.reasoning_effort else {}
+                response = client.responses.create(
+                    model=self.model,
+                    instructions=system_prompt,
+                    input=responses_input(transcript),
+                    tools=[
+                        {"type": "function", "name": t["name"], "description": t["description"],
+                         "parameters": t["parameters"], "strict": False}
+                        for t in tools
+                    ],
+                    tool_choice=choice,
+                    max_output_tokens=4000,
+                    store=False,
+                    # بدون store، تفكير الموديل بين جولات الأدوات ما بينحفظ إلا مشفّراً بالرد.
+                    include=["reasoning.encrypted_content"],
+                    **extra,
+                )
+            else:
+                response = client.chat.completions.create(
+                    model=self.model,
+                    messages=openai_chat_messages(system_prompt, transcript),
+                    tools=[
+                        {"type": "function", "function": {
+                            "name": t["name"], "description": t["description"], "parameters": t["parameters"]}}
+                        for t in tools
+                    ],
+                    tool_choice=choice,
+                    max_completion_tokens=2000,
+                )
+        except openai.APIError as exc:
+            raise LLMError(str(exc)) from exc
+
+        if self.base_url is None:
+            calls = []
+            for item in response.output:
+                if item.type == "function_call":
+                    calls.append(ToolCall(item.call_id, item.name, _loads(item.arguments)))
+            raw = [item.model_dump(exclude_none=True) for item in response.output]
+            return LLMStep(text=(response.output_text or "").strip(), tool_calls=calls, raw=raw)
+        message = response.choices[0].message
+        calls = [
+            ToolCall(c.id, c.function.name, _loads(c.function.arguments)) for c in (message.tool_calls or [])
+        ]
+        return LLMStep(text=(message.content or "").strip(), tool_calls=calls, raw=None)
 
     def _chat_responses(self, client, openai, system_prompt, messages, tools, force_tool):
         response_tools = [
@@ -310,3 +589,53 @@ class GeminiProvider:
             reply_text = ""
 
         return LLMResult(reply_text=reply_text, tool_calls=tool_calls)
+
+    def chat_step(self, system_prompt, transcript, tools, tool_choice=None):
+        from google import genai
+        from google.genai import types
+
+        client = genai.Client(
+            api_key=self.api_key,
+            http_options=types.HttpOptions(timeout=REQUEST_TIMEOUT_SECONDS * 1000),
+        )
+        gemini_tool = types.Tool(
+            function_declarations=[
+                types.FunctionDeclaration(
+                    name=t["name"], description=t["description"], parameters_json_schema=t["parameters"],
+                )
+                for t in tools
+            ]
+        )
+        if tool_choice == "none":
+            mode, names = "NONE", None
+        elif isinstance(tool_choice, dict):
+            mode, names = "ANY", [tool_choice["name"]]
+        else:
+            mode, names = "AUTO", None
+        tool_config = types.ToolConfig(
+            function_calling_config=types.FunctionCallingConfig(mode=mode, allowed_function_names=names)
+        )
+        try:
+            response = client.models.generate_content(
+                model=self.model,
+                contents=gemini_contents(transcript, types),
+                config=types.GenerateContentConfig(
+                    system_instruction=system_prompt,
+                    tools=[gemini_tool],
+                    tool_config=tool_config,
+                    max_output_tokens=2000,
+                ),
+            )
+        except Exception as exc:  # SDK Google بيرمي أنواع استثناءات متعددة
+            raise LLMError(str(exc)) from exc
+
+        calls = [
+            ToolCall(getattr(c, "id", None) or f"call_{i}", c.name, dict(c.args) if c.args else {})
+            for i, c in enumerate(response.function_calls or [])
+        ]
+        try:
+            text = (response.text or "").strip()
+        except Exception:
+            text = ""
+        content = response.candidates[0].content if response.candidates else None
+        return LLMStep(text=text, tool_calls=calls, raw=content)

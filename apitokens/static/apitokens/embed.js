@@ -660,10 +660,24 @@
     tryon_not_configured: "خاصية تجربة اللبس مو جاهزة للحين.",
     product_not_found: "المنتج مو موجود في الكتالوج.",
     photo_too_large: "الصورة كبيرة مرّة، جرّب صورة أصغر (أقل من 8 ميغا).",
+    rate_limited: "طلباتك كثيرة بوقت قصير، جرّب بعد شوي 🙏",
   };
 
   function friendlyError(code) {
     return ERROR_MESSAGES[code] || "صار خطأ، جرّب مرة ثانية.";
+  }
+
+  // آخر 30 رسالة بس (وبتبدأ برسالة زبون) — السيرفر بيقصّ بنفس الطريقة، بس منوفّر الحمولة.
+  var HISTORY_WINDOW = 30;
+  function historyWindow() {
+    var win = history.slice(-HISTORY_WINDOW);
+    while (win.length && win[0].role !== "user") win.shift();
+    return win;
+  }
+
+  // طلب فشل: منشيل رسالة الزبون من التاريخ حتى ما يتكرر دور الزبون مرتين بالمحاولة الجاية.
+  function dropFailedTurn() {
+    if (history.length && history[history.length - 1].role === "user") history.pop();
   }
 
   function sendMessage() {
@@ -682,7 +696,7 @@
       method: "POST",
       headers: { "Content-Type": "application/json", "X-Api-Token": STORE_KEY },
       body: JSON.stringify({
-        messages: history,
+        messages: historyWindow(),
         session_id: SESSION_ID,
         shown_skus: shownSkus,
         page_url: window.location.href,
@@ -694,6 +708,7 @@
       .then(function (data) {
         typingEl.remove();
         if (!data.ok) {
+          dropFailedTurn();
           sendBtn.disabled = false;
           addErrorMessage(friendlyError(data.error));
           return;
@@ -734,6 +749,7 @@
       })
       .catch(function () {
         typingEl.remove();
+        dropFailedTurn();
         sendBtn.disabled = false;
         addErrorMessage("ما قدرنا نوصل للمساعد، جرّب مرة ثانية.");
       });
