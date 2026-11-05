@@ -51,6 +51,13 @@ def dashboard(request):
             revealed_consume_key = target.rotate_consume_key()
             consume_key_owner = target
             messages.success(request, t("msg_consume_key_rotated", lang))
+        elif action == "set_engine":
+            target = get_object_or_404(ApiToken, pk=request.POST.get("token_pk"))
+            engine = request.POST.get("engine")
+            if engine in ApiToken.Engine.values:
+                target.engine = engine
+                target.save(update_fields=["engine"])
+                messages.success(request, t("msg_engine_changed", lang))
         elif action == "toggle_legacy_consume":
             target = get_object_or_404(ApiToken, pk=request.POST.get("token_pk"))
             target.legacy_consume_enabled = not target.legacy_consume_enabled

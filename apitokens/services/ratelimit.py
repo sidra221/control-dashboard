@@ -37,6 +37,7 @@ DEFAULT_LIMITS = {
     "tryon_token": (60, 60),
     "event_ip": (60, 60),
     "pageproduct_ip": (30, 60),
+    "memory_ip": (30, 60),
     "consume_ip": (600, 60),
     "consume_token": (300, 60),
 }

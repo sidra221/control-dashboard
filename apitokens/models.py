@@ -69,6 +69,15 @@ class ApiToken(models.Model):
     )
     created_at = models.DateTimeField("تاريخ الإنشاء", auto_now_add=True)
 
+    class Engine(models.TextChoices):
+        V1 = "v1", "v1 (قديم)"
+        V2 = "v2", "v2 (ذاكرة دائمة)"
+
+    # أي محرّك دردشة بيخدم هالتاجر: v1 = الحالي (التاريخ بالمتصفح)، v2 = ذاكرة بالسيرفر.
+    engine = models.CharField(max_length=4, choices=Engine.choices, default=Engine.V1)
+    # كم يوم بنحتفظ بذاكرة زبون ما رجع (بيتجدد بكل زيارة). بعدها بتنمسح.
+    profile_retention_days = models.PositiveIntegerField(default=90)
+
     CONSUME_KEY_PREFIX = "ck_"
 
     class Meta:
@@ -389,6 +398,17 @@ class Conversation(models.Model):
     order_currency = models.CharField(max_length=8, blank=True, default="")
     started_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
+    # --- v2: ذاكرة بالسيرفر ---
+    profile = models.ForeignKey(
+        "CustomerProfile", on_delete=models.SET_NULL, null=True, blank=True, related_name="conversations",
+    )
+    engine_version = models.PositiveSmallIntegerField(default=1)
+    turn_count = models.PositiveIntegerField(default=0)
+    last_activity_at = models.DateTimeField(null=True, blank=True)
+    # حالة صغيرة: مواضيع انسأل عنها، تنبيهات توضيح معلّقة...
+    state = models.JSONField(default=dict, blank=True)
+    # قفل دور (turn) بدون transaction طويلة — بيمنع رسالتين متزامنتين بنفس المحادثة.
+    processing_since = models.DateTimeField(null=True, blank=True)
 
     class Meta:
         verbose_name = "محادثة"
@@ -406,6 +426,16 @@ class Conversation(models.Model):
     @property
     def converted(self):
         return bool(self.order_id)
+
+    @property
+    def transcript(self):
+        """نص المحادثة للداشبورد: v2 من جدول Message، v1 من الـ JSON القديم."""
+        if self.engine_version >= 2:
+            return [
+                {"role": m.role, "content": m.content}
+                for m in self.chat_messages.exclude(role="event").order_by("seq")
+            ]
+        return self.messages
 
 
 class SizeChart(models.Model):
@@ -443,3 +473,172 @@ class RateLimitBucket(models.Model):
 
     def __str__(self):
         return f"{self.key} = {self.count}"
+
+
+# ======================================================================
+# v2: ذاكرة الزبون بالسيرفر (كل الجداول مربوطة بالتاجر ومعزولة بينهم)
+# ======================================================================
+
+
+def _new_public_id():
+    return secrets.token_hex(16)
+
+
+class CustomerProfile(models.Model):
+    """زبون واحد عند تاجر واحد، عبر الزيارات. الهوية بتجي من توكن موقّع بالسيرفر
+    (services/session_token.py) — مش من قيمة بيختارها المتصفح. نفس الشخص عند تاجرين
+    = ملفين منفصلين بدون أي ربط."""
+
+    merchant = models.ForeignKey(ApiToken, on_delete=models.CASCADE, related_name="customer_profiles")
+    public_id = models.CharField(max_length=32, unique=True, default=_new_public_id, editable=False)
+    language = models.CharField(max_length=12, blank=True, default="")
+    gender_signal = models.CharField(max_length=8, blank=True, default="")  # "" | female | male
+    visit_count = models.PositiveIntegerField(default=1)
+    first_seen_at = models.DateTimeField(auto_now_add=True)
+    last_seen_at = models.DateTimeField(default=timezone.now)
+    expires_at = models.DateTimeField(db_index=True)
+
+    class Meta:
+        verbose_name = "ملف زبون"
+        verbose_name_plural = "ملفات الزبائن"
+        indexes = [models.Index(fields=["merchant", "expires_at"])]
+
+    def __str__(self):
+        return f"{self.merchant.label} — {self.public_id[:8]}"
+
+
+class Message(models.Model):
+    """رسالة بمحادثة v2 — سجل مضاف فقط (append-only). الـ meta بيحمل الكروت والعرض
+    المرسلين مع رد المساعد، حتى نعيد رسم المحادثة بعد تنقل الصفحة بنفس الشكل."""
+
+    class Role(models.TextChoices):
+        USER = "user", "زبون"
+        ASSISTANT = "assistant", "مساعد"
+        EVENT = "event", "حدث"  # تجربة لبس، فتح صفحة منتج... (ما بتنعرض كرسالة)
+
+    merchant = models.ForeignKey(ApiToken, on_delete=models.CASCADE, related_name="+")
+    conversation = models.ForeignKey(Conversation, on_delete=models.CASCADE, related_name="chat_messages")
+    seq = models.PositiveIntegerField()
+    role = models.CharField(max_length=10, choices=Role.choices)
+    content = models.TextField()
+    meta = models.JSONField(default=dict, blank=True)
+    client_msg_id = models.CharField(max_length=64, blank=True, default="")
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["conversation_id", "seq"]
+        constraints = [
+            models.UniqueConstraint(fields=["conversation", "seq"], name="unique_message_seq"),
+            models.UniqueConstraint(
+                fields=["conversation", "client_msg_id"],
+                condition=~models.Q(client_msg_id=""),
+                name="unique_client_msg_id",
+            ),
+        ]
+
+
+class PreferenceFact(models.Model):
+    """معلومة عن تفضيلات الزبون مع مصدرها. explicit = قالها بكلامه (والاقتباس
+    متحقق منه بالكود)، inferred = استنتاج (ما بنعتبره حقيقة ولا بنفلتر فيه)."""
+
+    class Source(models.TextChoices):
+        EXPLICIT = "explicit", "صريح"
+        INFERRED = "inferred", "مستنتج"
+
+    class Status(models.TextChoices):
+        ACTIVE = "active", "فعّال"
+        SUPERSEDED = "superseded", "استُبدل"
+        RETRACTED = "retracted", "تراجع عنه الزبون"
+
+    merchant = models.ForeignKey(ApiToken, on_delete=models.CASCADE, related_name="+")
+    profile = models.ForeignKey(CustomerProfile, on_delete=models.CASCADE, related_name="facts")
+    conversation = models.ForeignKey(Conversation, on_delete=models.SET_NULL, null=True, blank=True, related_name="+")
+    subject = models.CharField(max_length=8, default="self")  # self | gift
+    key = models.CharField(max_length=24)
+    value = models.CharField(max_length=120)
+    polarity = models.CharField(max_length=5, default="like")  # like | avoid
+    source = models.CharField(max_length=10, choices=Source.choices, default=Source.EXPLICIT)
+    confidence = models.FloatField(default=1.0)
+    evidence = models.CharField(max_length=300, blank=True, default="")
+    learned_turn = models.PositiveIntegerField(default=0)
+    status = models.CharField(max_length=12, choices=Status.choices, default=Status.ACTIVE)
+    superseded_by = models.ForeignKey("self", on_delete=models.SET_NULL, null=True, blank=True, related_name="+")
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        indexes = [models.Index(fields=["profile", "status", "key"])]
+
+
+class ProductReaction(models.Model):
+    """كيف تفاعل الزبون مع منتج. latest non-shown reaction هو اللي بيحدد: rejected =
+    ما نرشّحه تاني إلا إذا الزبون طلبه صراحة."""
+
+    class Kind(models.TextChoices):
+        SHOWN = "shown", "انعرض"
+        VIEWED = "viewed", "فتح صفحته"
+        ASKED = "asked", "سأل عنه"
+        LIKED = "liked", "عجبه"
+        NEUTRAL = "neutral", "محايد"
+        REJECTED = "rejected", "رفضه"
+        TRIED_ON = "tried_on", "جرّبه"
+        BUY_CLICK = "buy_click", "ضغط اشتري"
+        ADD_TO_CART = "add_to_cart", "أضافه للسلة"
+
+    merchant = models.ForeignKey(ApiToken, on_delete=models.CASCADE, related_name="+")
+    profile = models.ForeignKey(CustomerProfile, on_delete=models.CASCADE, related_name="reactions")
+    conversation = models.ForeignKey(Conversation, on_delete=models.SET_NULL, null=True, blank=True, related_name="+")
+    product = models.ForeignKey(Product, on_delete=models.SET_NULL, null=True, blank=True, related_name="+")
+    sku = models.CharField(max_length=64)
+    title = models.CharField(max_length=255, blank=True, default="")
+    reaction = models.CharField(max_length=12, choices=Kind.choices)
+    reason_type = models.CharField(max_length=12, blank=True, default="")  # price|style|color|fit|quality|other|unknown
+    reason_text = models.CharField(max_length=200, blank=True, default="")
+    price_at_time = models.DecimalField(max_digits=10, decimal_places=2, null=True, blank=True)
+    turn = models.PositiveIntegerField(default=0)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        indexes = [
+            models.Index(fields=["profile", "reaction"]),
+            models.Index(fields=["conversation", "sku"]),
+        ]
+
+
+class Objection(models.Model):
+    class Status(models.TextChoices):
+        OPEN = "open", "مفتوح"
+        RESOLVED = "resolved", "انحلّ"
+
+    merchant = models.ForeignKey(ApiToken, on_delete=models.CASCADE, related_name="+")
+    profile = models.ForeignKey(CustomerProfile, on_delete=models.CASCADE, related_name="objections")
+    conversation = models.ForeignKey(Conversation, on_delete=models.CASCADE, related_name="objections")
+    type = models.CharField(max_length=16)  # price|competitor_price|trust|quality|fit|shipping|timing|other
+    sku = models.CharField(max_length=64, blank=True, default="")
+    text = models.CharField(max_length=200, blank=True, default="")
+    status = models.CharField(max_length=10, choices=Status.choices, default=Status.OPEN)
+    raised_turn = models.PositiveIntegerField(default=0)
+    resolved_turn = models.PositiveIntegerField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+
+class TurnTrace(models.Model):
+    """سجل قرارات كل دور: شو فهم المحلّل، شو تغيّر بالذاكرة، قيود، تدقيق المخرجات،
+    وكم استدعاء LLM — حتى نقدر نفسّر أي رد (ولماذا انعرض/ما انعرض شي)."""
+
+    merchant = models.ForeignKey(ApiToken, on_delete=models.CASCADE, related_name="+")
+    conversation = models.ForeignKey(Conversation, on_delete=models.CASCADE, related_name="traces")
+    turn = models.PositiveIntegerField()
+    engine = models.CharField(max_length=4, default="v2")
+    analyzer = models.JSONField(default=dict, blank=True)
+    memory_changes = models.JSONField(default=dict, blank=True)
+    constraints = models.JSONField(default=dict, blank=True)
+    guard = models.JSONField(default=dict, blank=True)
+    llm_calls = models.PositiveSmallIntegerField(default=0)
+    latency_ms = models.PositiveIntegerField(default=0)
+    models_used = models.JSONField(default=dict, blank=True)
+    error = models.CharField(max_length=200, blank=True, default="")
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        indexes = [models.Index(fields=["merchant", "created_at"])]

@@ -166,6 +166,13 @@ GROQ_MODEL = os.environ.get("GROQ_MODEL", "llama-3.3-70b-versatile")
 
 KIEAI_API_KEY = os.environ.get("KIEAI_API_KEY", "").strip()
 
+# محلّل الذاكرة (v2): فاضي = نفس مزوّد وموديل الدردشة. تقدر تحط موديل أرخص/أسرع له.
+ANALYZER_PROVIDER = os.environ.get("ANALYZER_PROVIDER", "").strip()
+ANALYZER_MODEL = os.environ.get("ANALYZER_MODEL", "").strip()
+# عمر توكنات الهوية (v2): الجلسة تتجدد مع كل دور؛ الاحتفاظ الفعلي بالبيانات = profile_retention_days.
+V2_SESSION_TTL_SECONDS = int(os.environ.get("V2_SESSION_TTL_SECONDS", str(24 * 3600)))
+V2_SHOPPER_TTL_SECONDS = int(os.environ.get("V2_SHOPPER_TTL_SECONDS", str(180 * 24 * 3600)))
+
 # توكن التاجر الوهمي يلي بيعرض متجر الديمو (/demo/) — متجر تجريبي منفرجي فيه
 # ويدجت الشات كأنه مركّب على متجر حقيقي. فاضي = صفحات /demo/ بترجع 404.
 DEMO_STORE_KEY = os.environ.get("DEMO_STORE_KEY", "").strip()

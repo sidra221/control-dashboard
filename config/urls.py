@@ -1,7 +1,7 @@
 from django.contrib import admin
 from django.urls import include, path
 
-from apitokens import demo_views
+from apitokens import demo_views, widget_v2_views
 from apitokens import salla_webhooks, shopify_webhooks, widget_views, zid_views, zid_webhooks
 
 admin.site.site_header = "Control — kie.ai Tokens"
@@ -15,6 +15,11 @@ urlpatterns = [
     path("widget/tryon/", widget_views.tryon, name="widget-tryon"),
     path("widget/event/", widget_views.event, name="widget-event"),
     path("widget/page-product/", widget_views.page_product, name="widget-page-product"),
+    path("widget/v2/bootstrap/", widget_v2_views.bootstrap, name="widget-v2-bootstrap"),
+    path("widget/v2/session/", widget_v2_views.session, name="widget-v2-session"),
+    path("widget/v2/chat/", widget_v2_views.chat, name="widget-v2-chat"),
+    path("widget/v2/memory/", widget_v2_views.memory_view, name="widget-v2-memory"),
+    path("widget/v2/forget/", widget_v2_views.forget, name="widget-v2-forget"),
     path("widget/salla-key/<str:store_id>/", widget_views.salla_store_key, name="widget-salla-key"),
     path("widget/zid-key/", widget_views.zid_store_key, name="widget-zid-key"),
     path(

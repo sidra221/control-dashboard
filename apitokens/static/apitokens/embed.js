@@ -52,32 +52,140 @@
     return /[\u0600-\u06FF]/.test(lastUser) || !lastUser ? "ar" : "en";
   }
 
+  // ---- v2: ذاكرة بالسيرفر ----
+  // هوية الزبون = توكنات موقّعة من السيرفر بنخزّنها بالمتصفح (localStorage). السيرفر هو يلي
+  // بيحتفظ بالمحادثة والتفضيلات؛ الودجت بيرسل آخر رسالة بس (مش التاريخ). تنقّل أو ريفرش =
+  // bootstrap بيرجّع المحادثة والكروت. لو التاجر على v1 بيشتغل الودجت متل قبل بالضبط.
+  var V2 = false;
+  var returningVisitor = false;
+  var v2Key = "ctl_w2_" + String(STORE_KEY).slice(0, 16);
+  var memState = {};
+  function loadV2State() {
+    try {
+      return JSON.parse(window.localStorage.getItem(v2Key) || "{}") || {};
+    } catch (e) {
+      return memState; // التخزين محجوب (وضع خاص...): بنكمل بالذاكرة لحد ما يسكر الصفحة
+    }
+  }
+  function saveV2State() {
+    try {
+      window.localStorage.setItem(v2Key, JSON.stringify(v2state));
+    } catch (e) {}
+  }
+  var v2state = loadV2State();
+  memState = v2state;
+  if (v2state.session_id) SESSION_ID = v2state.session_id;
+
+  function applyTokens(data) {
+    if (!data) return;
+    var changed = false;
+    ["session_token", "shopper_token", "session_id"].forEach(function (k) {
+      if (data[k] && v2state[k] !== data[k]) {
+        v2state[k] = data[k];
+        changed = true;
+      }
+    });
+    if (data.session_id && data.session_id !== SESSION_ID) {
+      SESSION_ID = data.session_id;
+      cartTagged = false; // وسم السلة لازم يرجع بالمحادثة الجديدة (ربط الطلب بالمحادثة)
+    }
+    if (changed) saveV2State();
+  }
+
+  function postJSON(path, body, extraHeaders) {
+    var headers = { "Content-Type": "application/json", "X-Api-Token": STORE_KEY };
+    if (extraHeaders) for (var k in extraHeaders) headers[k] = extraHeaders[k];
+    return fetch(API_BASE + path, { method: "POST", headers: headers, body: JSON.stringify(body) }).then(function (r) {
+      return r.json();
+    });
+  }
+
+  function ensureSession() {
+    if (v2state.session_token) return Promise.resolve();
+    return postJSON("/widget/v2/session/", {
+      session_token: v2state.session_token || null,
+      shopper_token: v2state.shopper_token || null,
+      page_url: window.location.href,
+    }).then(function (data) {
+      if (!data || !data.ok) throw new Error((data && data.error) || "session_failed");
+      applyTokens(data);
+    });
+  }
+
+  function newMsgId() {
+    var raw = window.crypto && crypto.randomUUID ? crypto.randomUUID() : String(Date.now()) + Math.random();
+    return raw.replace(/[^A-Za-z0-9_-]/g, "").slice(0, 40);
+  }
+  var failedSend = null; // نفس الرسالة بعد انقطاع = نفس المعرّف (السيرفر ما بيكرّرها)
+
+  function chatV2(text) {
+    var id = failedSend && failedSend.text === text ? failedSend.id : newMsgId();
+    failedSend = { text: text, id: id };
+    return postJSON("/widget/v2/chat/", {
+      message: text,
+      client_msg_id: id,
+      session_token: v2state.session_token || null,
+      shopper_token: v2state.shopper_token || null,
+      page_url: window.location.href,
+    }).then(function (data) {
+      applyTokens(data);
+      if (data && data.ok) failedSend = null;
+      return data;
+    });
+  }
+
   // لو الزبون فاتح صفحة منتج من الكتالوج، منفتح المحادثة على هالمنتج نفسه.
   var pageProduct = null;
-  var pageProductReady = fetch(API_BASE + "/widget/page-product/", {
-    method: "POST",
-    headers: { "Content-Type": "application/json", "X-Api-Token": STORE_KEY },
-    body: JSON.stringify({ page_url: window.location.href }),
+  function v1PageProduct() {
+    return fetch(API_BASE + "/widget/page-product/", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-Api-Token": STORE_KEY },
+      body: JSON.stringify({ page_url: window.location.href }),
+    })
+      .then(function (r) {
+        return r.json();
+      })
+      .then(function (data) {
+        if (data && data.ok && data.product) pageProduct = data.product;
+      })
+      .catch(function () {});
+  }
+  var pageProductReady = postJSON("/widget/v2/bootstrap/", {
+    session_token: v2state.session_token || null,
+    shopper_token: v2state.shopper_token || null,
+    page_url: window.location.href,
   })
-    .then(function (r) {
-      return r.json();
-    })
     .then(function (data) {
-      if (data && data.ok && data.product) pageProduct = data.product;
+      if (data && data.ok && data.engine === "v2") {
+        V2 = true;
+        returningVisitor = !!data.returning;
+        applyTokens(data);
+        if (data.page_product) pageProduct = data.page_product;
+        restoreConversation(data.messages || []);
+        return;
+      }
+      return v1PageProduct();
     })
-    .catch(function () {});
+    .catch(function () {
+      return v1PageProduct();
+    });
 
   function shortTitle(title) {
     return title.length > 40 ? title.slice(0, 38) + "…" : title;
   }
 
-  function sendEvent(type, cartId) {
-    fetch(API_BASE + "/widget/event/", {
-      method: "POST",
-      headers: { "Content-Type": "application/json", "X-Api-Token": STORE_KEY },
-      body: JSON.stringify({ type: type, session_id: SESSION_ID, cart_id: cartId ? String(cartId) : "" }),
-      keepalive: true,
-    }).catch(function () {});
+  function sendEvent(type, cartId, sku) {
+    var go = function () {
+      var headers = { "Content-Type": "application/json", "X-Api-Token": STORE_KEY };
+      if (V2 && v2state.session_token) headers["X-Session-Token"] = v2state.session_token;
+      return fetch(API_BASE + "/widget/event/", {
+        method: "POST",
+        headers: headers,
+        body: JSON.stringify({ type: type, session_id: SESSION_ID, cart_id: cartId ? String(cartId) : "", sku: sku || "" }),
+        keepalive: true,
+      });
+    };
+    (V2 ? ensureSession() : Promise.resolve()).then(go).catch(function () {});
   }
 
   // رقم سلة الزبون بالمنصة — منه منعرف إذا الطلب إجا من هالمحادثة.
@@ -97,23 +205,23 @@
     return null;
   }
 
-  function trackEvent(type) {
+  function trackEvent(type, sku) {
     // ممكن ترجّع قيمة أو Promise حسب نسخة مكتبة المنصة.
     try {
       var pending = platformCartId();
       if (pending === null) {
-        sendEvent(type);
+        sendEvent(type, "", sku);
         return;
       }
       Promise.resolve(pending)
         .then(function (cartId) {
-          sendEvent(type, cartId);
+          sendEvent(type, cartId, sku);
         })
         .catch(function () {
-          sendEvent(type);
+          sendEvent(type, "", sku);
         });
     } catch (e) {
-      sendEvent(type);
+      sendEvent(type, "", sku);
     }
   }
 
@@ -299,6 +407,7 @@
     }
     nudge.classList.remove("open");
     panel.classList.add("open");
+    setPanelFlag(true);
     if (isFirstOpen) {
       // منستنى جواب صفحة المنتج شوي بس، حتى ما يتأخر الترحيب لو السيرفر بطيء.
       var welcomed = false;
@@ -307,8 +416,10 @@
         welcomed = true;
         if (!pageProduct) {
           addBotMessage(
-            "هلا والله! 👋 وصلت للمكان الصح — قل لي وش في بالك، وأدلّك على أحلى خيار. وإذا تبي، " +
-              "تقدر بعد تشوف شكل القطعة عليك قبل لا تقرر 😊"
+            returningVisitor
+              ? "يا هلا فيك من جديد! 👋 كمّلنا من وين وقفنا — قل لي وش تبي وأنا حاضر 😊"
+              : "هلا والله! 👋 وصلت للمكان الصح — قل لي وش في بالك، وأدلّك على أحلى خيار. وإذا تبي، " +
+                  "تقدر بعد تشوف شكل القطعة عليك قبل لا تقرر 😊"
           );
           return;
         }
@@ -329,6 +440,7 @@
   bubble.addEventListener("click", function () {
     if (panel.classList.contains("open")) {
       panel.classList.remove("open");
+      setPanelFlag(false);
     } else {
       openPanel();
     }
@@ -336,7 +448,40 @@
   nudge.addEventListener("click", openPanel);
   closeBtn.addEventListener("click", function () {
     panel.classList.remove("open");
+    setPanelFlag(false);
   });
+
+  // المحادثة المفتوحة بتضل مفتوحة لما الزبون ينتقل لصفحة تانية بنفس التبويب.
+  function setPanelFlag(open) {
+    try {
+      if (open) window.sessionStorage.setItem(v2Key + "_open", "1");
+      else window.sessionStorage.removeItem(v2Key + "_open");
+    } catch (e) {}
+  }
+  function panelWasOpen() {
+    try {
+      return window.sessionStorage.getItem(v2Key + "_open") === "1";
+    } catch (e) {
+      return false;
+    }
+  }
+
+  function restoreConversation(msgs) {
+    if (!msgs.length) return;
+    hasEngaged = true; // ما نعيد الترحيب ولا التنبيهات
+    msgs.forEach(function (m) {
+      if (m.role === "user") {
+        addUserMessage(m.content);
+        history.push({ role: "user", content: m.content });
+      } else {
+        addBotMessage(m.content, null, true);
+        history.push({ role: "assistant", content: m.content });
+        (m.cards || []).forEach(addRecommendationCard);
+        if (m.discount_offer) addDiscountMessage(m.discount_offer);
+      }
+    });
+    if (panelWasOpen()) openPanel();
+  }
 
   // أول تنبيه بعد ثواني من فتح الصفحة، وبعدها كل 15 ثانية لحد ما يفتح الزبون المحادثة.
   function showNudge() {
@@ -379,12 +524,12 @@
   var reduceMotion =
     window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 
-  function addBotMessage(text, onDone) {
+  function addBotMessage(text, onDone, instant) {
     var el = document.createElement("div");
     el.className = "msg bot";
     msgsEl.appendChild(el);
     var chars = Array.from(text);
-    if (reduceMotion || chars.length === 0) {
+    if (instant || reduceMotion || chars.length === 0) {
       el.textContent = text;
       scrollToBottom();
       if (onDone) onDone();
@@ -452,7 +597,7 @@
         controlCart().add({ product_id: rec.product_id, quantity: 1, size: sizeBySku[rec.sku] || "" })
       )
         .then(function () {
-          trackEvent("add_to_cart");
+          trackEvent("add_to_cart", rec.sku);
           var go = document.createElement("a");
           go.className = "buy";
           go.href = controlCart().url || "#";
@@ -547,7 +692,7 @@
         })
           .then(function (r) {
             if (!r.ok) throw new Error("add_failed");
-            trackEvent("add_to_cart");
+            trackEvent("add_to_cart", rec.sku);
             var go = document.createElement("a");
             go.className = "buy";
             go.href = "/cart";
@@ -571,7 +716,7 @@
         sallaAddBtn.disabled = true;
         Promise.resolve(window.salla.cart.addItem({ id: Number(rec.product_id), quantity: 1 }))
           .then(function () {
-            trackEvent("add_to_cart");
+            trackEvent("add_to_cart", rec.sku);
             var go = document.createElement("a");
             go.className = "buy";
             go.href = (window.salla.url && window.salla.url.get && window.salla.url.get("cart")) || "/cart";
@@ -595,7 +740,7 @@
           : window.zid.store.cart.addProduct({ productId: rec.product_id, quantity: 1 });
         Promise.resolve(adding)
           .then(function () {
-            trackEvent("add_to_cart");
+            trackEvent("add_to_cart", rec.sku);
             var go = document.createElement("a");
             go.className = "buy";
             go.href = "/cart/view";
@@ -617,7 +762,7 @@
       buyLink.textContent = labels.buy;
       buyLink.addEventListener("click", function () {
         tagShopifyCart();
-        trackEvent("buy_click");
+        trackEvent("buy_click", rec.sku);
       });
       card.appendChild(buyLink);
     }
@@ -662,6 +807,9 @@
     photo_too_large: "الصورة كبيرة مرّة، جرّب صورة أصغر (أقل من 8 ميغا).",
     rate_limited: "طلباتك كثيرة بوقت قصير، جرّب بعد شوي 🙏",
     rate_limit_unavailable: "فيه ضغط على المساعد الذكي الحين، جرّب بعد شوي 🙏",
+    turn_in_progress: "لحظة، للحين أرد على رسالتك اللي قبل 🙏",
+    session_required: "رجّع حمّل الصفحة وجرّب مرة ثانية 🙏",
+    engine_not_enabled: "رجّع حمّل الصفحة وجرّب مرة ثانية 🙏",
   };
 
   function friendlyError(code) {
@@ -688,23 +836,28 @@
     inputEl.value = "";
     addUserMessage(text);
     history.push({ role: "user", content: text });
-    tagShopifyCart();
 
     sendBtn.disabled = true;
     var typingEl = addTyping();
 
-    fetch(API_BASE + "/widget/chat/", {
-      method: "POST",
-      headers: { "Content-Type": "application/json", "X-Api-Token": STORE_KEY },
-      body: JSON.stringify({
-        messages: historyWindow(),
-        session_id: SESSION_ID,
-        shown_skus: shownSkus,
-        page_url: window.location.href,
-      }),
-    })
-      .then(function (r) {
-        return r.json();
+    // v2: الجلسة لازم تكون موجودة قبل وسم السلة (ربط الطلب بنفس رقم المحادثة بالسيرفر)،
+    // والسيرفر عندو التاريخ — منرسل آخر رسالة بس. v1: متل قبل بالضبط (التاريخ من المتصفح).
+    (V2 ? ensureSession() : Promise.resolve())
+      .then(function () {
+        tagShopifyCart();
+        if (V2) return chatV2(text);
+        return fetch(API_BASE + "/widget/chat/", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", "X-Api-Token": STORE_KEY },
+          body: JSON.stringify({
+            messages: historyWindow(),
+            session_id: SESSION_ID,
+            shown_skus: shownSkus,
+            page_url: window.location.href,
+          }),
+        }).then(function (r) {
+          return r.json();
+        });
       })
       .then(function (data) {
         typingEl.remove();
@@ -771,13 +924,15 @@
     var form = new FormData();
     form.append("sku", sku);
     form.append("photo", photo);
-    form.append("session_id", SESSION_ID);
 
-    fetch(API_BASE + "/widget/tryon/", {
-      method: "POST",
-      headers: { "X-Api-Token": STORE_KEY },
-      body: form,
-    })
+    // v2: التجربة بتكلّف صور حقيقية، فبتحتاج جلسة موقّعة (مش مفتاح الودجت العلني بس).
+    (V2 ? ensureSession() : Promise.resolve())
+      .then(function () {
+        form.append("session_id", SESSION_ID);
+        var headers = { "X-Api-Token": STORE_KEY };
+        if (V2 && v2state.session_token) headers["X-Session-Token"] = v2state.session_token;
+        return fetch(API_BASE + "/widget/tryon/", { method: "POST", headers: headers, body: form });
+      })
       .then(function (r) {
         return r.json();
       })
@@ -804,6 +959,18 @@
   });
   // واجهة بسيطة للمتجر: زر "اعرف مقاسك" مثلاً بيفتح المحادثة وبيبعت رسالة جاهزة.
   window.ControlWidget = {
+    // "انسَني": بيمسح كل اللي بنتذكره عن الزبون عند هالمتجر (للمتجر يربطها بزر/صفحة خصوصية).
+    forget: function () {
+      return postJSON("/widget/v2/forget/", { shopper_token: v2state.shopper_token || null }).then(function (data) {
+        v2state = {};
+        memState = v2state;
+        try {
+          window.localStorage.removeItem(v2Key);
+          window.sessionStorage.removeItem(v2Key + "_open");
+        } catch (e) {}
+        return !!(data && data.ok);
+      });
+    },
     open: function (message) {
       if (!panel.classList.contains("open")) openPanel();
       if (!message) return;

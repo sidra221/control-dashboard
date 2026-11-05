@@ -252,25 +252,40 @@ def _loads(raw):
     return value if isinstance(value, dict) else {}
 
 
-def get_provider():
-    provider = (settings.LLM_PROVIDER or "anthropic").strip().lower()
-    if provider == "anthropic":
+def _build_provider(name):
+    if name == "anthropic":
         return AnthropicProvider(settings.ANTHROPIC_API_KEY, settings.ANTHROPIC_MODEL)
-    if provider == "openai":
+    if name == "openai":
         return OpenAIProvider(
             settings.OPENAI_API_KEY,
             settings.OPENAI_MODEL,
             reasoning_effort=settings.OPENAI_REASONING_EFFORT,
         )
-    if provider == "gemini":
+    if name == "gemini":
         return GeminiProvider(settings.GEMINI_API_KEY, settings.GEMINI_MODEL)
-    if provider == "groq":
+    if name == "groq":
         return OpenAIProvider(
             settings.GROQ_API_KEY,
             settings.GROQ_MODEL,
             base_url="https://api.groq.com/openai/v1",
         )
-    raise LLMError(f"unknown_llm_provider:{provider}")
+    raise LLMError(f"unknown_llm_provider:{name}")
+
+
+def get_provider(role=None):
+    """role="analyzer": محلّل الذاكرة (v2) — ممكن مزوّد/موديل أرخص عبر ANALYZER_PROVIDER /
+    ANALYZER_MODEL، وإلا نفس مزوّد الدردشة."""
+    name = (settings.LLM_PROVIDER or "anthropic").strip().lower()
+    if role == "analyzer":
+        name = (getattr(settings, "ANALYZER_PROVIDER", "") or name).strip().lower()
+    provider = _build_provider(name)
+    if role == "analyzer":
+        model = getattr(settings, "ANALYZER_MODEL", "")
+        if model:
+            provider.model = model
+        if isinstance(provider, OpenAIProvider) and provider.base_url is None and provider.reasoning_effort:
+            provider.reasoning_effort = "low"
+    return provider
 
 
 class AnthropicProvider:

@@ -20,7 +20,7 @@ from django.test import Client
 from django.test.utils import setup_databases, setup_test_environment, teardown_databases
 
 from apitokens.models import ApiToken, DiscountCode, Product
-from apitokens.services import ratelimit
+from apitokens.services import ratelimit, saudi
 
 ARABIC = re.compile(r"[؀-ۿ]")
 MARKDOWN = re.compile(r"\*\*|^#|^\s*[-*•]\s|^\s*\d+[.)]\s", re.MULTILINE)
@@ -266,6 +266,8 @@ class Command(BaseCommand):
         texts = [reply] + [c["reason"] for c in cards]
         if lang == "ar":
             results.append(("arabic reply", all(ARABIC.search(t) for t in texts if t)))
+            # لهجة سعودية: ولا كلمة شامية/مصرية بالرد أو الكروت (فحص حتمي، فوق حكم الموديل)
+            results.append(("no non-Saudi words", not any(saudi.find_non_saudi(t) for t in texts if t)))
         elif lang in ("en", "other", "latin"):
             results.append(("no arabic script", not any(ARABIC.search(t) for t in texts)))
         results.append(("no markdown", not MARKDOWN.search(reply)))

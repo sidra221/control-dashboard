@@ -1,6 +1,7 @@
 import json
 import logging
 import re
+from dataclasses import dataclass, field
 from datetime import timedelta
 from urllib.parse import unquote, urlsplit
 
@@ -13,7 +14,7 @@ from django.views.decorators.http import require_http_methods
 
 from .models import ApiToken, Conversation, Product, SallaConnection, SizeChart, ZidConnection
 from .services import catalog as catalog_service
-from .services import guard, kieai, llm, policy, ratelimit, sizing
+from .services import guard, kieai, llm, memory, policy, ratelimit, saudi, sizing
 
 logger = logging.getLogger(__name__)
 
@@ -252,14 +253,7 @@ says nothing about the language you reply in.
 - Reply ONLY in the language the customer is using in their latest message. Every word you write — the \
 chat reply AND the `reason` field of every tool call — must be in that language. Never mix in English \
 or any other language unless the customer does so themselves.
-- ARABIC IS ALWAYS SAUDI: whenever the customer writes Arabic — any dialect, MSA or Arabizi — write \
-EVERYTHING (chat reply and every `reason`, label and pitch) in everyday Saudi dialect, like a friendly \
-salesperson in a Saudi store: e.g. "abi/tabi", "wesh", "al-7een", "zain", "marra" (very), "7eil", \
-"wddak", "gabl la", "3shan", "tara", "kitha", "abshir", "7ayyak", "yjannin", "3ala tool", "yabi lah". \
-Say "hatha/tha" (this), not the Levantine "hal-" prefix. Never write Levantine, Egyptian or other dialects ("baddi", "shu", \
-"halla2", "ktir", "3ayez") and never drift into Modern Standard Arabic, even if the customer writes that way. \
-Every Arabic reply should sound unmistakably Saudi: use at least two everyday Saudi words in it, written \
-in Arabic letters.
+{saudi_block}
 - For other languages, match the customer's register (casual vs. formal English, Brazilian vs. \
 European Portuguese, etc.).
 - Keep each reply in ONE script and never mix Arabic and Latin letters inside it. If they write Arabic \
@@ -504,11 +498,15 @@ def _process_tool_calls(
     return recommendations[:MAX_RECOMMENDATIONS_PER_TURN], discount_offer, blocked_reason
 
 
-def _apply_budget(recommendations, budget_ceiling):
-    # يحافظ على ميزانية الزبون لو ذكرها صراحة: بيشيل أي توصية فوق السقف،
-    # إلا إذا هيك رح يصفّي كل التوصيات — ساعتها منفضّل نضل مع خيار وحد
-    # (ولو فوق الميزانية شوي) عن ما نرجّع رد فاضي بالكامل للزبون.
-    if budget_ceiling is not None and len(recommendations) > 1:
+def _apply_budget(recommendations, budget_ceiling, strict=False, exempt=()):
+    # v1: بيشيل التوصيات فوق السقف من قائمة متعددة، وما بيفضّي القائمة كلها.
+    # strict (v2): السقف صريح من الزبون (ذاكرة) — أي كرت فوقه بيطلع، حتى لو واحد،
+    # إلا اللي طلبه الزبون صراحة.
+    if budget_ceiling is None:
+        return recommendations
+    if strict:
+        return [r for r in recommendations if float(r["price"]) <= budget_ceiling or r["sku"] in exempt]
+    if len(recommendations) > 1:
         within_budget = [r for r in recommendations if float(r["price"]) <= budget_ceiling]
         if within_budget:
             return within_budget
@@ -524,9 +522,28 @@ def _script_mismatch(customer_text, reply_text):
     return customer_arabic != reply_arabic
 
 
+NEGATION_TOKENS = frozenset(
+    {"ما", "مو", "مب", "لا", "مش", "ماني", "not", "no", "never", "don't", "dont", "didn't", "won't", "cant", "can't"}
+)
+CLAUSE_BREAK = re.compile(r"[,.!?؟،;:\n]")
+
+
 def _has_purchase_intent(text):
+    """علامات نية الشراء، بس مع نفي: "ما أبيه" / "I don't want to buy it" مش شراء. النفي
+    لازم يكون بنفس الجملة (قبل العلامة بـ 3 كلمات)."""
     lowered = text.lower()
-    return any(marker in lowered for marker in PURCHASE_INTENT_MARKERS)
+    for marker in PURCHASE_INTENT_MARKERS:
+        start = 0
+        while True:
+            index = lowered.find(marker, start)
+            if index < 0:
+                break
+            start = index + 1
+            clause = CLAUSE_BREAK.split(lowered[:index])[-1]
+            if any(token in NEGATION_TOKENS for token in clause.split()[-3:]):
+                continue
+            return True
+    return False
 
 
 def _clean_session_id(value):
@@ -678,22 +695,86 @@ def chat(request):
     raw_shown = body.get("shown_skus") if isinstance(body.get("shown_skus"), list) else []
     shown_skus = [str(s)[:64] for s in raw_shown if isinstance(s, (str, int))][:MAX_SHOWN_SKUS]
 
+    turn = TurnInput(
+        merchant=merchant, window=clean_messages, full_messages=full_messages, session_id=session_id,
+        shown_skus=shown_skus, page_url=str(body.get("page_url") or "")[:2000],
+    )
+    payload, error = _run_turn(turn)
+    if error:
+        return _cors_response({"ok": False, "error": error[0]}, status=error[1])
+    return _cors_response(payload)
+
+
+@dataclass
+class TurnInput:
+    """مدخلات دور واحد لـ _run_turn. v1 بيعبّيها من جسم الطلب (التاريخ من العميل)،
+    وv2 من الذاكرة بالسيرفر — نفس المنطق (كتالوج، تدقيق مخرجات، بوابة خصم) للاثنين."""
+
+    merchant: object
+    window: list
+    full_messages: list
+    session_id: str
+    shown_skus: list
+    page_url: str = ""
+    # ---- v2 (كلها اختيارية؛ الافتراضي = سلوك v1 بالضبط) ----
+    memory_section: str = ""
+    page_note: object = None            # نص بديل لوصف صفحة المنتج (تنقّل وسط محادثة)
+    excluded_skus: frozenset = frozenset()   # منتجات رفضها الزبون
+    exempt_skus: frozenset = frozenset()     # طلبها الزبون صراحة هالدور ← ما بنستثنيها
+    budget_max: object = None
+    use_memory_budget: bool = False
+    strict_budget: bool = False
+    gate: object = None                 # dict لـ policy.basic_offer_gate من حالة السيرفر
+    enforce_saudi: bool = False
+    suppress_purchase_intent: bool = False
+    persist_log: bool = True
+    trace: dict = field(default_factory=dict)
+
+
+def _apply_memory_filters(products, turn, pinned_skus):
+    """القيود الصلبة قبل ما الموديل يشوف الكتالوج: المرفوض ما بيظهر له، والمنتجات
+    فوق الميزانية الصريحة كمان — إلا المثبّتة (صفحة المنتج/المعروضة/يلي سأل عنها)."""
+    if turn.excluded_skus:
+        products = [p for p in products if p.sku not in turn.excluded_skus or p.sku in turn.exempt_skus]
+    if turn.budget_max is not None and turn.strict_budget:
+        keep = set(pinned_skus) | set(turn.exempt_skus)
+        products = [p for p in products if float(p.price) <= turn.budget_max or p.sku in keep]
+    return products
+
+
+def _run_turn(turn):
+    """بيرجّع (payload, None) أو (None, (error_code, http_status))."""
+    merchant = turn.merchant
+    clean_messages = turn.window
+    full_messages = turn.full_messages
+    session_id = turn.session_id
+    shown_skus = turn.shown_skus
+    llm_calls = {"n": 0}
+
+    def call_llm(*args, **kwargs):
+        llm_calls["n"] += 1
+        return llm.chat_with_retry(*args, **kwargs)
+
     provider = llm.get_provider()
     if not provider.is_configured():
-        return _cors_response({"ok": False, "error": "assistant_not_configured"}, status=503)
+        return None, ("assistant_not_configured", 503)
 
     # المنتج يلي الزبون فاتح صفحته (المحادثة انفتحت عليه) — منثبّته بالكتالوج
     # يلي بيوصل للموديل حتى لو المتجر كبير وما طلع بالبحث الدلالي.
-    page_product = _find_page_product(merchant, str(body.get("page_url") or "")[:2000])
+    page_product = _find_page_product(merchant, turn.page_url)
     pinned_skus = shown_skus + ([page_product.sku] if page_product else [])
     products = catalog_service.select_products(merchant, clean_messages, pinned_skus)
+    products = _apply_memory_filters(products, turn, pinned_skus)
     all_codes = list(merchant.discount_codes.all())
     discount_codes = [d for d in all_codes if d.is_active]
     # البوابة بالكود (مش بالبرومبت): ما بنعرض كود قبل ما الزبون يتفاعل مع منتج، ولا
     # بنكرر عرض. لو البوابة مسكّرة الموديل ما بيشوف الكود ولا أداة الخصم أصلاً.
-    offer_allowed, gate_reason = _offer_gate(
-        merchant, session_id, clean_messages, full_messages, shown_skus, page_product, all_codes
-    )
+    if turn.gate is not None:  # v2: الحالة من السيرفر مش من العميل
+        offer_allowed, gate_reason = policy.basic_offer_gate(**turn.gate)
+    else:
+        offer_allowed, gate_reason = _offer_gate(
+            merchant, session_id, clean_messages, full_messages, shown_skus, page_product, all_codes
+        )
     if discount_codes and not offer_allowed:
         logger.info("discount_gate_closed merchant=%s reason=%s", merchant.pk, gate_reason)
     offerable_codes = discount_codes if offer_allowed else []
@@ -722,7 +803,9 @@ def chat(request):
             "\nProducts already shown in this conversation (don't show them again unless the "
             "customer wants to buy one): " + ", ".join(shown_skus) + "\n"
         )
-    if page_product:
+    if page_product and turn.page_note is not None:
+        shown_section += turn.page_note
+    elif page_product:
         shown_section += (
             f"\nThe customer is browsing the product page of {page_product.sku} "
             f"({page_product.title}), and the chat opened by showing them that product with a "
@@ -733,7 +816,10 @@ def chat(request):
             "want to buy it.\n"
         )
 
+    shown_section += turn.memory_section
+
     system_prompt = SYSTEM_PROMPT_TEMPLATE.format(
+        saudi_block=saudi.STYLE_BLOCK,
         catalog_json=json.dumps(
             catalog_service.catalog_for_prompt(products, shown_skus), ensure_ascii=False
         ),
@@ -744,14 +830,19 @@ def chat(request):
     )
 
     try:
-        result = llm.chat_with_retry(provider, system_prompt, clean_messages, tools)
+        result = call_llm(provider, system_prompt, clean_messages, tools)
     except llm.LLMError:
-        return _cors_response({"ok": False, "error": "assistant_unavailable"}, status=502)
+        return None, ("assistant_unavailable", 502)
 
     last_user_text = clean_messages[-1]["content"]
-    purchase_intent = _has_purchase_intent(last_user_text)
+    purchase_intent = (not turn.suppress_purchase_intent) and _has_purchase_intent(last_user_text)
     # منتج سبق وانعرض ما منعيد كرته — إلا لما الزبون بدو يشتريه (الكرت فيه زر الشراء).
-    blocked_skus = () if purchase_intent else shown_skus
+    # ما بنعيد كرت معروض ولا منتج مرفوض — إلا لما الزبون يطلبه صراحة هالدور (exempt_skus).
+    blocked_skus = tuple(
+        sku
+        for sku in tuple(() if purchase_intent else shown_skus) + tuple(turn.excluded_skus)
+        if sku not in turn.exempt_skus
+    )
 
     # بعض الموديلات أحياناً بتذكر منتج أو كود خصم بالنص العادي بدل ما تستخدم
     # الأداة المناسبة، رغم تعليمات واضحة بالبرومبت — هاد بيمنع ظهور كارت
@@ -789,7 +880,7 @@ def chat(request):
             forced_messages = clean_messages + (
                 [{"role": "assistant", "content": original_reply_text}] if original_reply_text else []
             )
-            forced_result = llm.chat_with_retry(
+            forced_result = call_llm(
                 provider,
                 system_prompt + (
                     "\n\nThe customer's latest message is: "
@@ -813,8 +904,8 @@ def chat(request):
     )
     reply_text = result.reply_text
 
-    budget_ceiling = _extract_budget_ceiling(clean_messages)
-    recommendations = _apply_budget(recommendations, budget_ceiling)
+    budget_ceiling = turn.budget_max if turn.use_memory_budget else _extract_budget_ceiling(clean_messages)
+    recommendations = _apply_budget(recommendations, budget_ceiling, strict=turn.strict_budget, exempt=turn.exempt_skus)
 
     size_advice = _size_advice(
         result.tool_calls, merchant, products, page_product, shown_skus, lang,
@@ -838,7 +929,7 @@ def chat(request):
             "that exact language and script (Saudi dialect if it's Arabic) — including every tool `reason`."
         )
         try:
-            corrected = llm.chat_with_retry(provider, corrected_system_prompt, clean_messages, tools)
+            corrected = call_llm(provider, corrected_system_prompt, clean_messages, tools)
             new_recs, new_offer, new_blocked_reason = _process_tool_calls(
                 corrected.tool_calls, products, offerable_codes, lang, blocked_skus, merchant.currency
             )
@@ -847,7 +938,7 @@ def chat(request):
             if new_reply and not _script_mismatch(last_user_text, new_reply):
                 blocked_reason = new_blocked_reason
                 reply_text = new_reply
-                recommendations = _apply_budget(new_recs, budget_ceiling) or recommendations
+                recommendations = _apply_budget(new_recs, budget_ceiling, strict=turn.strict_budget, exempt=turn.exempt_skus) or recommendations
                 discount_offer = new_offer or discount_offer
         except llm.LLMError:
             pass
@@ -871,23 +962,25 @@ def chat(request):
             customer_texts=[m["content"] for m in full_messages if m["role"] == "user"],
         )
 
+    check_dialect = turn.enforce_saudi and lang == "ar"
     ctx = grounding(discount_offer, recommendations)
-    violations = _response_violations(reply_text, recommendations, ctx)
+    violations = _response_violations(reply_text, recommendations, ctx, check_dialect)
     if violations:
         logger.warning(
             "output_guard merchant=%s stage=first kinds=%s", merchant.pk, guard.kinds(violations)
         )
+        turn.trace["guard_first"] = guard.kinds(violations)
         try:
-            regen = llm.chat_with_retry(
+            regen = call_llm(
                 provider,
-                system_prompt + guard.CORRECTION_TEXT.format(kinds=", ".join(guard.kinds(violations))),
+                system_prompt + _correction_text(violations),
                 clean_messages,
                 tools,
             )
             r_recs, r_offer, r_blocked = _process_tool_calls(
                 regen.tool_calls, products, offerable_codes, lang, blocked_skus, merchant.currency
             )
-            r_recs = _apply_budget(r_recs, budget_ceiling)
+            r_recs = _apply_budget(r_recs, budget_ceiling, strict=turn.strict_budget, exempt=turn.exempt_skus)
             r_size = _size_advice(regen.tool_calls, merchant, products, page_product, shown_skus, lang)
             r_reply = regen.reply_text or _fallback_reply(
                 r_recs, purchase_intent, r_blocked, r_offer, r_size, regen.tool_calls, lang
@@ -895,41 +988,73 @@ def chat(request):
             recommendations, discount_offer, size_advice = r_recs, r_offer, r_size
             reply_text = _compose_reply(r_reply, r_offer, r_size, lang)
             ctx = grounding(discount_offer, recommendations)
-            violations = _response_violations(reply_text, recommendations, ctx)
+            violations = _response_violations(reply_text, recommendations, ctx, check_dialect)
         except llm.LLMError:
             pass  # منكمل للحذف الحتمي بدل ما نفشّل الطلب
-    if violations:
+    promo_left = [v for v in violations if v.kind != DIALECT]
+    if promo_left:
         logger.warning(
-            "output_guard merchant=%s stage=strip kinds=%s", merchant.pk, guard.kinds(violations)
+            "output_guard merchant=%s stage=strip kinds=%s", merchant.pk, guard.kinds(promo_left)
         )
+        turn.trace["guard_strip"] = guard.kinds(promo_left)
         reply_text = guard.strip_violations(reply_text, ctx) or guard.SAFE_REPLY[lang]
         for rec in recommendations:
             rec["reason"] = guard.strip_violations(rec["reason"], ctx)
             if guard.find_violations(rec["tryon_button_label"], ctx):
                 rec["tryon_button_label"] = TRYON_BUTTON_LABELS[lang]["self"]
+    if check_dialect and any(v.kind == DIALECT for v in violations):
+        # الموديل رجع بكلمات شامية/مصرية حتى بعد إعادة المحاولة: استبدال حتمي للمعروف منها.
+        logger.warning("saudi_dialect_substituted merchant=%s words=%s", merchant.pk,
+                       sorted({v.snippet for v in violations if v.kind == DIALECT}))
+        turn.trace["dialect_substituted"] = sorted({v.snippet for v in violations if v.kind == DIALECT})
+        reply_text = saudi.to_saudi(reply_text)
+        for rec in recommendations:
+            rec["reason"] = saudi.to_saudi(rec["reason"])
+            rec["tryon_button_label"] = saudi.to_saudi(rec["tryon_button_label"])
 
-    _log_conversation(merchant, session_id, full_messages, reply_text, recommendations, discount_offer)
+    if turn.persist_log:
+        _log_conversation(merchant, session_id, full_messages, reply_text, recommendations, discount_offer)
 
-    return _cors_response(
-        {
-            "ok": True,
-            "reply": reply_text,
-            "recommendation": recommendations[0] if recommendations else None,
-            "recommendations": recommendations,
-            "discount_offer": discount_offer,
-            "size_advice": {k: v for k, v in size_advice.items() if k != "text"} if size_advice else None,
-        }
-    )
+    turn.trace["llm_calls"] = llm_calls["n"]
+    turn.trace["budget_ceiling"] = budget_ceiling
+    return {
+        "ok": True,
+        "reply": reply_text,
+        "recommendation": recommendations[0] if recommendations else None,
+        "recommendations": recommendations,
+        "discount_offer": discount_offer,
+        "size_advice": {k: v for k, v in size_advice.items() if k != "text"} if size_advice else None,
+    }, None
 
 
-def _response_violations(reply_text, recommendations, ctx):
+DIALECT = "dialect"
+
+
+def _response_violations(reply_text, recommendations, ctx, check_dialect=False):
     texts = [reply_text]
     for rec in recommendations:
         texts.extend([rec.get("reason", ""), rec.get("tryon_button_label", "")])
     found = []
     for text in texts:
         found.extend(guard.find_violations(text, ctx))
+        if check_dialect:
+            found.extend(guard.Violation(DIALECT, word) for word in saudi.find_non_saudi(text))
     return found
+
+
+def _correction_text(violations):
+    text = ""
+    promo = sorted({v.kind for v in violations if v.kind != DIALECT})
+    if promo:
+        text += guard.CORRECTION_TEXT.format(kinds=", ".join(promo))
+    words = sorted({v.snippet for v in violations if v.kind == DIALECT})
+    if words:
+        text += (
+            "\n\nCORRECTION — your previous reply used words that are not Saudi (" + ", ".join(words)
+            + "). Rewrite it in natural everyday Saudi, exactly as a Saudi shop assistant would say it "
+            "(see the SAUDI ARABIC rules above), keeping the same meaning, products and tool calls."
+        )
+    return text
 
 
 def _compose_reply(reply_text, discount_offer, size_advice, lang):
@@ -1054,10 +1179,20 @@ def event(request):
     if not isinstance(body, dict):
         return _cors_response({"ok": False, "error": "invalid_json"}, status=400)
     field = WIDGET_EVENTS.get(body.get("type"))
-    session_id = _clean_session_id(body.get("session_id"))
+    v2_ctx = None
+    if merchant.engine == "v2":
+        # v2: الحدث بيحتاج جلسة موقّعة (مفتاح الودجت العلني لحاله ما بيكفي لتلويث قياس البيع)
+        v2_ctx = memory.session_from_token(merchant, request.headers.get("X-Session-Token", ""))
+        if v2_ctx is None:
+            return _cors_response({"ok": False, "error": "session_required"}, status=401)
+        session_id = v2_ctx.conversation.session_id
+    else:
+        session_id = _clean_session_id(body.get("session_id"))
     if not field or not session_id:
         return _cors_response({"ok": False, "error": "invalid_event"}, status=400)
-    conversation = Conversation.objects.filter(merchant=merchant, session_id=session_id).first()
+    conversation = v2_ctx.conversation if v2_ctx else (
+        Conversation.objects.filter(merchant=merchant, session_id=session_id).first()
+    )
     if conversation is not None:
         setattr(conversation, field, getattr(conversation, field) + 1)
         update_fields = [field, "updated_at"]
@@ -1066,6 +1201,9 @@ def event(request):
             conversation.platform_cart_id = cart_id
             update_fields.append("platform_cart_id")
         conversation.save(update_fields=update_fields)
+        sku = str(body.get("sku") or "").strip()[:64]
+        if v2_ctx and sku:
+            memory.record_product_event(v2_ctx, "buy_click" if field == "buy_clicks" else "add_to_cart", sku)
     return _cors_response({"ok": True})
 
 
@@ -1255,6 +1393,13 @@ def tryon(request):
     if not merchant.is_active:
         return _cors_response({"ok": False, "error": "token_disabled"}, status=403)
 
+    # v2: التجربة بتكلّف صور حقيقية — لازم جلسة موقّعة، مش مفتاح الودجت العلني بس.
+    v2_ctx = None
+    if merchant.engine == "v2":
+        v2_ctx = memory.session_from_token(merchant, request.headers.get("X-Session-Token", ""))
+        if v2_ctx is None:
+            return _cors_response({"ok": False, "error": "session_required"}, status=401)
+
     product = Product.objects.filter(merchant=merchant, sku=sku).first()
     if product is None:
         return _cors_response({"ok": False, "error": "product_not_found"}, status=404)
@@ -1282,12 +1427,18 @@ def tryon(request):
             return _cors_response({"ok": False, "error": str(exc)}, status=502)
         raise
 
-    session_id = _clean_session_id(request.POST.get("session_id"))
-    if session_id:
-        conversation = Conversation.objects.filter(merchant=merchant, session_id=session_id).first()
-        if conversation is not None:
-            conversation.tryons += 1
-            conversation.save(update_fields=["tryons", "updated_at"])
+    if v2_ctx is not None:
+        conversation = v2_ctx.conversation
+    else:
+        session_id = _clean_session_id(request.POST.get("session_id"))
+        conversation = (
+            Conversation.objects.filter(merchant=merchant, session_id=session_id).first() if session_id else None
+        )
+    if conversation is not None:
+        conversation.tryons += 1
+        conversation.save(update_fields=["tryons", "updated_at"])
+    if v2_ctx is not None:
+        memory.record_product_event(v2_ctx, "tried_on", product.sku)  # المساعد بيعرف إنه جرّب القطعة
 
     return _cors_response(
         {

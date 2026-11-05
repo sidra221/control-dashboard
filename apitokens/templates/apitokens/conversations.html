@@ -27,14 +27,14 @@
       <details class="convo">
         <summary>
           <span>{{ c.updated_at|date:"Y-m-d H:i" }}</span>
-          <span>{{ c.messages|length }} {{ T.messages_count_suffix }}</span>
+          <span>{{ c.transcript|length }} {{ T.messages_count_suffix }}</span>
           {% if c.recommended_skus %}<span class="badge active">{{ c.recommended_skus|length }} {{ T.products_shown_suffix }}</span>{% endif %}
           {% if c.discount_code %}<span class="badge">🎁 {{ c.discount_code }}</span>{% endif %}
           {% if c.add_to_carts or c.buy_clicks %}<span class="badge">🛒 {{ c.add_to_carts|add:c.buy_clicks }}</span>{% endif %}
           {% if c.order_id %}<span class="badge active">✓ {{ c.order_total }} {{ c.order_currency }}</span>{% endif %}
         </summary>
         <div class="thread">
-          {% for m in c.messages %}
+          {% for m in c.transcript %}
             <div class="m {{ m.role }}">{{ m.content }}</div>
           {% endfor %}
         </div>

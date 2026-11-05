@@ -88,6 +88,7 @@
           <th></th>
           <th></th>
           <th>{{ T.th_consume }}</th>
+          <th>{{ T.th_engine }}</th>
           <th></th>
         </tr>
       </thead>
@@ -146,6 +147,16 @@
               <small>{% if t.legacy_consume_enabled %}{{ T.legacy_consume_on }}{% else %}{{ T.legacy_consume_off }}{% endif %}
                 {% if t.legacy_consume_last_used_at %}· {{ T.legacy_last_used }}{{ t.legacy_consume_last_used_at|date:"Y-m-d H:i" }}{% endif %}</small>
               <button type="submit" class="btn-toggle">{% if t.legacy_consume_enabled %}{{ T.btn_legacy_disable }}{% else %}{{ T.btn_legacy_enable }}{% endif %}</button>
+            </form>
+          </td>
+          <td>
+            <form method="post" action="{% url 'apitokens:dashboard' %}">
+              {% csrf_token %}
+              <input type="hidden" name="action" value="set_engine">
+              <input type="hidden" name="token_pk" value="{{ t.pk }}">
+              <input type="hidden" name="engine" value="{% if t.engine == 'v2' %}v1{% else %}v2{% endif %}">
+              <small>{% if t.engine == 'v2' %}{{ T.engine_v2 }}{% else %}{{ T.engine_v1 }}{% endif %}</small>
+              <button type="submit" class="btn-toggle">{% if t.engine == 'v2' %}{{ T.btn_engine_to_v1 }}{% else %}{{ T.btn_engine_to_v2 }}{% endif %}</button>
             </form>
           </td>
           <td>

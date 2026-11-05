@@ -26,6 +26,6 @@ RATE_LIMITS = {
     rule: (10**9, 60)
     for rule in (
         "chat_ip", "chat_ip_hour", "chat_token", "tryon_ip", "tryon_token",
-        "event_ip", "pageproduct_ip", "consume_ip", "consume_token",
+        "event_ip", "pageproduct_ip", "memory_ip", "consume_ip", "consume_token",
     )
 }
