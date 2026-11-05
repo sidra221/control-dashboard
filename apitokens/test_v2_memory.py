@@ -151,6 +151,8 @@ class V2Base(TestCase):
         self.red = mk("RED", "Red Summer Dress", "120.00")
         self.shirt = mk("SHIRT", "Blue Shirt", "90.00", category="shirts")
         self.brain = Brain()
+        # اختبارات المرحلة 1 مكتوبة لمسار البائع القديم (استدعاء واحد)؛ مسار الحلقة له اختباراته.
+        self.enterContext(override_settings(V2_SELLER_MODE="legacy", V2_SPECULATIVE=False))
         patches = [
             patch("apitokens.services.llm.chat_with_retry", side_effect=self.brain),
             patch("apitokens.services.llm.get_provider", return_value=FakeProvider()),

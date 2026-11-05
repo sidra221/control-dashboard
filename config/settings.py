@@ -169,6 +169,11 @@ KIEAI_API_KEY = os.environ.get("KIEAI_API_KEY", "").strip()
 # محلّل الذاكرة (v2): فاضي = نفس مزوّد وموديل الدردشة. تقدر تحط موديل أرخص/أسرع له.
 ANALYZER_PROVIDER = os.environ.get("ANALYZER_PROVIDER", "").strip()
 ANALYZER_MODEL = os.environ.get("ANALYZER_MODEL", "").strip()
+# مسار البائع بمحرّك v2: "loop" (الافتراضي) = حلقة أدوات بنتائج راجعة للموديل + توصيات ببيانات الكتالوج
+# + مراحل بيع وسياسة خصم بالكود؛ "legacy" = مسار المرحلة 1 (استدعاء واحد) — للرجوع السريع عند أي مشكلة.
+V2_SELLER_MODE = os.environ.get("V2_SELLER_MODE", "loop").strip().lower()
+# تشغيل المحلّل والبائع بالتوازي (speculative) وإعادة البائع بس لو التحليل غيّر الخطة. 0 = تتابعي.
+V2_SPECULATIVE = os.environ.get("V2_SPECULATIVE", "1") == "1"
 # عمر توكنات الهوية (v2): الجلسة تتجدد مع كل دور؛ الاحتفاظ الفعلي بالبيانات = profile_retention_days.
 V2_SESSION_TTL_SECONDS = int(os.environ.get("V2_SESSION_TTL_SECONDS", str(24 * 3600)))
 V2_SHOPPER_TTL_SECONDS = int(os.environ.get("V2_SHOPPER_TTL_SECONDS", str(180 * 24 * 3600)))
