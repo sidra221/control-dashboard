@@ -498,6 +498,12 @@ class ToolTests(SellerBase):
         self.assertEqual(results[1]["violations"], ["budget"])
         self.assertEqual(out.recommendations, [])
 
+    def test_hold_cards_refuses_to_show_a_product_before_they_ask(self):
+        script = Script(S(GOOD_REPLY, show("GREEN")), S("قل لي وش تبي؟"))
+        out = self.run_seller(script, self.make_input(strategy=Strategy(hold_cards=True)))
+        self.assertEqual(script.tool_results(1)[0]["status"], "ask_first")
+        self.assertEqual(out.recommendations, [])
+
     def test_stay_sku_refuses_a_different_product_and_allows_the_same_one(self):
         locked = Strategy(stay_sku="GREEN")
         script = Script(S(GOOD_REPLY, show("RED")), S(GOOD_REPLY_2, show("GREEN")))

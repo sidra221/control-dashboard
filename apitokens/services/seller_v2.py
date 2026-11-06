@@ -411,6 +411,11 @@ class _Turn:
         product, error = self._lookup(sku)
         if error:
             return refused(error, self._ERROR_MESSAGES[error])
+        if getattr(self.inp.strategy, "hold_cards", False):
+            return refused(
+                "ask_first",
+                "The customer has not said what they want. Do not show a product. Ask what they are looking for.",
+            )
         stay = (getattr(self.inp.strategy, "stay_sku", "") or "").strip()
         if stay and sku != stay:
             return refused(

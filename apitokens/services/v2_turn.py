@@ -252,7 +252,7 @@ def _polish_reply(reply, *, lang, tried=False, budget_known=False, sale=None, of
 def _force_requested_card(out, plan, merchant, text, lang, signals):
     """الزبون طلب يشوف الموجود والرد طلع بدون كرت، وفي مرشّح فعلي: السيرفر يحط الكرت.
     وإذا النص قال «ما عندي» وهو في منتج، بنبدّل الجملة الكاذبة."""
-    if out.recommendations or understanding.wants_fresh_start(text):
+    if out.recommendations or understanding.wants_fresh_start(text) or getattr(plan.strategy, "hold_cards", False):
         return
     if (getattr(plan.strategy, "stay_sku", "") or "").strip():
         return
@@ -409,6 +409,7 @@ def _build_plan(ctx, merchant, *, validated, window, text, page_product, shown, 
         search_result=search, conversation_state=state, now=timezone.now(),
         price_now=price_now, shown_skus=frozenset(shown),
         page_sku=page_product.sku if page_product is not None else "",
+        hold_cards=page_product is None and understanding.should_ask_before_showing(text),
     )
     approved = None
     if strategy.discount.allowed and strategy.discount.code is not None:
@@ -577,6 +578,12 @@ def _process_loop(ctx, merchant, text, client_msg_id, page_url, started):
         return None, ("assistant_unavailable", 502)
     timings.setdefault("seller_ms", timings.get("early_seller_ms", 0))
     _force_requested_card(out, plan, merchant, text, lang, validated.signals if validated else {})
+    if getattr(plan.strategy, "hold_cards", False) and out.recommendations:
+        out.recommendations = []
+        if ctx.profile.gender_signal == "female":
+            out.reply = "يا هلا! قولي لي وش تبين، وأطلع لك الخيار المناسب."
+        else:
+            out.reply = "يا هلا! قل لي وش تبي، وأطلع لك الخيار المناسب."
     focus_skus = set()
     if page_product is not None:
         focus_skus.add(page_product.sku)

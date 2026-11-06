@@ -324,8 +324,14 @@ def _stay_line(sku):
             "(size, fit, try-on or buying) and show no other product.")
 
 
-def _stage_directives(stage, *, ask_slot, forbid, search_result, objections, readiness, stay_sku=None):
+def _stage_directives(stage, *, ask_slot, forbid, search_result, objections, readiness, stay_sku=None, hold_cards=False):
     d = []
+    if hold_cards:
+        d.append(
+            "The customer has not said what they want this turn. Ask ONE short question about what they are looking for. "
+            "Show no product card and do not name a specific product from the catalog."
+        )
+        return d
     if stay_sku and stage in ("discovery", "recommendation"):
         d.append(_stay_line(stay_sku))
     elif stage == "discovery":
@@ -367,7 +373,8 @@ def _stage_directives(stage, *, ask_slot, forbid, search_result, objections, rea
 
 def decide(*, stage, signals, readiness, objections, engaged_product, turn_no, shown_count, known_slots,
            questions_asked_in_conversation, requirements, discount_codes, offer_history, search_result=None,
-           conversation_state=None, now=None, price_now=False, shown_skus=frozenset(), page_sku=""):
+           conversation_state=None, now=None, price_now=False, shown_skus=frozenset(), page_sku="",
+           hold_cards=False):
     """استراتيجية الدور. دالة نقية: نفس المدخلات ← نفس المخرجات، بدون DB (كل شي بيجي جاهز).
     engaged_product = المنتج يلي عليه اهتمام حقيقي (None إذا ما في). price_now = اعتراض سعري انذكر بهالدور."""
     stage = stage if stage in contracts.STAGES else "discovery"
@@ -422,13 +429,15 @@ def decide(*, stage, signals, readiness, objections, engaged_product, turn_no, s
     stay_sku = ""
     page_sku = (page_sku or "").strip()
     holding = not alternative_first and not sig["wants_alternative"] and sig["intent"] in STAY_INTENTS
-    if holding and page_sku:
+    if hold_cards:
+        stay_sku = ""
+    elif holding and page_sku:
         stay_sku = page_sku
     elif holding and engaged_product is not None:
         stay_sku = getattr(engaged_product, "sku", None) or ""
     directives = _stage_directives(
         stage, ask_slot=ask_slot, forbid=forbid, search_result=search_result, objections=objections,
-        readiness=readiness, stay_sku=stay_sku,
+        readiness=readiness, stay_sku=stay_sku, hold_cards=hold_cards,
     )
     if stage == "closing" and ask_slot == "size":
         directives.append("If the size is not settled, ask which size they want in the same short message as the buy step.")
@@ -485,6 +494,6 @@ def decide(*, stage, signals, readiness, objections, engaged_product, turn_no, s
 
     return contracts.Strategy(
         stage=stage, readiness=readiness, directives=directives, ask_slot=ask_slot, forbid=forbid,
-        alternative_first=alternative_first, stay_sku=stay_sku, discount=verdict,
+        alternative_first=alternative_first, stay_sku=stay_sku, hold_cards=bool(hold_cards), discount=verdict,
         state_updates={"sales": {"alt_first_attempts": attempts + 1}} if alternative_first else {},
     )

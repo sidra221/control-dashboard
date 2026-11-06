@@ -905,6 +905,10 @@ class UnderstandingValidatorTests(TestCase):
         self.assertTrue(understanding.wants_fresh_start("نبدأ من الصفر"))
         self.assertFalse(understanding.wants_fresh_start("بدي قميص رجالي"))
         self.assertTrue(understanding.asks_to_see("اي ورجيني شو عندك طيب"))
+        self.assertTrue(understanding.should_ask_before_showing("مرحبا"))
+        self.assertTrue(understanding.should_ask_before_showing("بس انا ماقلتك عن شو عم دور"))
+        self.assertFalse(understanding.should_ask_before_showing("بدي قميص رجالي"))
+        self.assertFalse(understanding.should_ask_before_showing("ورجيني شو عندك"))
         self.assertTrue(understanding.denies_availability("عشان كذا ما عندي خيار بدونها"))
         self.assertFalse(understanding.denies_availability("هذا قميص رجالي موجود"))
 

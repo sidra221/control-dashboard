@@ -253,6 +253,24 @@ def wants_fresh_start(text):
     return any(phrase in hay for phrase in _FRESH_START)
 
 
+_GREETINGS = ("مرحبا", "مرحبتين", "هلا", "اهلين", "اهلا", "هاي", "hello", "hi", "السلام")
+_UNSPECIFIED = (
+    "ماقلتك", "ماقلتلك", "ماقلتي", "ما قلتلك", "ما قلتك", "ما قلتي",
+    "عن شو عم دور", "شو عم دور", "ما عم دور", "ما حددت", "ما طلبت", "ما قلت شو",
+)
+
+
+def should_ask_before_showing(text):
+    """تحية أو «ما قلت شو بدي»: نسأل قبل ما نعرض كرت. طلب صريح يشوف المنتجات ما ينحجب."""
+    if asks_to_see(text):
+        return False
+    hay = norm_text(text)
+    if any(phrase in hay for phrase in _UNSPECIFIED):
+        return True
+    words = [w for w in hay.split() if w not in ("يا", "بس", "طيب")]
+    return bool(words) and len(words) <= 3 and all(w in _GREETINGS or w in ("والله", "فيك") for w in words)
+
+
 def asks_to_see(text):
     """طلب يشوف المنتجات الموجودة، حتى لو المحلّل ما سمّى النية بحث."""
     hay = norm_text(text)

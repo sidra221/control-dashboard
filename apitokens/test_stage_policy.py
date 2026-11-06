@@ -574,6 +574,14 @@ class AlternativeFirstTests(SimpleTestCase):
         self.assertTrue(first("180"))    # 10% بالضبط
         self.assertTrue(first("170"))
 
+    def test_a_greeting_asks_what_they_want_and_shows_no_card(self):
+        s = decide(stage="discovery", signals={"intent": "chitchat"}, hold_cards=True, search_result=search(cand("SHIRT", "129")))
+        text = " ".join(s.directives)
+        self.assertIn("Show no product card", text)
+        self.assertNotIn("Show exactly ONE card", text)
+        self.assertTrue(s.hold_cards)
+        self.assertEqual(s.stay_sku, "")
+
     def test_a_real_sale_is_named_and_a_budget_is_not_invented(self):
         dress = prod("RED", "339", compare_at_price=Decimal("399"))
         s = decide(signals=HES_PRICE, engaged_product=dress, search_result=search(cand("B", "330")))
