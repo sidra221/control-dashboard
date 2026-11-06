@@ -24,6 +24,9 @@ Put them in `.env` next to `manage.py` (read by `config/settings.py`) or in the 
 | `POSTGRES_DB` `POSTGRES_USER` `POSTGRES_PASSWORD` `POSTGRES_HOST` `POSTGRES_PORT` | Setting `POSTGRES_DB` switches from SQLite to Postgres. Optional `POSTGRES_CONN_MAX_AGE` (default 60). |
 | `LLM_PROVIDER` | `anthropic`, `openai`, `gemini` or `groq`, plus that provider's `*_API_KEY` and `*_MODEL`. |
 | `OPENAI_MODEL`, `OPENAI_REASONING_EFFORT` | e.g. `gpt-6-luna` and `low`. Empty effort = not sent (needed for older models such as gpt-4o). Higher effort = slower turns. |
+| `V2_SELLER_MODE` | `loop` (default): tool-result loop, hard product constraints, sales stages, discount policy. `legacy`: the Phase 1 single-call seller. **Instant engine-level rollback without a deploy** (set it and restart). Merchant-level rollback is the dashboard Engine toggle. |
+| `V2_SPECULATIVE` | Default `0`. `1` runs the analyzer and the reply in parallel and redoes the reply when the analysis changed the plan. Measured to cost more than it saves; leave off. |
+| `ANALYZER_REASONING_EFFORT` | Unset (default) = the original behaviour (`low` when the chat model uses reasoning). An empty value sends no reasoning parameter (needed for a non-reasoning analyzer model such as `gpt-4o-mini`). Not changed for latency reasons. |
 | `ANALYZER_PROVIDER`, `ANALYZER_MODEL` | v2 memory analyzer. Empty = same provider and model as the chat. A smaller, faster model here cuts per-turn latency. |
 | `KIEAI_API_KEY` | Virtual try-on (kie.ai). |
 | `RATE_LIMIT_BACKEND` | `database` (default, uses the Postgres you already have) or `cache` (only with a shared Redis/Memcached; the check `apitokens.E002` rejects LocMem and file caches). |
@@ -102,7 +105,7 @@ gunicorn config.wsgi:application \
   customer sees an error. Keep nginx `proxy_read_timeout` above it.
 - **Concurrency** = workers x threads (here 24 simultaneous turns). Rule of thumb:
   `workers = CPU cores + 1`, threads 4 to 8. Size it from the expected number of simultaneous
-  shoppers, not total shoppers. `<!-- INTEGRATOR: fill measured p50/p95 turn latency and the concurrency this host sustained -->`
+  shoppers, not total shoppers. Measured turn latency (8-turn Saudi conversation x3, `gpt-6-luna` effort `low`, small catalog, one dev machine): p50 ≈ 4.3 s, p95 ≈ 6.8 s, two sequential LLM calls minimum (analyzer ≈ 1.8 s + reply ≈ 2.4 s). The concurrency a production host sustains was NOT measured.
 - **Database connections**: each thread can hold one, so Postgres `max_connections` must be above
   workers x threads plus cron and admin (with `POSTGRES_CONN_MAX_AGE=60`). Use pgbouncer if you scale out.
 - Run it under systemd with `Restart=always` and `EnvironmentFile=/srv/control-dashboard/.env`.
@@ -123,7 +126,7 @@ Migrations added on the v2 branch, in order:
 | `0013_remove_shopper_limits_and_demo_accounts` | **Drops** `ApiToken.tryon_limit_days`, `ApiToken.tryons_per_shopper` and the `TryOnRecord` and `DemoCustomer` tables | **No, destructive.** Back up first (`pg_dump`). Not reversible by switching engines. Skip nothing; if production already ran it (it is on master) it is a no-op. |
 | `0014_consume_key_and_rate_limit_bucket` | New `RateLimitBucket` table; `ApiToken.consume_key_hash/prefix/rotated_at`, `legacy_consume_enabled`, `legacy_consume_last_used_at`. A data step sets `legacy_consume_enabled=True` for **all existing merchants** so n8n keeps working after the deploy | Yes (new columns / table) |
 | `0015_v2_memory` | New v2 tables (`CustomerProfile`, `Message`, `PreferenceFact`, `ProductReaction`, `Objection`, `TurnTrace`) and the `engine`, `profile_retention_days` and v2 columns on `ApiToken` / `Conversation`. Existing rows default to v1 | Yes |
-| `0016_*` | Added by the engine work after this document was written. `<!-- INTEGRATOR: confirm the 0016 file name and that it is additive (no RemoveField / DeleteModel / data loss) before deploy -->` | To confirm |
+| `0016_discountcode_validity_dates` | Two optional columns on `DiscountCode`: `starts_at`, `expires_at` (empty = no limit). Existing codes keep working unchanged | Yes (verified: AddField only) |
 
 Procedure: `pg_dump` -> `migrate` on a copy first if the data is valuable -> `migrate` on
 production -> restart gunicorn. New columns have defaults, so old and new code can run against
@@ -256,12 +259,11 @@ Also watch: gunicorn worker timeouts (`WORKER TIMEOUT`), Postgres connections, d
 
 ## 9. Live evaluation before each rollout
 
-These commands are written by another work stream; the options below are the intended CLI,
-confirm with `--help`. They call real LLM APIs and need the production-like environment keys.
+These commands exist in the repo (`--help` on each). They call real LLM APIs and need the production-like environment keys.
 
 ```bash
 # quality: scripted Saudi-Arabic scenarios against the real provider
-python manage.py eval_v2 [--only NAME[,NAME]] [--judge] [--out eval_v2.json]
+python manage.py eval_v2 [--only NAME[,NAME]] [--list] [--provider P --model M --effort E] [--judge] [--out eval_v2.json] [--transcripts]
 
 # latency / cost: repeated turns, comparable runs
 python manage.py bench_v2 [--runs N] [--out bench_<label>.json] [--label before]
@@ -275,7 +277,7 @@ python manage.py kieai_live_check --person /path/to/person.jpg \
 - `eval_v2 --judge` adds an LLM judge score (extra cost). `--only` runs a subset.
 - Run `bench_v2` before and after any model / `OPENAI_REASONING_EFFORT` / `ANALYZER_MODEL`
   change and compare.
-- `kieai_live_check` generates a real image; without `--confirm-cost` it must refuse to run.
+- `kieai_live_check` generates a real image; without `--confirm-cost` it refuses to run (tested). **It has NOT been run against the real kie.ai yet: it needs the owner's approval of the spend (1 paid image, 2 with `--end-to-end`).**
   `--end-to-end` also exercises the consume-credit and widget path.
 - Record results here: `<!-- INTEGRATOR: fill eval_v2 pass rate, judge averages, bench p50/p95 latency, cost per turn, date and model -->`
 
@@ -299,4 +301,4 @@ python manage.py kieai_live_check --person /path/to/person.jpg \
   `docs/PRIVACY_AND_CONSENT.md`, section 5).
 - **Arabic dialect enforcement** targets known non-Saudi words; it is a safety net, not a
   guarantee, and applies to Arabic replies only.
-- Latency numbers: `<!-- INTEGRATOR: fill measured latency (analyzer, reply, total) per provider/model -->`
+- Latency: see the gunicorn section for the one measurement we have (OpenAI `gpt-6-luna`); other providers/models were not measured.

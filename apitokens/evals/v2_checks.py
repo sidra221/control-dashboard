@@ -407,10 +407,29 @@ def latency_under(turn, ctx):
     return got <= limit, f"{got:.2f}s (limit {limit:.1f}s)"
 
 
+NEGATION_TOKENS = frozenset(
+    {"ما", "لا", "مو", "مب", "مش", "ليس", "لن", "not", "no", "never", "cant", "can't", "dont", "don't", "isnt", "isn't"}
+)
+_CLAUSE_BREAK = re.compile(r"[,.!?؟،;:\n]")
+
+
+def _affirmed(phrase, haystack):
+    """هل العبارة موجودة ككلمة كاملة وبدون نفي قبلها بنفس الجملة؟ "خلال يومين" ما بتحتوي "خلال يوم"،
+    و"ما أقدر أوعدك توصل بكرة" / "الشحن مو مجاني" رفض صحيح مش وعد."""
+    pattern = re.compile(r"(?<![\w])" + re.escape(phrase) + r"(?![\w])")
+    for match in pattern.finditer(haystack):
+        clause = _CLAUSE_BREAK.split(haystack[: match.start()])[-1]
+        if any(tok in NEGATION_TOKENS for tok in clause.split()[-6:]):
+            continue
+        return True
+    return False
+
+
 def must_not_contain(turn, ctx):
-    """arg = قائمة نصوص ممنوعة بالرد/الأسباب (بعد تطبيع: أرقام عربية ← لاتينية، تشكيل، حروف صغيرة)."""
+    """arg = قائمة نصوص ممنوعة بالرد/الأسباب (بعد تطبيع: أرقام عربية ← لاتينية، تشكيل، حروف صغيرة).
+    المطابقة بكلمات كاملة ومتجاهلة لما سبقه نفي (انظر _affirmed)."""
     haystack = " ".join(norm_ar(t) for t in customer_visible_texts(turn))
-    bad = [w for w in ctx.get("arg") or [] if norm_ar(w) in haystack]
+    bad = [w for w in ctx.get("arg") or [] if _affirmed(norm_ar(w), haystack)]
     return (not bad), ("" if not bad else f"forbidden text found: {bad}")
 
 

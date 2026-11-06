@@ -1230,3 +1230,22 @@ class BenchFailureExitTests(EvalCase):
                 report = json.load(fh)
         self.assertTrue(all(not t["ok"] for t in report["runs"][0]["turns"]))
         self.assertIn("failed", out.getvalue())
+
+
+class MustNotContainWholeWordTests(TestCase):
+    """أخطاء فحص ظهرت بالتقييم الحي: "خلال يومين" ≠ "خلال يوم"، والرفض الصريح مش وعد."""
+
+    def check(self, reply, words):
+        from .evals import v2_checks
+
+        return v2_checks.must_not_contain({"reply": reply, "cards": []}, {"arg": words})[0]
+
+    def test_whole_words_only(self):
+        self.assertTrue(self.check("التوصيل خلال يومين إلى ٤ أيام عمل", ["خلال يوم"]))
+        self.assertFalse(self.check("بيوصل خلال يوم واحد", ["خلال يوم"]))
+
+    def test_a_refusal_or_correction_is_not_a_promise(self):
+        self.assertTrue(self.check("ما أقدر أوعدك إنها توصل بكرة", ["بكرة", "بكره"]))
+        self.assertTrue(self.check("لا، الشحن مو مجاني فوق ٥٠٠ ريال", ["مجاني"]))
+        self.assertFalse(self.check("بيوصلك بكرة", ["بكرة"]))
+        self.assertFalse(self.check("الشحن مجاني لك", ["مجاني"]))

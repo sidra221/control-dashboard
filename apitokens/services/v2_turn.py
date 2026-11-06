@@ -271,6 +271,16 @@ def _build_plan(ctx, merchant, *, validated, window, text, page_product, shown, 
         if fact.key in ("occasion", "style", "material", "brand") and fact.polarity == "like" and fact.source == "explicit":
             query_bits.append(fact.value)
     search = recommend.search(products, requirements, query=" ".join(query_bits), limit=8, shown_skus=shown)
+    engaged = _engaged_product(ctx, page_product, merchant)
+    price_signal = (
+        any(o.type in ("price", "competitor_price") for o in objections)
+        or signals.get("hesitation_reason") == "price"
+        or bool(signals.get("wants_alternative"))
+    )
+    if price_signal and engaged is not None:
+        # "فيه أرخص؟": الأرخص من منتجه أولاً (بالأرخص فالأرخص)، مش بالصلة النصية — وإلا البائع ما بيشوف أرخص قطعة.
+        base = engaged.price
+        search.candidates.sort(key=lambda c: (c.product.price >= base, c.product.price, c.product.sku))
 
     known_slots = set()
     for fact in facts:
@@ -283,7 +293,7 @@ def _build_plan(ctx, merchant, *, validated, window, text, page_product, shown, 
     strategy = policy.decide(
         stage=stage, signals=signals, readiness=readiness,
         objections=[(o.type, o.sku) for o in objections],
-        engaged_product=_engaged_product(ctx, page_product, merchant), turn_no=turn_no,
+        engaged_product=engaged, turn_no=turn_no,
         shown_count=shown_count, known_slots=known_slots,
         questions_asked_in_conversation=assistant_questions, requirements=requirements,
         discount_codes=list(merchant.discount_codes.all()), offer_history=memory.offer_history(ctx.profile, conversation),
@@ -314,7 +324,7 @@ def _needs_search(validated, analyzer_ok):
 
 
 def _run_seller(ctx, merchant, plan, *, window, lang, shown, page_product, page_note, customer_texts,
-                allow_search=True):
+                allow_search=True, reshow=frozenset()):
     from . import seller_v2
 
     return seller_v2.run_seller(
@@ -323,9 +333,15 @@ def _run_seller(ctx, merchant, plan, *, window, lang, shown, page_product, page_
             strategy=plan.strategy, requirements=plan.requirements, prefetched=plan.search,
             shown_skus=list(shown), page_product=page_product, page_note=page_note or "",
             store_info=merchant.store_info, currency=merchant.currency, approved_offer=plan.approved_offer,
-            customer_texts=customer_texts, allow_search=allow_search,
+            customer_texts=customer_texts, allow_search=allow_search, reshow_skus=frozenset(reshow),
         )
     )
+
+
+def _reshow(validated, hidden_before):
+    """منتجات كانت مخفية (مرفوضة) والزبون طلبها صراحة هالدور ← بنعيد عرض كرتها."""
+    asked = {r["sku"] for r in (validated.reactions if validated else []) if r["type"] in ("asked", "liked")}
+    return asked & set(hidden_before)
 
 
 def _merge_state(state, updates):
@@ -386,7 +402,11 @@ def _process_loop(ctx, merchant, text, client_msg_id, page_url, started):
             + (" (OPENED AFTER the assistant's last message)" if opened_after else " (already open during the assistant's last message)")
         )
     memory_lines = memory.memory_lines_for_analyzer(ctx, before_constraints)
-    product_lines = "\n".join(f"{sku} — {title} — {price}" for sku, (title, price) in refs.items())
+    hidden_before = set(before_constraints.excluded)
+    product_lines = "\n".join(
+        f"{sku} — {title} — {price}" + (" [REJECTED earlier by the customer, hidden]" if sku in hidden_before else "")
+        for sku, (title, price) in refs.items()
+    )
     analyzer_provider = llm.get_provider(role="analyzer")
     worth = _worth_analyzing(text)
 
@@ -432,7 +452,10 @@ def _process_loop(ctx, merchant, text, client_msg_id, page_url, started):
             raise early_error
         else:
             t0 = time.monotonic()
-            out = _run_seller(ctx, merchant, plan, allow_search=_needs_search(validated, raw is not None), **kw)
+            out = _run_seller(
+                ctx, merchant, plan, allow_search=_needs_search(validated, raw is not None),
+                reshow=_reshow(validated, hidden_before), **kw,
+            )
             timings["seller_ms"] = int((time.monotonic() - t0) * 1000)
     except llm.LLMError:
         # المزوّد واقع: رسالة الزبون محفوظة، والإعادة بنفس client_msg_id بتكمل بدون تكرار.

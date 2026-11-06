@@ -945,7 +945,7 @@ class LiveBrowserRegressionTests(V2Base):
         self.brain.turn(res("تمام."))
         self.w.say("وش رايك")
         later = self.brain.seller_calls[-1]["system"]
-        self.assertIn("she is a woman: address her in the feminine form", later)
+        self.assertIn("she is a woman. Address her in the FEMININE form in EVERY sentence", later)
         self.assertNotIn("has NOT revealed", later)
 
     def test_the_page_product_counts_as_shown_on_the_first_turn_so_its_card_is_not_duplicated(self):

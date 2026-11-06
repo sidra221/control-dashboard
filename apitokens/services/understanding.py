@@ -149,6 +149,9 @@ liked / rejected (+ reason_type) / asked (a question about it) / neutral. Copy i
 Resolving "it / this / هذا": if a product is marked "OPENED AFTER the assistant's last message", the customer \
 is reacting to THAT page; if the page was already open, or none is marked, use the product the assistant \
 just showed; if the customer names a product, use the named one.
+- Products tagged "[REJECTED earlier by the customer, hidden]" are hidden from the customer. If the customer asks to see one \
+again, bring it back, or says they changed their mind about it (even without naming it: "the first one", "the one I \
+rejected", "الأول اللي رفضته"), emit reaction type "asked" (or "liked") for that sku: an explicit request lifts the rejection.
 - Rejection reasons: price (too expensive), style (not my taste), color, fit (size/cut), quality, \
 material, other, unknown.
 - objections: price, competitor_price (found it cheaper elsewhere), trust, quality, fit, shipping, \

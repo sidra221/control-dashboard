@@ -266,6 +266,75 @@ class HardRequirementsTests(EngineBase):
 # مراحل البيع
 # ======================================================================
 
+class LiveEvalRegressionTests(EngineBase):
+    """إخفاقات ظهرت بالتقييم الحي (eval_v2) مع الموديل الحقيقي."""
+
+    def test_a_question_about_an_already_shown_product_does_not_reshow_its_card(self):
+        self.brain.turn(step("هذا يناسب العرس.", show("RED_M", "فستان أحمر حلو")), analysis={})
+        self.w.say("وريني")
+        self.brain.turn(step("", show("RED_M")), step("الشحن ٢٥ ريال، وكرته فوق، اضغط زر الشراء منه."),
+                        analysis={"reaction": {"sku": "RED_M", "type": "asked"}, "signals": sig("interested", "ask_info")})
+        data = self.w.say("كم الشحن له؟")
+        self.assertEqual(data["recommendations"], [])      # كرته أصلاً على الشاشة
+
+    def test_a_rejected_product_the_customer_asks_back_is_marked_for_the_analyzer_and_reshown(self):
+        self.brain.turn(step("هذا يناسب العرس.", show("RED_M", "فستان أحمر حلو")), analysis={})
+        self.w.say("وريني")
+        self.brain.turn(step("طيب."), analysis={"reaction": {"sku": "RED_M", "type": "rejected", "reason_type": "style",
+                                                              "evidence": "ما أبيه"}})
+        self.w.say("لا ما أبيه")
+        # يرجع يطلبه "من غير ما يسمّيه": المحلّل لازم يشوف إنه مخفي ومرفوض سابقاً
+        self.brain.turn(step("أبشر، هذا هو.", show("RED_M", "الفستان اللي طلبته")),
+                        analysis={"reaction": {"sku": "RED_M", "type": "asked"}})
+        data = self.w.say("ارجع وريني الأول اللي رفضته")
+        analyzer_input = self.brain.analyzer_calls[-1]["messages"][0]["content"]
+        self.assertIn("RED_M — فستان أحمر مورّد — 150.00 [REJECTED earlier by the customer, hidden]", analyzer_input)
+        self.assertIn("rejected products (hidden from the customer; if they ask for one again emit reaction 'asked'): "
+                      "RED_M — فستان أحمر مورّد", analyzer_input)
+        self.assertEqual([c["sku"] for c in data["recommendations"]], ["RED_M"])
+
+
+class QualityFixesFromLiveEvalTests(EngineBase):
+    def test_female_customers_get_a_consistent_feminine_instruction_with_examples(self):
+        self.brain.turn(step("أبشري!"), analysis={"gender": "female"})
+        self.w.say("عايزة فستان لفرح أختي")
+        self.brain.turn(step("تمام."), analysis={})
+        self.w.say("وش عندك")
+        system = self.brain.last_system
+        self.assertIn("FEMININE form in EVERY sentence", system)
+        self.assertIn("تقدرين", system)
+        self.assertNotIn("has NOT revealed", system)
+
+    def test_tryon_invitation_is_not_repeated_once_given(self):
+        self.brain.turn(step("هذا يناسبك، ارفع صورتك وجرّبه عليك.", show("RED_M", "فستان أحمر حلو، جرّبه بصورتك")), analysis={})
+        self.w.say("أبي فستان")
+        self.brain.turn(step("تمام."), analysis={})
+        self.w.say("وش رايك")
+        self.assertIn("do NOT invite again", self.brain.last_system)
+
+    def test_no_tryon_line_before_any_invitation(self):
+        self.brain.turn(step("يا هلا! وش تدور عليه؟"), analysis={})
+        self.w.say("هلا")
+        self.brain.turn(step("تمام."), analysis={})
+        self.w.say("أبي فستان")
+        self.assertNotIn("do NOT invite again", self.brain.last_system)
+
+    def test_a_price_objection_puts_the_cheapest_alternatives_first(self):
+        self.brain.turn(step("هذا حلو.", show("BLK_M", "فستان سهرة أسود")), analysis={})
+        self.w.say("وريني فستان سهرة")
+        self.brain.turn(step("فاهمك، هذا أخف.", show("BLK_XL", "فستان أخف")),
+                        analysis={"objections": [{"type": "price", "evidence": "غالي"}],
+                                  "signals": sig("hesitant", "object", "price")})
+        self.w.say("غالي، فيه أرخص؟")
+        rows = json.loads(next(l for l in self.brain.last_system.split("CANDIDATES")[1].splitlines() if l.startswith("[{")))
+        prices = [float(r["price"]) for r in rows]
+        engaged = 280.0
+        cheaper = [p for p in prices if p < engaged]
+        self.assertTrue(cheaper)
+        self.assertEqual(prices[: len(cheaper)], sorted(cheaper))   # الأرخص أولاً، بالأرخص فالأرخص
+        self.assertTrue(all(p < engaged for p in prices[: len(cheaper)]))
+
+
 class SearchToolVisibilityEngineTests(EngineBase):
     """أداة البحث بتنخبّى بس لما تكون مش لازمة؛ زبون بدو منتجات جديدة/إضافية دايماً بيشوفها."""
 

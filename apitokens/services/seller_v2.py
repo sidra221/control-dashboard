@@ -196,8 +196,8 @@ class _Turn:
         self._products = None
         self._by_sku = None
         self.cards = []
-        # الزبون طلب منتج صراحة هالدور (exempt) ← مسموح نعيد كرته حتى لو كان معروض قبل.
-        self.shown = set(inp.shown_skus or []) - set(self.req.exempt_skus)
+        # إعادة عرض الكرت بس لمنتج كان مخفي (مرفوض) وطلبه الزبون صراحة؛ أي منتج تاني معروض = ما بنكرره.
+        self.shown = set(inp.shown_skus or []) - set(inp.reshow_skus or ())
         self.cache = {}
         self.executed = 0
         self.events = []
