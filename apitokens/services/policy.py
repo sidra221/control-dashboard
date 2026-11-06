@@ -79,7 +79,7 @@ SLOT_LABELS = {
 }
 MAX_QUESTIONS = 2
 FIRST_DISCOUNT_TURN = 3   # أول رسالة زبون ممكن يتعرض فيها كود (الأول والتاني ممنوعين)
-ALT_MIN_SAVING = Decimal("0.15")
+ALT_MIN_SAVING = Decimal("0.10")
 # نوايا ما بتطلب منتج جديد: الزبون عم يحكي عن القطعة يلي عجبته (مقاسه، سؤال عنها، "آخذه")
 STAY_INTENTS = frozenset({"accept", "buy", "ask_info", "chitchat", "other"})
 WIDE_SPREAD_RATIO = Decimal("2.5")
@@ -114,6 +114,23 @@ def _sales_state(conversation_state):
     return state if isinstance(state, dict) else {}
 
 
+def _sale_prices(product):
+    """(السعر القديم، السعر الحالي) إذا في تخفيض حقيقي بالكتالوج، وإلا None."""
+    now = _price(product)
+    if product is None or now is None:
+        return None
+    raw = getattr(product, "compare_at_price", None)
+    if raw is None:
+        return None
+    try:
+        was = Decimal(str(raw))
+    except (ArithmeticError, ValueError):
+        return None
+    if was <= now:
+        return None
+    return was, now
+
+
 def _price(product):
     try:
         return Decimal(str(product.price))
@@ -122,7 +139,7 @@ def _price(product):
 
 
 def _alt_eligible(engaged_product, requirements):
-    """شرط البديل الأرخص: >= 15% أرخص من منتج الزبون، مش منتجه، مش مرفوض، ضمن الميزانية، متوفر
+    """شرط البديل الأرخص: >= 10% أرخص من منتج الزبون، مش منتجه، مش مرفوض، ضمن الميزانية، متوفر
     (إلا إذا المتطلبات بتسمح)، وما انتساهل فيه بالفئة/المقاس/اللون/الميزانية."""
     base = _price(engaged_product)
     if base is None or base <= 0:
@@ -180,7 +197,7 @@ def cheaper_presented(engaged_product, search_result, requirements=None, shown_s
 
 
 def alternative_shown(engaged_product, shown_products):
-    """هل في بين المنتجات يلي انعرضت فعلاً هالدور بديل أرخص (>= 15%) من منتج الزبون؟"""
+    """هل في بين المنتجات يلي انعرضت فعلاً هالدور بديل أرخص (>= 10%) من منتج الزبون؟"""
     base = _price(engaged_product) if engaged_product is not None else None
     if base is None or base <= 0:
         return False
@@ -453,6 +470,17 @@ def decide(*, stage, signals, readiness, objections, engaged_product, turn_no, s
         if price_side:
             directives.append("Keep selling constructively: reframe the value with concrete catalog facts, offer a cheaper "
                               "real alternative if one exists, and reassure them; stay helpful and keep the conversation open.")
+    if price_related:
+        directives.append(
+            "Do not mention a budget, 'your budget', or any budget amount unless the customer stated one."
+        )
+        sale = _sale_prices(engaged_product)
+        if sale is not None:
+            was, now = sale
+            directives.append(
+                f"The product they find expensive is already on sale: it was {was} and it is {now} now. "
+                "Say those two catalog prices. Do not calculate a new percentage."
+            )
     directives.extend(_ALWAYS)
 
     return contracts.Strategy(

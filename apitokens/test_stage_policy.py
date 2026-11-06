@@ -566,13 +566,21 @@ class AlternativeFirstTests(SimpleTestCase):
         self.assertEqual(verdicts, [(True, "alternative_first"), (False, "ok"), (False, "ok")])
         self.assertEqual(state["other"], 1)
 
-    def test_saving_threshold_is_15_percent(self):
+    def test_saving_threshold_is_10_percent(self):
         def first(price):
             return decide(signals=HES_PRICE, search_result=search(cand("B", price))).alternative_first
-        self.assertFalse(first("180"))   # 10%
-        self.assertFalse(first("171"))   # 14.5%
-        self.assertTrue(first("170"))    # 15% بالضبط
-        self.assertTrue(first("100"))
+        self.assertFalse(first("190"))   # 5%
+        self.assertFalse(first("181"))   # 9.5%
+        self.assertTrue(first("180"))    # 10% بالضبط
+        self.assertTrue(first("170"))
+
+    def test_a_real_sale_is_named_and_a_budget_is_not_invented(self):
+        dress = prod("RED", "339", compare_at_price=Decimal("399"))
+        s = decide(signals=HES_PRICE, engaged_product=dress, search_result=search(cand("B", "330")))
+        text = " ".join(s.directives)
+        self.assertIn("was 399", text)
+        self.assertIn("339", text)
+        self.assertIn("Do not mention a budget", text)
 
     def test_same_price_or_more_expensive_is_not_an_alternative_and_the_code_comes_directly(self):
         s = decide(signals=HES_PRICE, search_result=search(cand("B", "200"), cand("C", "260")))
@@ -702,8 +710,8 @@ class AlternativeFirstTests(SimpleTestCase):
 class AlternativeShownHelperTests(SimpleTestCase):
     def test_only_a_clearly_cheaper_card_counts(self):
         base = prod("A1", "200")
-        self.assertTrue(policy.alternative_shown(base, [prod("B", "170")]))
-        self.assertFalse(policy.alternative_shown(base, [prod("B", "171")]))
+        self.assertTrue(policy.alternative_shown(base, [prod("B", "180")]))
+        self.assertFalse(policy.alternative_shown(base, [prod("B", "181")]))
         self.assertFalse(policy.alternative_shown(base, [prod("B", "300")]))
         self.assertFalse(policy.alternative_shown(base, [prod("A1", "100")]))      # نفس المنتج
         self.assertFalse(policy.alternative_shown(base, []))

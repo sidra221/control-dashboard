@@ -614,6 +614,14 @@ def build_memory_section(ctx, constraints, merchant_currency):
                 for r in rejected
             )
         )
+    tried = [r for r in latest.values() if r.reaction == "tried_on"]
+    if tried:
+        lines.append(
+            "The customer ALREADY tried these products on: "
+            + "; ".join(f'{r.sku} "{r.title}"' for r in tried[-6:])
+            + ". Do NOT invite try-on again for them and do not mention the try-on button. "
+            "If they like one, point them to its buy button."
+        )
     interested = [r for r in latest.values() if r.reaction in ("liked", "asked", "tried_on", "buy_click", "add_to_cart")]
     if interested:
         lines.append("Products the customer liked / asked about / tried: "

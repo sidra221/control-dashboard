@@ -207,6 +207,48 @@ SLOT_KEYS = {"category": "category", "occasion": "occasion", "color": "color", "
 ALT_FIRST_WARN_AFTER = 2   # بعد كم محاولة فاشلة لعرض البديل بنسجّل تحذير (مراقبة فقط، ما بيفتح الخصم)
 
 
+_TRYON_INVITE = re.compile(r"زر التجرب|تجرّ?بين|تقدر(?:ين)? تجر|ودّ?ك تجر|ارفع صور|صورتك|try it on|try-on button", re.I)
+_BUDGET_WORD = re.compile(r"ميزانيت|your budget", re.I)
+
+
+def _has_amount(text, amount):
+    plain = format(amount, "f")
+    if "." in plain:
+        plain = plain.rstrip("0").rstrip(".")
+    arabic = plain.translate(str.maketrans("0123456789", "٠١٢٣٤٥٦٧٨٩"))
+    return plain in (text or "") or arabic in (text or "")
+
+
+def _polish_reply(reply, *, lang, tried=False, budget_known=False, sale=None, offer_alternative=False):
+    """بعد البائع: ما نعيد دعوة التجربة إذا انجرّبت، وما نخترع ميزانية، ونذكر التخفيض الحقيقي."""
+    from . import guard
+
+    gender_buy = {
+        "ar": "إذا عجبك، كمّل من زر الشراء.",
+        "en": "If you like it, the buy button is there.",
+    }
+    parts = []
+    for sentence in guard.sentences(reply):
+        if tried and _TRYON_INVITE.search(sentence):
+            continue
+        if not budget_known and _BUDGET_WORD.search(sentence):
+            continue
+        parts.append(sentence.strip())
+    text = " ".join(parts).strip()
+    if tried and not text:
+        text = gender_buy.get(lang, gender_buy["en"])
+    elif tried and _TRYON_INVITE.search(reply or "") and "شراء" not in text and "buy" not in text.lower():
+        text = (text + " " + gender_buy.get(lang, gender_buy["en"])).strip()
+    if sale is not None and not offer_alternative:
+        was, now = sale
+        if not _has_amount(text, was):
+            was_txt = format(was, "f").rstrip("0").rstrip(".")
+            now_txt = format(now, "f").rstrip("0").rstrip(".")
+            fact = f"هو أصلاً نازل من {was_txt} إلى {now_txt}." if lang == "ar" else f"It is already reduced from {was_txt} to {now_txt}."
+            text = (text + " " + fact).strip()
+    return text
+
+
 def _force_requested_card(out, plan, merchant, text, lang, signals):
     """الزبون طلب يشوف الموجود والرد طلع بدون كرت، وفي مرشّح فعلي: السيرفر يحط الكرت.
     وإذا النص قال «ما عندي» وهو في منتج، بنبدّل الجملة الكاذبة."""
@@ -535,6 +577,27 @@ def _process_loop(ctx, merchant, text, client_msg_id, page_url, started):
         return None, ("assistant_unavailable", 502)
     timings.setdefault("seller_ms", timings.get("early_seller_ms", 0))
     _force_requested_card(out, plan, merchant, text, lang, validated.signals if validated else {})
+    focus_skus = set()
+    if page_product is not None:
+        focus_skus.add(page_product.sku)
+    if getattr(plan.engaged, "sku", None):
+        focus_skus.add(plan.engaged.sku)
+    tried = bool(focus_skus) and ProductReaction.objects.filter(
+        profile=ctx.profile, reaction="tried_on", sku__in=focus_skus,
+    ).exists()
+    sig = validated.signals if validated else {}
+    said_expensive = "غالي" in text or "expensive" in text.lower()
+    price_now = said_expensive or sig.get("hesitation_reason") == "price" or any(
+        o.get("type") in ("price", "competitor_price") and o.get("current", True)
+        for o in (validated.objections if validated else [])
+    )
+    sale_product = plan.engaged or page_product
+    out.reply = _polish_reply(
+        out.reply, lang=lang, tried=tried,
+        budget_known=constraints.budget_max is not None or constraints.budget_min is not None,
+        sale=policy_mod._sale_prices(sale_product) if price_now else None,
+        offer_alternative=bool(plan.strategy.alternative_first),
+    )
 
     cards = out.recommendations
     product_map = {p.sku: p for p in products if p.sku in {c["sku"] for c in cards}}

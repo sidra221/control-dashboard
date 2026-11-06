@@ -885,6 +885,25 @@ class PromptTests(SellerBase):
         _force_requested_card(chat, plan, self.merchant, "مرحبا", "ar", {"intent": "chitchat"})
         self.assertEqual(chat.recommendations, [])
 
+    def test_a_tried_product_loses_the_tryon_invite_and_a_budget_is_not_invented(self):
+        from .services.v2_turn import _polish_reply
+
+        invited = _polish_reply(
+            "إيه بجنّن! دام عجبك، تقدرين تجرّبينه عليك من زر التجربة.",
+            lang="ar", tried=True,
+        )
+        self.assertNotIn("زر التجربة", invited)
+        self.assertIn("زر الشراء", invited)
+        self.assertIn("بجنّن", invited)
+
+        no_budget = _polish_reply(
+            "سعره مو بسيط، ويمكن يخلّي الفستان أقرب لميزانيتك.",
+            lang="ar", budget_known=False, sale=(Decimal("399"), Decimal("339")),
+        )
+        self.assertNotIn("ميزاني", no_budget)
+        self.assertIn("399", no_budget)
+        self.assertIn("339", no_budget)
+
     def test_page_product_default_text(self):
         prompt = self.prompt(page_product=self.gown)
         self.assertIn("GOWN (Black Evening Gown)", prompt)
