@@ -945,7 +945,7 @@ class LiveBrowserRegressionTests(V2Base):
         first = self.brain.seller_calls[-1]["system"]
         self.assertIn("has NOT revealed their gender", first)
         self.assertIn("NEVER feminine forms", first)
-        self.brain.turn(res("أبشري!"), analysis={"gender": "female"})
+        self.brain.turn(res("أبشري!"), analysis={"gender": "female", "gender_evidence": "مقتنعة"})
         self.w.say("أنا مقتنعة بالفستان")
         self.brain.turn(res("تمام."))
         self.w.say("وش رايك")

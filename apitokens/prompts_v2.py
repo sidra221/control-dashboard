@@ -17,8 +17,10 @@ THIS_TURN_MARKER = "=== THIS TURN (dynamic data below) ==="
 STORE_INFO_MAX_CHARS = 6000
 
 NO_DISCOUNT_SENTENCE = (
-    "No discount, coupon, code, percentage, free shipping or promotion exists for this customer right now: "
-    "never mention or hint at any; keep selling with value or a cheaper real alternative."
+    "You have no discount, coupon, code, percentage, free shipping or promotion to offer this customer right now: "
+    "never offer, promise, hint at or invent any; keep selling with value or a cheaper real alternative. "
+    "If the customer asks about discounts, answer honestly in one short sentence exactly as the strategy directives say "
+    "(never an amount, percentage, code or promise about later), then keep helping."
 )
 
 
@@ -139,7 +141,19 @@ def _strategy_section(strategy):
     return "\n".join(lines)
 
 
-def _discount_section(approved_offer):
+def _discount_section(approved_offer, shared_offer=None):
+    if not approved_offer and shared_offer:
+        code = str(shared_offer.get("code", "")).strip()
+        description = str(shared_offer.get("description", "")).strip()
+        return (
+            "DISCOUNT\n"
+            f"This customer ALREADY received the store's code {code}"
+            + (f' — merchant description (quote as-is): "{description}"' if description else "")
+            + " earlier in this conversation. Do not offer it again unprompted and never offer another one. If they ask "
+            "for a bigger discount, another discount or the code again, say naturally that this code, as the merchant "
+            "describes it, is the maximum discount the store has approved; do not negotiate, do not repeat the percentage or amount they "
+            "asked for, never invent other offers, conditions or numbers."
+        )
     if not approved_offer:
         return "DISCOUNT\n" + NO_DISCOUNT_SENTENCE
     code = str(approved_offer.get("code", "")).strip()
@@ -200,7 +214,7 @@ def build_system_prompt(inp):
         static_prompt(inp.lang),
         THIS_TURN_MARKER,
         _strategy_section(inp.strategy),
-        _discount_section(inp.approved_offer),
+        _discount_section(inp.approved_offer, inp.shared_offer),
     ]
     store_info = (inp.store_info or "").strip()
     if store_info:

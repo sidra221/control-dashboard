@@ -15,6 +15,7 @@
 import dataclasses
 import json
 import logging
+import re
 import time
 from decimal import Decimal, InvalidOperation
 
@@ -456,14 +457,94 @@ class _Turn:
 
 # ------------------------------------------------------------------ التجميع النهائي
 
-def _compose(text, offer, size_advice, lang):
-    """نفس wv._compose_reply بس بفحص الكود بدون حساسية حروف (الموديل ممكن يكتبه صغير)."""
+MAX_DISCOUNT = {
+    "ar": "هذا أقصى خصم معتمد عندنا: كود {code}{description} 🎁",
+    "en": "This is the maximum discount we have approved: code {code}{description} 🎁",
+}
+NO_VALID_CODE = {"ar": "ما فيه كود خصم متاح حالياً.", "en": "There is no discount code available right now."}
+NOT_ELIGIBLE = {"ar": "ما أقدر أقدم لك خصم حالياً.", "en": "I can't offer you a discount right now."}
+KEEP_HELPING = {
+    "ar": "وأقدر أساعدك تختار القطعة الأنسب لك.", "en": "I'm happy to help you pick the best piece for you.",
+}
+
+
+def _max_discount(offer, lang):
+    description = str(offer.get("description", "") or "").strip()
+    return MAX_DISCOUNT[lang].format(code=offer["code"], description=f" ({description})" if description else "")
+
+
+def _compose(text, offer, size_advice, lang, asks=False):
+    """نفس wv._compose_reply بس بفحص الكود بدون حساسية حروف (الموديل ممكن يكتبه صغير). لو الزبون سأل عن خصم
+    والكود معتمد: الجملة بتوضّح إنه أقصى خصم معتمد (مش عرض عام)."""
     if offer and text and offer["code"].lower() not in text.lower():
-        appendix = wv.DISCOUNT_APPENDIX[lang].format(code=offer["code"], description=offer.get("description", ""))
-        text = text + "\n\n" + (appendix if offer.get("description") else appendix.replace(" ()", ""))
+        if asks:
+            text = text + "\n\n" + _max_discount(offer, lang)
+        else:
+            appendix = wv.DISCOUNT_APPENDIX[lang].format(code=offer["code"], description=offer.get("description", ""))
+            text = text + "\n\n" + (appendix if offer.get("description") else appendix.replace(" ()", ""))
     if size_advice and size_advice["text"] not in text:
         text = text + "\n\n" + size_advice["text"]
     return text
+
+
+# جمل بتنفي وجود الأكواد أصلاً ("ما عندي/فيه كود خصم"، "no discount code") — صحيحة بس لما فعلاً ما في كود صالح.
+_DENIES_CODES_EXIST = re.compile(
+    r"(?:ما|مافي|ماعندي|ماعندنا)\s*(?:في|فيه|عندي|عندنا|عندك|عندكم)?\s*(?:أي|اي)?\s*(?:كود|كوبون|عروض|عرض)"
+    r"|لا\s+(?:يوجد|توجد)|there\s+(?:is|are)\s+no\b|\bno\s+(?:discount\s+)?(?:code|coupon)s?\b|don'?t\s+have\s+(?:any\s+)?(?:discount\s+)?(?:code|coupon)",
+    re.IGNORECASE,
+)
+
+
+def _drop_denials(sentence):
+    """بيشيل بس الجمل الفرعية اللي بتنفي وجود الأكواد ("ما عندي كود خصم أقدّمه لك الحين،") وبيبقي الباقي ("بس القماش ممتاز")."""
+    parts = re.split(r"(?<=[،,;؛])\s*", sentence)
+    kept = [p for p in parts if not _DENIES_CODES_EXIST.search(guard.normalize(p))]
+    if not kept:
+        return ""
+    out = " ".join(kept).strip()
+    out = re.sub(r"^(?:بس|لكن|لاكن)\s+", "", out)
+    return out.strip("،, ")
+
+
+def _ensure_discount_answer(text, inp, offer, lang):
+    """الزبون سأل عن خصم/كود: لازم ينقال بوضوح وبصدق أي وحدة من التلات، حتى لو الموديل تهرّب أو المدقّق حذف جملته:
+    (1) ما في كود صالح، (2) في كود بس الزبون مش مؤهل حالياً (بدون كشفه ولا الإيحاء إنه مش موجود)،
+    (3) الكود المتاح (المعروض هلق أو من قبل) هو أقصى خصم معتمد. الجمل ثابتة وآمنة بالمدقّق بالتصميم."""
+    if not inp.asks_discount:
+        return text
+    empty = not text.strip() or text.strip() == guard.SAFE_REPLY[lang]
+    shared = offer or inp.shared_offer
+    if shared:
+        if shared["code"].lower() not in text.lower():
+            base = "" if empty else text + "\n\n"
+            return base + _max_discount(shared, lang)
+        return text
+    reason = inp.strategy.discount.reason
+    no_valid = reason in ("no_codes", "expired")
+    answer = NO_VALID_CODE[lang] if no_valid else NOT_ELIGIBLE[lang]
+    if empty:
+        return f"{answer} {KEEP_HELPING[lang]}"
+    sentences = guard.sentences(text)
+    if not no_valid:
+        # في كود صالح والزبون مش مؤهل بعد: ممنوع الإيحاء إنه ما في أكواد ("ما عندي كود خصم"): نشيل هالجمل ونحط الصيغة الصحيحة
+        text = " ".join(filter(None, (_drop_denials(x) for x in sentences)))
+        sentences = guard.sentences(text)
+    if any(guard.is_truthful_no_discount(guard.normalize(sentence)) for sentence in sentences):
+        return text
+    return f"{answer} {text}".strip()
+
+
+def _allowed_latin(inp, turn, codes):
+    """كلمات لاتينية مشروعة بالرد: SKU، عناوين/فئات/خيارات المنتجات، معلومات المتجر، الأكواد."""
+    words = set()
+    texts = [inp.store_info or "", " ".join(codes)]
+    for product in turn.products:
+        texts.extend([product.sku, product.title or "", getattr(product, "category", "") or ""])
+        for values in (getattr(product, "options", None) or {}).values():
+            texts.extend(str(v) for v in (values if isinstance(values, (list, tuple)) else [values]))
+    for chunk in texts:
+        words.update(w.lower() for w in re.findall(r"[A-Za-z]{4,}", chunk))
+    return words
 
 
 # كلمات شامية/مصرية ما إلها بديل بـ saudi.to_saudi — بنكمّل عليها محلياً (نفس فكرة to_saudi).
@@ -485,20 +566,28 @@ def _saudi_text(text):
     return text
 
 
-def _fix_dialect(text, cards, lang):
-    """استبدال حتمي. بيرجّع الكلمات اللي انصلّحت (للسجل)."""
+def _fix_dialect(text, cards, lang, gender=""):
+    """استبدال حتمي: كلمات غير سعودية + صيغة المخاطَب (مذكر/مؤنث) حسب اللي كشفه الزبون. بيرجّع اللي انصلّح (للسجل)."""
     found = set(saudi.find_non_saudi(text))
     for card in cards:
         found.update(saudi.find_non_saudi(card["reason"]))
         found.update(saudi.find_non_saudi(card["tryon_button_label"]))
-    if not found:
-        return text, []
-    text = _saudi_text(text) or guard.SAFE_REPLY[lang]
-    for card in cards:
-        card["reason"] = _saudi_text(card["reason"])
-        label = _saudi_text(card["tryon_button_label"])
-        card["tryon_button_label"] = label or wv.TRYON_BUTTON_LABELS[lang]["self"]
-    return text, sorted(found)
+    if found:
+        text = _saudi_text(text) or guard.SAFE_REPLY[lang]
+        for card in cards:
+            card["reason"] = _saudi_text(card["reason"])
+            label = _saudi_text(card["tryon_button_label"])
+            card["tryon_button_label"] = label or wv.TRYON_BUTTON_LABELS[lang]["self"]
+    fixed = sorted(found)
+    if lang == "ar":
+        text, changes = saudi.fix_gender(text, gender)
+        for card in cards:
+            card["reason"], more = saudi.fix_gender(card["reason"], gender)
+            changes += more
+            card["tryon_button_label"], more = saudi.fix_gender(card["tryon_button_label"], gender)
+            changes += more
+        fixed += [f"gender:{c}" for c in changes]
+    return text, fixed
 
 
 MIN_UNSHOWN_TO_HIDE_SEARCH = 2
@@ -588,9 +677,12 @@ def run_seller(inp, *, provider=None):
             cards, wv._has_purchase_intent(last_user_text), turn.blocked_reason, offer, size_advice,
             turn.size_calls, lang,
         )
+    codes = [c.code for c in merchant.discount_codes.all()]
+    allowed_latin = _allowed_latin(inp, turn, codes)
+    text, stray = saudi.strip_stray(text, last_user_text, allowed_latin)
     # شبكة اللغة بتفحص نص الموديل قبل ما نلزق عليه جمل ثابتة (كود/مقاس) بلغة الزبون.
     mismatch = wv._script_mismatch(last_user_text, text)
-    text = _compose(text, offer, size_advice, lang)
+    text = _compose(text, offer, size_advice, lang, inp.asks_discount)
 
     # كرت بسبب بحروف لغة تانية: منفضّيه (الكرت صالح بدونه، وإعادة التوليد ما بتصلّحه).
     for card in cards:
@@ -598,12 +690,11 @@ def run_seller(inp, *, provider=None):
             card["reason"] = ""
 
     # ---- شبكة اللغة + المدقّق + اللهجة: إعادة توليد وحدة كحد أقصى لكل هالطبقات مجتمعة
-    codes = [c.code for c in merchant.discount_codes.all()]
     check_dialect = lang == "ar"
 
     def grounding():
         return guard.build_context(
-            products=turn.products, merchant_codes=codes, approved_offer=offer, cards=cards,
+            products=turn.products, merchant_codes=codes, approved_offer=offer or inp.shared_offer, cards=cards,
             store_info=inp.store_info, customer_texts=inp.customer_texts,
         )
 
@@ -627,10 +718,11 @@ def run_seller(inp, *, provider=None):
             regen = llm.chat_step_with_retry(
                 provider, system_prompt + correction, transcript, tools_now, tool_choice="none"
             )
-            new_raw = (regen.text or "").strip()
+            new_raw, more_stray = saudi.strip_stray((regen.text or "").strip(), last_user_text, allowed_latin)
+            stray += more_stray
             # تصحيح لغة ما نجح ← منبقي على القديم (نفس سلوك v1)
             if new_raw and not (mismatch and wv._script_mismatch(last_user_text, new_raw)):
-                text = _compose(new_raw, offer, size_advice, lang)
+                text = _compose(new_raw, offer, size_advice, lang, inp.asks_discount)
         except llm.LLMError:
             logger.warning("seller_regen_failed merchant=%s", merchant.pk)
         regen_ms = int((_now() - regen_started) * 1000)
@@ -642,14 +734,27 @@ def run_seller(inp, *, provider=None):
         trace["guard_strip"] = guard.kinds(promo_left)
         logger.warning("output_guard merchant=%s stage=strip kinds=%s", merchant.pk, guard.kinds(promo_left))
         text = guard.strip_violations(text, ctx) or guard.SAFE_REPLY[lang]
-        text = _compose(text, offer, size_advice, lang)   # لو انشالت جملة الكود
+        text = _compose(text, offer, size_advice, lang, inp.asks_discount)   # لو انشالت جملة الكود
         for card in cards:
             card["reason"] = guard.strip_violations(card["reason"], ctx)
             if guard.find_violations(card["tryon_button_label"], ctx):
                 card["tryon_button_label"] = wv.TRYON_BUTTON_LABELS[lang]["self"]
+    for card in cards:   # الكروت كمان: سبب الكرت وزر التجربة
+        card["reason"], more = saudi.strip_stray(card["reason"], last_user_text, allowed_latin)
+        stray += more
+        card["tryon_button_label"], more = saudi.strip_stray(card["tryon_button_label"], last_user_text, allowed_latin)
+        stray += more
+    text, more = saudi.strip_stray(text, last_user_text, allowed_latin)
+    stray += more
+    if stray:
+        trace["stray_removed"] = stray
+        logger.warning("seller_stray_text_removed merchant=%s parts=%s", merchant.pk, stray)
+        if not text.strip():
+            text = guard.SAFE_REPLY[lang]
+    text = _ensure_discount_answer(text, inp, offer, lang)
     if check_dialect:
-        text, substituted = _fix_dialect(text, cards, lang)
-        text = _compose(text, offer, size_advice, lang)
+        text, substituted = _fix_dialect(text, cards, lang, inp.gender)
+        text = _compose(text, offer, size_advice, lang, inp.asks_discount)
         if substituted:
             trace["dialect_substituted"] = substituted
             logger.warning("saudi_dialect_substituted merchant=%s words=%s", merchant.pk, substituted)

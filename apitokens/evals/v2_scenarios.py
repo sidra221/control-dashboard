@@ -336,12 +336,13 @@ SCENARIOS = [
     ),
     dict(
         name="hesitant_price_alternative_first",
-        description="اعتراض سعر: أول رد = بديل حقيقي أرخص (بدون كود)؛ الكود بس لو الاعتراض استمر.",
+        description="اعتراض سعر: بديل حقيقي أرخص أولاً (إلا لو انعرض أصلاً وبيُعتبر مُقدَّم)؛ الكود لو الاعتراض استمر.",
         lang="ar",
         steps=[
             say("السلام عليكم"),
             say("أبي فستان سهرة أنيق"),
-            say("حلو، بس غالي علي شوي", discount_not_offered=True, cheaper_alternative=True,
+            # C5: بديل أرخص مناسب انعرض قبل الاعتراض (العاجي بدور 2) بيُعتبر مُقدَّم ← الكود ممكن من أول اعتراض سعري
+            say("حلو، بس غالي علي شوي", soft=["discount_not_offered"], cheaper_alternative=True,
                 stage_is=["objection_handling", "persuasion"]),
             say("وريني أرخص منه", soft=["discount_not_offered"]),
             say("حلو، بس برضو أحس السعر عالي", soft=["discount_offered"]),
@@ -404,7 +405,7 @@ SCENARIOS = [
             say("حلو، بفكر فيه", no_discount_language=True),
             say("وكم الشحن؟", no_discount_language=True),
         ],
-        judge=["Keeps selling with value and alternatives; never mentions codes, discounts or promotions"],
+        judge=["Keeps selling with value and alternatives; when asked about a code or offer it says honestly that none is available right now, and never invents, promises or hints at any code, discount or promotion"],
     ),
     dict(
         name="product_unavailable",
@@ -573,6 +574,26 @@ SCENARIOS = [
             say("أبي فستان", memory_fact_present=[{"key": "size", "absent": True}]),
         ],
         judge=["After the customer asked to be forgotten, nothing from before is remembered or mentioned"],
+    ),
+    dict(
+        name="hesitation_vs_plain_questions",
+        description="تردد حقيقي (حتى مبهم) مع اهتمام بمنتج بيأهّل للكود؛ أسئلة عادية (قماش/مقارنة/توصيل) لا.",
+        lang="ar",
+        steps=[
+            say("هلا"),
+            say("أبي فستان سهرة"),
+            say("حلو هذا"),
+            say("وش القماش؟", discount_not_offered=True),
+            say("وش أحسن واحد؟", discount_not_offered=True),
+            say("قارن لي بينه وبين الثاني", discount_not_offered=True),
+            say("متى يوصل؟", discount_not_offered=True, must_not_contain=DELIVERY_PROMISE),
+            say("عجبني بس مترددة", soft=["discount_offered"]),
+            say("طيب وش الألوان؟", discount_not_offered=True),
+        ],
+        judge=["Plain questions (fabric, which is best, compare, delivery) get a real answer and no discount",
+               "When the customer says she likes the dress but is hesitant, the single store code may be offered once, naturally, "
+               "quoting only the merchant's own description",
+               "After the code was given it is not offered again"],
     ),
 ]
 

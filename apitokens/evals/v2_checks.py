@@ -105,18 +105,21 @@ def no_invented_commerce(turn, ctx):
 
 
 def no_discount_language(turn, ctx):
-    """متجر بدون كود فعّال: ولا كلام خصم/كود بالرد. (تخفيض المنتج الحقيقي compare_at مسموح الكلام عنه
+    """متجر بدون كود فعّال: ولا كلام ترويجي عن خصم/كود بالرد (الجواب الصادق "ما في كود حالياً" مسموح). (تخفيض المنتج الحقيقي compare_at مسموح الكلام عنه
     لو الكرت المعروض عليه تخفيض فعلاً.)"""
     sale_card = any(c.get("compare_at_price") for c in turn.get("cards") or [])
     hits = []
     for text in customer_visible_texts(turn):
-        norm = guard.normalize(text)
-        code = guard.CODE_LEXICON.search(norm)
-        if code:
-            hits.append(code.group(0))
-        disc = guard.DISCOUNT_LEXICON.search(norm)
-        if disc and not sale_card:
-            hits.append(disc.group(0))
+        for sentence in guard.sentences(text):
+            norm = guard.normalize(sentence)
+            if guard.is_truthful_no_discount(norm):
+                continue   # "ما عندي كود حالياً" = جواب صادق على سؤال الزبون، مش ترويج
+            code = guard.CODE_LEXICON.search(norm)
+            if code:
+                hits.append(code.group(0))
+            disc = guard.DISCOUNT_LEXICON.search(norm)
+            if disc and not sale_card:
+                hits.append(disc.group(0))
     if turn.get("offer"):
         hits.append("discount_offer payload present")
     return (not hits), ("" if not hits else "discount language: " + ", ".join(sorted(set(hits))))

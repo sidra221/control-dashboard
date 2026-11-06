@@ -463,6 +463,14 @@ class CommerceCheckTests(SimpleTestCase):
         self.assertTrue(check(turn(reply="عليه تخفيض حقيقي", cards=[card(compare_at_price="159.00")]), {})[0])
         self.assertFalse(check(turn(reply="عليه كود", cards=[card(compare_at_price="159.00")]), {})[0])
 
+    def test_no_discount_language_allows_the_honest_no_code_answer_only(self):
+        check = v2_checks.no_discount_language
+        self.assertTrue(check(turn(reply="ما فيه كود خصم متاح حالياً، بس القماش ممتاز."), {})[0])
+        self.assertTrue(check(turn(reply="ما أقدر أقدم لك خصم حالياً."), {})[0])
+        self.assertFalse(check(turn(reply="ما في كود حالياً، بس لو اشتريت قطعتين بنخفّض لك."), {})[0])
+        self.assertFalse(check(turn(reply="ما أحلى هالخصم!"), {})[0])
+        self.assertFalse(check(turn(reply="ما فيه كود خصم حالياً", offer={"code": "SAVE10"}), {})[0])   # الكود نفسه ممنوع
+
 
 class CardCheckTests(SimpleTestCase):
     def test_no_rejected_sku(self):

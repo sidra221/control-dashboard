@@ -12,12 +12,14 @@ import time
 from concurrent.futures import ThreadPoolExecutor
 
 from django.conf import settings
+from django.db import transaction
 from django.db.models import F
 from django.utils import timezone
 
 from .. import widget_views as wv
 from ..models import Message, ProductReaction
 from . import contracts, llm, memory, understanding
+from . import policy as policy_mod
 
 # خيط واحد يكفي: المحلّل استدعاء شبكة بس (ما بيلمس القاعدة)، والبائع بيشتغل بالخيط الرئيسي.
 _ANALYZER_POOL = ThreadPoolExecutor(max_workers=4, thread_name_prefix="v2-analyzer")
@@ -202,6 +204,9 @@ CLOSE_EVENTS = ("tried_on", "buy_click", "add_to_cart")
 SLOT_KEYS = {"category": "category", "occasion": "occasion", "color": "color", "size": "size", "budget_max": "budget"}
 
 
+ALT_FIRST_WARN_AFTER = 2   # بعد كم محاولة فاشلة لعرض البديل بنسجّل تحذير (مراقبة فقط، ما بيفتح الخصم)
+
+
 @dataclasses.dataclass
 class Plan:
     """كل شي بيعتمد عليه الرد. بنبنيه قبل التحليل (speculative) وبعده؛ لو تطابقوا بنستخدم
@@ -214,6 +219,9 @@ class Plan:
     approved_offer: object
     stage: str
     readiness: str
+    engaged: object = None   # منتج الزبون؛ بيحتاجه التحقق من إنه انعرض بديل أرخص فعلاً
+    shared_offer: object = None   # كود انعرض أصلاً بهالمحادثة (تذكير بس، مش عرض جديد)
+    asks_discount: bool = False
 
     def same_as(self, other):
         def sig(p):
@@ -224,6 +232,7 @@ class Plan:
                 p.search.note,
                 p.memory_section,
                 p.approved_offer,
+                p.shared_offer,
             )
 
         return sig(self) == sig(other)
@@ -238,6 +247,16 @@ def _engaged_product(ctx, page_product, merchant):
         ).order_by("-id").first()
     )
     return merchant.products.filter(sku=last.sku).first() if last else None
+
+
+def _interested_product(ctx, merchant, signals):
+    """المنتج يلي عليه اهتمام حقيقي (للخصم): إعجاب/سؤال/تجربة/ضغطة شراء/سلة، أو "آخذه" على آخر منتج
+    انعرض. منتج الصفحة أو المُشاهَد أو المعروض لحاله ما بيعدّ."""
+    skus = memory.interest_skus(ctx.conversation, ctx.profile)
+    sku = skus[0] if skus else None
+    if sku is None and (signals or {}).get("intent") in ("buy", "accept"):
+        sku = memory.last_shown_sku(ctx.conversation, ctx.profile)
+    return merchant.products.filter(sku=sku).first() if sku else None
 
 
 def _build_plan(ctx, merchant, *, validated, window, text, page_product, shown, turn_no, products):
@@ -272,14 +291,16 @@ def _build_plan(ctx, merchant, *, validated, window, text, page_product, shown, 
             query_bits.append(fact.value)
     search = recommend.search(products, requirements, query=" ".join(query_bits), limit=8, shown_skus=shown)
     engaged = _engaged_product(ctx, page_product, merchant)
+    interested = _interested_product(ctx, merchant, signals)
+    focus = interested or engaged
     price_signal = (
         any(o.type in ("price", "competitor_price") for o in objections)
         or signals.get("hesitation_reason") == "price"
         or bool(signals.get("wants_alternative"))
     )
-    if price_signal and engaged is not None:
+    if price_signal and focus is not None:
         # "فيه أرخص؟": الأرخص من منتجه أولاً (بالأرخص فالأرخص)، مش بالصلة النصية — وإلا البائع ما بيشوف أرخص قطعة.
-        base = engaged.price
+        base = focus.price
         search.candidates.sort(key=lambda c: (c.product.price >= base, c.product.price, c.product.sku))
 
     known_slots = set()
@@ -290,21 +311,33 @@ def _build_plan(ctx, merchant, *, validated, window, text, page_product, shown, 
         1 for content in Message.objects.filter(conversation=conversation, role="assistant").values_list("content", flat=True)
         if "?" in content or "؟" in content
     )
+    # اعتراض سعري "حالي" = اقتباسه برسالة الزبون هالدور؛ اعتراض قديم أعاده المحلّل مع السياق ما بيعدّ.
+    price_now = bool(validated) and any(
+        o.get("type") in policy.PRICE_OBJECTIONS and o.get("current", True) for o in validated.objections
+    )
     strategy = policy.decide(
         stage=stage, signals=signals, readiness=readiness,
         objections=[(o.type, o.sku) for o in objections],
-        engaged_product=engaged, turn_no=turn_no,
+        engaged_product=interested, turn_no=turn_no,
         shown_count=shown_count, known_slots=known_slots,
         questions_asked_in_conversation=assistant_questions, requirements=requirements,
         discount_codes=list(merchant.discount_codes.all()), offer_history=memory.offer_history(ctx.profile, conversation),
         search_result=search, conversation_state=state, now=timezone.now(),
+        price_now=price_now, shown_skus=frozenset(shown),
     )
     approved = None
     if strategy.discount.allowed and strategy.discount.code is not None:
         approved = {"code": strategy.discount.code.code, "description": strategy.discount.code.description}
     constraints = memory.compile_constraints(ctx, merchant.currency)
     memory_section = memory.build_memory_section(ctx, constraints, merchant.currency)
-    return Plan(requirements, strategy, search, memory_section, approved, stage, readiness), constraints
+    shared = None
+    if approved is None and conversation.discount_code and signals.get("asks_discount"):
+        # عُرض كود بهالمحادثة والزبون بيسأل عن خصم هالدور: بيضل مسموح نذكره (بنفس وصف التاجر) بدون عرض جديد؛ بغير هيك ما بنعرضه للموديل.
+        code = next((d for d in merchant.discount_codes.all() if d.code == conversation.discount_code), None)
+        if code is not None:
+            shared = {"code": code.code, "description": code.description}
+    return Plan(requirements, strategy, search, memory_section, approved, stage, readiness, interested, shared,
+                bool(signals.get("asks_discount"))), constraints
 
 
 NEEDS_SEARCH_INTENTS = frozenset({"search", "compare", "reject", "browse"})
@@ -333,6 +366,7 @@ def _run_seller(ctx, merchant, plan, *, window, lang, shown, page_product, page_
             strategy=plan.strategy, requirements=plan.requirements, prefetched=plan.search,
             shown_skus=list(shown), page_product=page_product, page_note=page_note or "",
             store_info=merchant.store_info, currency=merchant.currency, approved_offer=plan.approved_offer,
+            shared_offer=plan.shared_offer, asks_discount=plan.asks_discount, gender=ctx.profile.gender_signal or "",
             customer_texts=customer_texts, allow_search=allow_search, reshow_skus=frozenset(reshow),
         )
     )
@@ -437,12 +471,13 @@ def _process_loop(ctx, merchant, text, client_msg_id, page_url, started):
         if raw is not None:
             validated = understanding.validate(
                 raw, user_texts=customer_texts, products_by_sku=products_by_sku, merchant_currency=merchant.currency,
+                current_text=text,
             )
         changes = memory.apply_validated(ctx, validated, products_by_sku, turn_no)
         sig = validated.signals or {}
         if sig.get("readiness") == "ready" or sig.get("intent") in ("buy", "accept"):
-            # قرّر يشتري: اعتراضاته المفتوحة انحلّت (المحلّل ما بيسكّرها بنفسه دايماً).
-            memory.resolve_open_objections(ctx.conversation, turn_no)
+            # قرّر يشتري: اعتراضاته القديمة انحلّت (المحلّل ما بيسكّرها بنفسه دايماً)؛ يلي قاله بهالدور ("آخذه بس غالي") بيضل مفتوح.
+            memory.resolve_open_objections(ctx.conversation, turn_no, keep_current=True)
         plan, constraints = _build_plan(ctx, merchant, validated=validated, **plan_args)
 
         reran = True
@@ -463,31 +498,46 @@ def _process_loop(ctx, merchant, text, client_msg_id, page_url, started):
         return None, ("assistant_unavailable", 502)
     timings.setdefault("seller_ms", timings.get("early_seller_ms", 0))
 
-    state = _merge_state(dict(conversation.state or {}), plan.strategy.state_updates)
-    state["stage"], state["readiness"] = plan.stage, plan.readiness
-    conversation.state = state
-    conversation.save(update_fields=["state"])
-
     cards = out.recommendations
     product_map = {p.sku: p for p in products if p.sku in {c["sku"] for c in cards}}
-    for card in cards:
-        memory.record_reaction(ctx, product_map.get(card["sku"]) or card["sku"], "shown", turn_no, title=card.get("title", ""))
-    payload = {
-        "ok": True, "reply": out.reply,
-        "recommendation": cards[0] if cards else None, "recommendations": cards,
-        "discount_offer": out.discount_offer,
-        "size_advice": {k: v for k, v in out.size_advice.items() if k != "text"} if out.size_advice else None,
-    }
-    stored = {k: payload[k] for k in ("reply", "recommendation", "recommendations", "discount_offer", "size_advice")}
-    memory.add_message(conversation, "assistant", out.reply, meta={"reply_to": client_msg_id, "response": stored})
-    skus = list(conversation.recommended_skus)
-    skus.extend(c["sku"] for c in cards if c["sku"] not in skus)
-    conversation.recommended_skus = skus
-    fields = ["recommended_skus"]
-    if out.discount_offer and not conversation.discount_code:
-        conversation.discount_code = out.discount_offer["code"]
-        fields.append("discount_code")
-    conversation.save(update_fields=fields)
+
+    # "بديل أرخص أولاً" بيتحسب بس لما بطاقته انعرضت فعلاً بالرد يلي وصل للزبون — مش لما قررنا نطلبها من الموديل
+    # (قرار سياسة، استدعاء أداة فاشل، رفض duplicate، حذف المدقّق أو عطل المزوّد ما بتعدّ). وبنحفظ العلامة
+    # بنفس المعاملة يلي بتحفظ الرد.
+    updates = plan.strategy.state_updates
+    alt_shown = bool(plan.strategy.alternative_first) and policy_mod.alternative_shown(plan.engaged, product_map.values())
+    if alt_shown:
+        updates = _merge_state(dict(updates), {"sales": {"alt_first_done": True}})
+    state = _merge_state(dict(conversation.state or {}), updates)
+    state["stage"], state["readiness"] = plan.stage, plan.readiness
+    sales_state = state.get("sales") if isinstance(state.get("sales"), dict) else {}
+    alt_attempts = sales_state.get("alt_first_attempts", 0)
+    alt_failed_repeatedly = bool(
+        plan.strategy.alternative_first and not sales_state.get("alt_first_done") and alt_attempts >= ALT_FIRST_WARN_AFTER
+    )
+    if alt_failed_repeatedly:
+        logger.warning("alt_first_not_shown merchant=%s conversation=%s attempts=%s", merchant.pk, conversation.pk, alt_attempts)
+
+    with transaction.atomic():
+        for card in cards:
+            memory.record_reaction(ctx, product_map.get(card["sku"]) or card["sku"], "shown", turn_no, title=card.get("title", ""))
+        payload = {
+            "ok": True, "reply": out.reply,
+            "recommendation": cards[0] if cards else None, "recommendations": cards,
+            "discount_offer": out.discount_offer,
+            "size_advice": {k: v for k, v in out.size_advice.items() if k != "text"} if out.size_advice else None,
+        }
+        stored = {k: payload[k] for k in ("reply", "recommendation", "recommendations", "discount_offer", "size_advice")}
+        memory.add_message(conversation, "assistant", out.reply, meta={"reply_to": client_msg_id, "response": stored})
+        skus = list(conversation.recommended_skus)
+        skus.extend(c["sku"] for c in cards if c["sku"] not in skus)
+        conversation.recommended_skus = skus
+        conversation.state = state
+        fields = ["recommended_skus", "state"]
+        if out.discount_offer and not conversation.discount_code:
+            conversation.discount_code = out.discount_offer["code"]
+            fields.append("discount_code")
+        conversation.save(update_fields=fields)
 
     total_ms = int((time.monotonic() - started) * 1000)
     timings.update({"total_ms": total_ms, "steps": out.steps, **{k: v for k, v in out.timings.items() if k != "seller_ms"}})
@@ -512,6 +562,8 @@ def _process_loop(ctx, merchant, text, client_msg_id, page_url, started):
                        "dropped": plan.search.dropped, "note": plan.search.note},
             "speculative": {"enabled": bool(speculative), "reused": speculative and not reran},
             "tool_events": out.tool_events,
+            "alt_first": {"decided": bool(plan.strategy.alternative_first), "shown": alt_shown,
+                          "attempts": alt_attempts, "repeated_failure": alt_failed_repeatedly},
         },
         guard=out.guard,
         llm_calls=(1 if worth else 0) + (out.llm_calls if not reran else (early_out.llm_calls if early_out else 0) + out.llm_calls),

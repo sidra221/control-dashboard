@@ -232,9 +232,15 @@ def search(*cands, note=""):
     return SearchResult(candidates=list(cands), exact_count=sum(1 for c in cands if c.exact), note=note)
 
 
+# إشارات المحلّل لهالدور. HES_OTHER = تردد حقيقي بدون سبب سعري ("بفكر"/"مترددة")؛ HES_PRICE = "حلو بس غالي".
+HES_OTHER = {"readiness": "hesitant", "intent": "object", "hesitation_reason": "other"}
+HES_PRICE = {"readiness": "hesitant", "intent": "object", "hesitation_reason": "price"}
+QUESTION = {"readiness": "interested", "intent": "ask_info", "hesitation_reason": ""}
+
+
 def decide(**over):
     kw = dict(
-        stage="objection_handling", signals={}, readiness="hesitant", objections=[("price", "A1")],
+        stage="objection_handling", signals=HES_OTHER, readiness="hesitant", objections=[("price", "A1")],
         engaged_product=prod(), turn_no=3, shown_count=2, known_slots=set(), questions_asked_in_conversation=0,
         requirements=Requirements(), discount_codes=[code()], offer_history=False, search_result=None,
         conversation_state=None, now=NOW,
@@ -280,6 +286,8 @@ class ValidCodesTests(SimpleTestCase):
 
 
 class DiscountTriggerTests(SimpleTestCase):
+    """القاعدة: اهتمام حقيقي بمنتج + تردد بإتمام الشراء (أي سبب) + كود صالح + دور >= 3 + مرة وحدة بالمحادثة."""
+
     def assertAllowed(self, strategy, trigger):
         v = strategy.discount
         self.assertTrue(v.allowed, (v.reason, v.rule_trace))
@@ -295,95 +303,85 @@ class DiscountTriggerTests(SimpleTestCase):
         self.assertIn("push_discount", strategy.forbid)
         self.assertEqual(v.rule_trace["denied_by"], reason)
 
-    # ---- محفّزات
-    def test_price_objection_on_engaged_product(self):
-        self.assertAllowed(decide(), "price_objection")
+    # ---- تردد حقيقي (أي سبب) + اهتمام
+    def test_real_hesitation_with_real_interest(self):
+        self.assertAllowed(decide(), "hesitation")
 
-    def test_competitor_price_objection(self):
-        self.assertAllowed(decide(objections=[("competitor_price", "A1")]), "price_objection")
-
-    def test_any_open_price_objection_even_on_another_sku(self):
-        self.assertAllowed(decide(objections=[("price", "ZZ")]), "price_objection")
-        self.assertAllowed(decide(objections=[("price", "")]), "price_objection")
-
-    def test_hesitant_readiness_with_product_shown(self):
-        self.assertAllowed(decide(objections=[], readiness="hesitant"), "hesitation")
-
-    def test_hesitation_reason_price_or_other(self):
-        for reason in ("price", "other"):
+    def test_every_hesitation_reason_qualifies_the_reason_is_not_classified(self):
+        for reason in ("price", "style", "fit", "trust", "timing", "other"):
             with self.subTest(reason):
-                self.assertAllowed(decide(objections=[], readiness="interested",
-                                          signals={"hesitation_reason": reason}), "hesitation")
+                s = decide(signals={"readiness": "hesitant", "intent": "object", "hesitation_reason": reason})
+                self.assertTrue(s.discount.allowed, s.discount.rule_trace)
 
-    def test_open_timing_objection(self):
-        self.assertAllowed(decide(objections=[("timing", "A1")], readiness="hesitant"), "hesitation")
-        self.assertAllowed(decide(objections=[("timing", "")], readiness="interested"), "hesitation")
+    def test_the_hesitant_label_alone_qualifies_when_the_reason_is_unspecified(self):
+        self.assertAllowed(decide(signals={"readiness": "hesitant", "intent": "object"}), "hesitation")
 
-    def test_hesitation_needs_a_product_shown(self):
-        s = decide(objections=[], readiness="hesitant", shown_count=0)
-        self.assertDenied(s, "no_trigger")
+    def test_a_hesitation_reason_alone_qualifies(self):
+        self.assertAllowed(decide(signals={"readiness": "interested", "intent": "other", "hesitation_reason": "timing"}),
+                           "hesitation")
 
-    def test_asks_discount_while_engaged_and_interested(self):
-        for readiness in ("interested", "hesitant"):
-            with self.subTest(readiness):
-                self.assertAllowed(decide(objections=[], readiness=readiness, stage="persuasion",
-                                          signals={"asks_discount": True, "hesitation_reason": "style" if readiness == "hesitant" else ""}),
-                                   "asked")
+    def test_price_hesitation_without_a_cheaper_alternative_is_allowed_in_the_same_turn(self):
+        self.assertAllowed(decide(signals=HES_PRICE), "price_hesitation")
 
-    def test_asks_discount_when_customer_reacted_positively(self):
-        s = decide(objections=[], readiness="browsing", stage="recommendation",
-                   signals={"asks_discount": True, "intent": "accept"})
-        self.assertAllowed(s, "asked")
+    def test_an_expensive_remark_in_the_same_turn_as_buying_intent_is_hesitation(self):
+        # "تمام آخذه بس غالي": ready/accept + اعتراض سعري بنفس الدور
+        s = decide(signals={"readiness": "ready", "intent": "accept"}, readiness="ready", stage="closing", price_now=True)
+        self.assertAllowed(s, "price_hesitation")
 
-    def test_bare_asks_discount_while_browsing_is_denied(self):
-        s = decide(objections=[], readiness="browsing", stage="recommendation", signals={"asks_discount": True})
-        self.assertDenied(s, "no_trigger")
+    # ---- مش تردد
+    def test_a_decided_buyer_without_hesitation_gets_nothing(self):
+        for signals in ({"readiness": "ready", "intent": "buy"}, {"readiness": "ready", "intent": "accept"}):
+            with self.subTest(signals):
+                s = decide(signals=signals, readiness="ready", stage="closing", objections=[])
+                self.assertDenied(s, "no_hesitation")
 
-    def test_bare_discount_question_before_engagement(self):
-        s = decide(stage="discovery", objections=[], readiness="browsing", engaged_product=None, shown_count=0,
-                   turn_no=1, signals={"asks_discount": True, "intent": "ask_discount"})
-        self.assertDenied(s, "not_engaged")
-        text = " ".join(s.directives)
-        self.assertIn("best deal", text)
-        self.assertIn("REAL sale items", text)
-        self.assertNotIn("Present the approved code", text)
+    def test_ordinary_questions_are_not_hesitation_even_with_real_interest(self):
+        cases = [
+            {"readiness": "interested", "intent": "ask_info"},   # وش القماش؟ / متى يوصل؟ / المقاس
+            {"readiness": "interested", "intent": "compare"},    # قارن لي / وش أحسن واحد؟
+            {"readiness": "browsing", "intent": "browse"},
+            {"readiness": "browsing", "intent": "search"},
+            {"readiness": "interested", "intent": "chitchat"},
+            {"readiness": "interested", "intent": "ask_discount", "asks_discount": True},   # فيه كود؟ بدون تردد
+            {"readiness": "interested", "intent": "accept"},
+        ]
+        for signals in cases:
+            with self.subTest(signals):
+                self.assertDenied(decide(signals=signals, readiness="interested", stage="persuasion"), "no_hesitation")
 
-    def test_asks_discount_without_engagement_even_when_interested(self):
-        s = decide(stage="recommendation", objections=[], readiness="interested", engaged_product=None,
-                   signals={"asks_discount": True})
-        self.assertDenied(s, "not_engaged")
+    def test_asking_about_discounts_alone_is_not_hesitation_but_with_hesitation_it_is(self):
+        asks = {"readiness": "interested", "intent": "ask_discount", "asks_discount": True}
+        self.assertDenied(decide(signals=asks, readiness="interested"), "no_hesitation")
+        self.assertAllowed(decide(signals={**asks, "readiness": "hesitant", "hesitation_reason": "price"}), "price_hesitation")
 
-    # ---- مش محفّز
-    def test_ready_without_concern_gets_no_discount(self):
-        s = decide(stage="closing", objections=[], readiness="ready")
-        self.assertDenied(s, "ready_no_price_concern")
+    def test_old_open_objections_never_authorize_by_themselves(self):
+        old = [("price", "A1"), ("competitor_price", "A1"), ("timing", ""), ("other", "")]
+        s = decide(signals=QUESTION, objections=old, readiness="hesitant")   # readiness المشتقة بتجي من اعتراض قديم
+        self.assertDenied(s, "no_hesitation")
 
-    def test_ready_who_asks_for_a_discount_still_gets_none(self):
-        s = decide(stage="closing", objections=[], readiness="ready", signals={"asks_discount": True})
-        self.assertDenied(s, "ready_no_price_concern")
-        self.assertIn("do not offer a code", " ".join(s.directives))
+    def test_derived_readiness_from_stale_objections_is_not_hesitation(self):
+        for derived in ("hesitant", "interested", "browsing", "ready"):
+            with self.subTest(derived):
+                self.assertDenied(decide(signals=QUESTION, readiness=derived), "no_hesitation")
 
-    def test_closing_with_open_price_objection_may_get_the_code(self):
-        self.assertAllowed(decide(stage="closing", readiness="hesitant"), "price_objection")
+    def test_empty_or_garbage_signals_mean_no_hesitation(self):
+        for bad in ({}, None, "x", 3, []):
+            with self.subTest(bad):
+                self.assertDenied(decide(signals=bad), "no_hesitation")
 
-    def test_non_price_objections_alone_are_not_a_trigger(self):
-        for kind in ("quality", "fit", "trust", "shipping"):
-            with self.subTest(kind):
-                s = decide(objections=[(kind, "A1")], readiness="hesitant")
-                self.assertDenied(s, "no_trigger")
+    def test_disliking_the_product_is_not_hesitation(self):
+        s = decide(signals={"readiness": "hesitant", "intent": "reject", "hesitation_reason": "style"})
+        self.assertDenied(s, "no_hesitation")
+        # لكن "لا غالي مرة" = رفض بسبب السعر ← تردد سعري
+        self.assertAllowed(decide(signals={"readiness": "hesitant", "intent": "reject", "hesitation_reason": "price"}),
+                           "price_hesitation")
 
-    def test_non_price_hesitation_reasons_alone_are_not_a_trigger(self):
-        for reason in ("style", "fit", "trust"):
-            with self.subTest(reason):
-                s = decide(objections=[], readiness="hesitant", signals={"hesitation_reason": reason})
-                self.assertDenied(s, "no_trigger")
-
-    def test_quality_objection_plus_price_objection_is_a_trigger(self):
-        self.assertAllowed(decide(objections=[("quality", "A1"), ("price", "A1")]), "price_objection")
-
-    def test_interested_without_anything_is_no_trigger(self):
-        self.assertDenied(decide(objections=[], readiness="interested", stage="persuasion"), "no_trigger")
-        self.assertDenied(decide(objections=[], readiness="browsing", stage="recommendation"), "no_trigger")
+    # ---- اهتمام حقيقي
+    def test_no_real_interest_no_discount_whatever_the_hesitation(self):
+        for signals in (HES_OTHER, HES_PRICE, {"readiness": "hesitant", "intent": "object", "hesitation_reason": "timing"}):
+            with self.subTest(signals):
+                self.assertDenied(decide(signals=signals, engaged_product=None), "not_engaged")
+        self.assertDenied(decide(signals=HES_OTHER, engaged_product=None, price_now=True), "not_engaged")
 
     # ---- بوّابات
     def test_no_codes(self):
@@ -412,45 +410,53 @@ class DiscountTriggerTests(SimpleTestCase):
 
     def test_a_valid_code_wins_over_expired_ones(self):
         s = decide(discount_codes=[code(1, expires=NOW - timedelta(days=1)), code(2, "OK")])
-        self.assertAllowed(s, "price_objection")
+        self.assertAllowed(s, "hesitation")
         self.assertEqual(s.discount.code.id, 2)
 
-    def test_not_engaged(self):
-        self.assertDenied(decide(engaged_product=None), "not_engaged")
+    def test_discount_turns_1_and_2_are_blocked_and_3_is_the_first_eligible(self):
+        for turn in (0, 1, 2):
+            with self.subTest(turn):
+                self.assertDenied(decide(turn_no=turn), "too_early")
+        self.assertAllowed(decide(turn_no=3), "hesitation")
+        self.assertAllowed(decide(turn_no=9), "hesitation")
 
-    def test_too_early(self):
-        self.assertDenied(decide(turn_no=1), "too_early")
-        self.assertDenied(decide(turn_no=0), "too_early")
-        self.assertAllowed(decide(turn_no=2), "price_objection")
-
-    def test_never_repeat(self):
+    def test_never_repeat_in_a_conversation(self):
         self.assertDenied(decide(offer_history=True), "already_offered")
-        self.assertDenied(decide(offer_history=True, objections=[("price", "A1"), ("competitor_price", "A1")]), "already_offered")
-
-    def test_discovery_stage_never_discounts(self):
-        self.assertDenied(decide(stage="discovery"), "not_engaged")
+        self.assertDenied(decide(offer_history=True, signals=HES_PRICE, price_now=True), "already_offered")
 
     def test_gate_precedence(self):
         # كل بوّابة بتغلب اللي بعدها
-        everything_wrong = dict(discount_codes=[], engaged_product=None, turn_no=0, offer_history=True, stage="discovery")
+        everything_wrong = dict(discount_codes=[], engaged_product=None, turn_no=0, offer_history=True,
+                                signals=QUESTION, search_result=search(cand("B", "100")))
         self.assertDenied(decide(**everything_wrong), "no_codes")
-        self.assertDenied(decide(**{**everything_wrong, "discount_codes": [code()]}), "not_engaged")
-        self.assertDenied(decide(**{**everything_wrong, "discount_codes": [code()], "engaged_product": prod()}), "too_early")
-        self.assertDenied(decide(**{**everything_wrong, "discount_codes": [code()], "engaged_product": prod(), "turn_no": 5}), "already_offered")
-        self.assertDenied(decide(**{**everything_wrong, "discount_codes": [code()], "engaged_product": prod(), "turn_no": 5,
-                                    "offer_history": False}), "not_engaged")
+        step = {**everything_wrong, "discount_codes": [code()]}
+        self.assertDenied(decide(**step), "not_engaged")
+        step["engaged_product"] = prod()
+        self.assertDenied(decide(**step), "too_early")
+        step["turn_no"] = 5
+        self.assertDenied(decide(**step), "already_offered")
+        step["offer_history"] = False
+        self.assertDenied(decide(**step), "no_hesitation")
+        step["signals"] = HES_PRICE
+        self.assertDenied(decide(**step), "alternative_first")
+        step["search_result"] = None
+        self.assertAllowed(decide(**step), "price_hesitation")
 
-    # ---- اختيار الكود
+    # ---- اختيار الكود (أقدم كود صالح، بدون ربط بسبب التردد أو بنسبة الخصم)
     def test_oldest_valid_code_is_selected(self):
         codes = [code(1, "NEW", age_days=1), code(2, "OLD", age_days=30), code(3, "MID", age_days=10)]
         self.assertEqual(decide(discount_codes=codes).discount.code.code, "OLD")
 
-    def test_selection_never_looks_at_percentages(self):
+    def test_selection_never_looks_at_percentages_or_the_hesitation_reason(self):
         codes = [code(1, "BIG", age_days=1, desc="خصم 90% على كل شي"), code(2, "SMALL", age_days=30, desc="خصم 5%")]
-        self.assertEqual(decide(discount_codes=codes).discount.code.code, "SMALL")
-        # نفس النتيجة لو الوصف فاضي
+        for signals in (HES_OTHER, HES_PRICE, {"readiness": "hesitant", "hesitation_reason": "fit"}):
+            self.assertEqual(decide(discount_codes=codes, signals=signals).discount.code.code, "SMALL")
         codes = [code(1, "B", age_days=1, desc=""), code(2, "A", age_days=30, desc="")]
         self.assertEqual(decide(discount_codes=codes).discount.code.code, "A")
+
+    def test_a_shipping_only_description_is_still_a_valid_code_no_suitability_rule(self):
+        s = decide(discount_codes=[code(1, "SHIP", desc="شحن مجاني")], signals=HES_PRICE)
+        self.assertAllowed(s, "price_hesitation")
 
     def test_inactive_and_expired_codes_skipped_when_choosing(self):
         codes = [code(1, "DEAD", age_days=90, active=False), code(2, "OLDEXP", age_days=80, expires=NOW - timedelta(days=1)),
@@ -473,111 +479,236 @@ class DiscountTriggerTests(SimpleTestCase):
         self.assertNotIn("SAVE", text)  # الكود ما بينذكر بالتوجيهات: بيجي بكتلة approved_offer
         self.assertNotIn("Do not offer, hint at or promise any discount", text)
 
+    # ---- صدق لما يسأل عن خصم (بدون كشف كود صالح قبل الأهلية)
+    def test_asked_with_no_valid_code_directive_says_none_is_available(self):
+        for codes in ([], [code(1, active=False)], [code(1, expires=NOW - timedelta(days=1))]):
+            with self.subTest(codes):
+                s = decide(discount_codes=codes, signals={"readiness": "interested", "intent": "ask_discount", "asks_discount": True})
+                text = " ".join(s.directives)
+                self.assertIn("no discount code available right now", text)
+                self.assertNotIn("cannot offer a discount", text)
+                self.assertIn("Do not repeat the percentage or amount they asked for", text)
+                self.assertIn("never invent an alternative offer", text)
+                self.assertIn("plainly and naturally", text)
+
+    def test_asked_with_a_valid_code_but_not_eligible_never_claims_there_are_no_codes(self):
+        asks = {"readiness": "interested", "intent": "ask_discount", "asks_discount": True}
+        for kw in (dict(), dict(turn_no=1), dict(engaged_product=None)):
+            with self.subTest(kw):
+                s = decide(signals=asks, **kw)
+                text = " ".join(s.directives)
+                self.assertFalse(s.discount.allowed)
+                self.assertIn("cannot offer a discount right now", text)
+                self.assertIn("Do NOT say that no codes exist", text)
+                self.assertIn("never reveal or hint at any code", text)
+                self.assertIn("do not repeat the percentage or amount they asked for", text)
+                self.assertNotIn("no discount code available right now", text)
+                self.assertNotIn("SAVE", text)
+
+    def test_asked_after_a_code_was_already_shared(self):
+        s = decide(offer_history=True, signals={"readiness": "interested", "intent": "ask_discount", "asks_discount": True})
+        text = " ".join(s.directives)
+        self.assertIn("already received the store's code", text)
+        self.assertIn("is the maximum discount the store has approved", text)   # خصم أكبر: هاد أقصى معتمد، بدون مفاوضة
+        self.assertIn("do not repeat the percentage or amount they asked for", text)
+        self.assertIn("do not offer another one", text)
+
+    def test_not_asked_means_no_discount_wording_at_all(self):
+        text = " ".join(decide(signals=QUESTION).directives)
+        self.assertNotIn("asked about discounts", text)
+
 
 class AlternativeFirstTests(SimpleTestCase):
-    def test_cheaper_exact_candidate_goes_first_and_blocks_the_code(self):
+    """بديل أرخص أولاً: بس لتردد سعري، وبس لما تأكّد إنه انعرض فعلاً."""
+
+    def test_price_hesitation_with_a_cheaper_candidate_shows_it_first_and_blocks_the_code(self):
         sr = search(cand("B7", "150"))
-        s = decide(search_result=sr)
+        s = decide(signals=HES_PRICE, search_result=sr)
         self.assertTrue(s.alternative_first)
         self.assertFalse(s.discount.allowed)
         self.assertEqual(s.discount.reason, "alternative_first")
-        self.assertEqual(s.discount.trigger, "price_objection")
-        self.assertEqual(s.state_updates, {"sales": {"alt_first_done": True}})
+        self.assertEqual(s.discount.trigger, "price_hesitation")
+        self.assertEqual(s.state_updates, {"sales": {"alt_first_attempts": 1}})   # القرار لحاله ما بيعلّم "انعرض"
         text = " ".join(s.directives)
         self.assertIn("cheaper real alternative", text)
         self.assertIn("B7", text)
         self.assertIn("push_discount", s.forbid)
 
-    def test_second_price_objection_gets_the_code(self):
+    def test_once_the_alternative_is_confirmed_shown_the_next_price_hesitation_gets_the_code(self):
         sr = search(cand("B7", "150"))
-        first = decide(search_result=sr)
-        state = {"sales": dict(first.state_updates["sales"])}
-        second = decide(search_result=sr, conversation_state=state)
-        self.assertFalse(second.alternative_first)
-        self.assertTrue(second.discount.allowed)
-        self.assertEqual(second.discount.reason, "ok")
-        self.assertEqual(second.state_updates, {})
-        self.assertNotIn("push_discount", second.forbid)
+        state = {"sales": {"alt_first_done": True, "alt_first_attempts": 1}}
+        s = decide(signals=HES_PRICE, search_result=sr, conversation_state=state)
+        self.assertFalse(s.alternative_first)
+        self.assertTrue(s.discount.allowed)
+        self.assertEqual(s.discount.reason, "ok")
+        self.assertEqual(s.state_updates, {})
 
-    def test_two_step_flow_with_state_roundtrip(self):
+    def test_attempts_alone_never_unlock_the_discount_no_cap(self):
+        sr = search(cand("B7", "150"))
+        state = {}
+        for attempt in range(1, 8):
+            s = decide(signals=HES_PRICE, search_result=sr, conversation_state=state, turn_no=2 + attempt)
+            self.assertEqual((s.alternative_first, s.discount.reason), (True, "alternative_first"), attempt)
+            self.assertEqual(s.state_updates, {"sales": {"alt_first_attempts": attempt}})
+            state = {"sales": {"alt_first_attempts": attempt}}
+
+    def test_two_step_flow_with_the_confirmation_written_by_the_engine(self):
         sr = search(cand("B7", "150"))
         state = {"other": 1}
         verdicts = []
         for turn in (3, 4, 5):
-            s = decide(search_result=sr, conversation_state=state, turn_no=turn)
+            s = decide(signals=HES_PRICE, search_result=sr, conversation_state=state, turn_no=turn)
             for k, v in s.state_updates.items():
                 state.setdefault(k, {}).update(v)
+            if turn == 3:
+                state["sales"]["alt_first_done"] = True        # v2_turn: البطاقة انعرضت فعلاً بالرد
             verdicts.append((s.alternative_first, s.discount.reason))
         self.assertEqual(verdicts, [(True, "alternative_first"), (False, "ok"), (False, "ok")])
         self.assertEqual(state["other"], 1)
 
     def test_saving_threshold_is_15_percent(self):
-        self.assertFalse(decide(search_result=search(cand("B", "180"))).alternative_first)   # 10%
-        self.assertFalse(decide(search_result=search(cand("B", "171"))).alternative_first)   # 14.5%
-        self.assertTrue(decide(search_result=search(cand("B", "170"))).alternative_first)    # 15% بالضبط
-        self.assertTrue(decide(search_result=search(cand("B", "100"))).alternative_first)
+        def first(price):
+            return decide(signals=HES_PRICE, search_result=search(cand("B", price))).alternative_first
+        self.assertFalse(first("180"))   # 10%
+        self.assertFalse(first("171"))   # 14.5%
+        self.assertTrue(first("170"))    # 15% بالضبط
+        self.assertTrue(first("100"))
 
-    def test_same_price_or_more_expensive_is_not_an_alternative(self):
-        self.assertFalse(decide(search_result=search(cand("B", "200"), cand("C", "260"))).alternative_first)
-
-    def test_not_a_price_trigger_means_no_alternative_first(self):
-        sr = search(cand("B7", "100"))
-        s = decide(search_result=sr, objections=[], readiness="hesitant")
+    def test_same_price_or_more_expensive_is_not_an_alternative_and_the_code_comes_directly(self):
+        s = decide(signals=HES_PRICE, search_result=search(cand("B", "200"), cand("C", "260")))
         self.assertFalse(s.alternative_first)
         self.assertTrue(s.discount.allowed)
-        self.assertEqual(s.state_updates, {})
+
+    def test_non_price_hesitation_never_enters_the_alternative_path(self):
+        sr = search(cand("B7", "100"))
+        for reason in ("other", "timing", "fit", "trust", "style", ""):
+            with self.subTest(reason):
+                s = decide(signals={"readiness": "hesitant", "intent": "object", "hesitation_reason": reason}, search_result=sr)
+                self.assertFalse(s.alternative_first)
+                self.assertTrue(s.discount.allowed)
+                self.assertEqual(s.state_updates, {})
+
+    def test_an_old_price_objection_does_not_start_the_alternative_path(self):
+        s = decide(signals=HES_OTHER, objections=[("price", "A1")], search_result=search(cand("B7", "100")))
+        self.assertFalse(s.alternative_first)
+
+    def test_a_price_remark_this_turn_enters_the_alternative_path_even_for_a_buyer(self):
+        s = decide(signals={"readiness": "ready", "intent": "accept"}, price_now=True, search_result=search(cand("B7", "100")))
+        self.assertTrue(s.alternative_first)
+        self.assertEqual(s.discount.reason, "alternative_first")
+
+    def test_competitor_price_also_goes_alternative_first(self):
+        s = decide(signals=HES_OTHER, price_now=True, objections=[("competitor_price", "A1")],
+                   search_result=search(cand("B7", "100")))
+        self.assertTrue(s.alternative_first)
 
     def test_same_sku_as_engaged_is_ignored(self):
-        self.assertFalse(decide(search_result=search(cand("A1", "100"))).alternative_first)
+        self.assertFalse(decide(signals=HES_PRICE, search_result=search(cand("A1", "100"))).alternative_first)
 
     def test_requirements_are_respected(self):
         sr = search(cand("B", "150"))
-        self.assertFalse(decide(search_result=sr, requirements=Requirements(excluded_skus=frozenset({"B"}))).alternative_first)
-        self.assertFalse(decide(search_result=sr, requirements=Requirements(budget_max=Decimal("120"))).alternative_first)
-        self.assertTrue(decide(search_result=sr, requirements=Requirements(budget_max=Decimal("150"))).alternative_first)
+        def alt(**req):
+            return decide(signals=HES_PRICE, search_result=sr, requirements=Requirements(**req)).alternative_first
+        self.assertFalse(alt(excluded_skus=frozenset({"B"})))
+        self.assertFalse(alt(budget_max=Decimal("120")))
+        self.assertTrue(alt(budget_max=Decimal("150")))
         oos = search(cand("B", "150", in_stock=False))
-        self.assertFalse(decide(search_result=oos).alternative_first)
-        self.assertTrue(decide(search_result=oos, requirements=Requirements(include_out_of_stock=True)).alternative_first)
+        self.assertFalse(decide(signals=HES_PRICE, search_result=oos).alternative_first)
+        self.assertTrue(decide(signals=HES_PRICE, search_result=oos,
+                               requirements=Requirements(include_out_of_stock=True)).alternative_first)
 
     def test_relaxed_candidates(self):
-        self.assertFalse(decide(search_result=search(cand("B", "150", exact=False, relaxed=("color",)))).alternative_first)
-        self.assertFalse(decide(search_result=search(cand("B", "150", exact=False, relaxed=("category",)))).alternative_first)
-        self.assertTrue(decide(search_result=search(cand("B", "150", exact=False, relaxed=("tag",)))).alternative_first)
+        def alt(relaxed):
+            return decide(signals=HES_PRICE, search_result=search(cand("B", "150", exact=False, relaxed=relaxed))).alternative_first
+        self.assertFalse(alt(("color",)))
+        self.assertFalse(alt(("category",)))
+        self.assertTrue(alt(("tag",)))
 
     def test_exact_candidate_preferred_over_best_effort(self):
         sr = search(cand("RELAXED", "100", exact=False, relaxed=("tag",)), cand("EXACT", "160"))
-        s = decide(search_result=sr)
+        s = decide(signals=HES_PRICE, search_result=sr)
         self.assertIn("EXACT", " ".join(s.directives))
         self.assertNotIn("RELAXED", " ".join(s.directives))
 
-    def test_no_search_result_or_no_candidates(self):
-        self.assertFalse(decide(search_result=None).alternative_first)
-        self.assertFalse(decide(search_result=search()).alternative_first)
-        self.assertTrue(decide(search_result=search()).discount.allowed)
+    def test_no_search_result_or_no_candidates_means_the_code_directly(self):
+        self.assertFalse(decide(signals=HES_PRICE, search_result=None).alternative_first)
+        self.assertFalse(decide(signals=HES_PRICE, search_result=search()).alternative_first)
+        self.assertTrue(decide(signals=HES_PRICE, search_result=search()).discount.allowed)
 
-    def test_no_engaged_product_no_alternative_first(self):
-        self.assertFalse(decide(engaged_product=None, search_result=search(cand("B", "50"))).alternative_first)
+    def test_no_interest_no_alternative_first(self):
+        self.assertFalse(decide(signals=HES_PRICE, engaged_product=None, search_result=search(cand("B", "50"))).alternative_first)
 
-    def test_alternative_first_still_offered_when_discount_gates_fail(self):
-        s = decide(search_result=search(cand("B", "100")), discount_codes=[])
+    def test_alternative_first_is_still_decided_when_the_discount_gates_fail(self):
+        s = decide(signals=HES_PRICE, search_result=search(cand("B", "100")), discount_codes=[])
         self.assertTrue(s.alternative_first)
         self.assertEqual(s.discount.reason, "no_codes")
-        s = decide(search_result=search(cand("B", "100")), turn_no=1)
+        s = decide(signals=HES_PRICE, search_result=search(cand("B", "100")), turn_no=1)
         self.assertTrue(s.alternative_first)
         self.assertEqual(s.discount.reason, "too_early")
 
     def test_already_offered_beats_alternative_first_reason(self):
-        s = decide(search_result=search(cand("B", "100")), offer_history=True)
+        s = decide(signals=HES_PRICE, search_result=search(cand("B", "100")), offer_history=True)
         self.assertEqual(s.discount.reason, "already_offered")
 
-    def test_competitor_price_also_goes_alternative_first(self):
-        s = decide(objections=[("competitor_price", "A1")], search_result=search(cand("B", "100")))
+    # ---- بديل انعرض من قبل
+    def test_a_suitable_cheaper_product_shown_earlier_counts_as_presented(self):
+        sr = search(cand("B", "100"))
+        s = decide(signals=HES_PRICE, search_result=sr, shown_skus=frozenset({"B"}))
+        self.assertFalse(s.alternative_first)
+        self.assertTrue(s.discount.allowed)
+        self.assertEqual(s.state_updates, {})
+
+    def test_presented_wins_even_when_another_unshown_cheaper_product_exists(self):
+        sr = search(cand("B", "100"), cand("C", "120"))
+        s = decide(signals=HES_PRICE, search_result=sr, shown_skus=frozenset({"B"}))
+        self.assertFalse(s.alternative_first)
+        self.assertTrue(s.discount.allowed)
+
+    def test_a_shown_cheaper_product_that_is_no_longer_suitable_is_not_presented(self):
+        sr = search(cand("B", "100"), cand("C", "120"))
+        shown = frozenset({"B"})
+        for label, kw in (
+            ("rejected", dict(requirements=Requirements(excluded_skus=frozenset({"B"})))),
+            ("over budget", dict(requirements=Requirements(budget_max=Decimal("90")))),
+        ):
+            with self.subTest(label):
+                s = decide(signals=HES_PRICE, search_result=sr, shown_skus=shown, **kw)
+                # B ما بيعدّ؛ الباقي (C) إذا ما كان ضمن القيود كمان ← ما في بديل ← الكود. مع C صالح ← بديل أولاً
+                if label == "rejected":
+                    self.assertTrue(s.alternative_first)
+                    self.assertIn("C", " ".join(s.directives))
+                    self.assertNotIn("sku B", " ".join(s.directives))
+                else:
+                    self.assertFalse(s.alternative_first)
+        out_of_stock = search(cand("B", "100", in_stock=False), cand("C", "120"))
+        s = decide(signals=HES_PRICE, search_result=out_of_stock, shown_skus=shown)
         self.assertTrue(s.alternative_first)
+        self.assertIn("sku C", " ".join(s.directives))
+
+    def test_a_shown_product_outside_the_candidate_pool_cannot_be_verified_as_suitable(self):
+        s = decide(signals=HES_PRICE, search_result=search(cand("C", "120")), shown_skus=frozenset({"GONE"}))
+        self.assertTrue(s.alternative_first)
+
+    def test_shown_candidates_are_not_proposed_again_as_the_alternative(self):
+        s = decide(signals=HES_PRICE, search_result=search(cand("B", "100", in_stock=False)), shown_skus=frozenset({"B"}))
+        self.assertFalse(s.alternative_first)
 
     def test_unparseable_prices_do_not_crash(self):
         bad = Product(sku="B", title="x", price=None)
-        s = decide(search_result=SearchResult(candidates=[Candidate(product=bad)]))
+        s = decide(signals=HES_PRICE, search_result=SearchResult(candidates=[Candidate(product=bad)]))
         self.assertFalse(s.alternative_first)
+
+
+class AlternativeShownHelperTests(SimpleTestCase):
+    def test_only_a_clearly_cheaper_card_counts(self):
+        base = prod("A1", "200")
+        self.assertTrue(policy.alternative_shown(base, [prod("B", "170")]))
+        self.assertFalse(policy.alternative_shown(base, [prod("B", "171")]))
+        self.assertFalse(policy.alternative_shown(base, [prod("B", "300")]))
+        self.assertFalse(policy.alternative_shown(base, [prod("A1", "100")]))      # نفس المنتج
+        self.assertFalse(policy.alternative_shown(base, []))
+        self.assertFalse(policy.alternative_shown(None, [prod("B", "10")]))
+        self.assertFalse(policy.alternative_shown(Product(sku="Z", title="z", price=None), [prod("B", "10")]))
 
 
 class StrategyShapeTests(SimpleTestCase):
@@ -758,7 +889,7 @@ class StageDirectiveTests(SimpleTestCase):
         self.assertIn("buy button", t)
 
     def test_closing(self):
-        s = decide(stage="closing", readiness="ready", objections=[])
+        s = decide(stage="closing", readiness="ready", objections=[], signals={"readiness": "ready", "intent": "buy"})
         t = " ".join(s.directives)
         self.assertIn("buying effortless", t)
         self.assertIn("No upsell", t)
@@ -789,21 +920,22 @@ class StageDirectiveTests(SimpleTestCase):
 
     def test_other_denial_directives(self):
         t = self.text(objections=[], readiness="interested", stage="persuasion", offer_history=True,
-                      signals={"asks_discount": True})
-        self.assertIn("already shared", t)
+                      signals={"readiness": "interested", "asks_discount": True})
+        self.assertIn("already received the store's code", t)
         t = self.text(objections=[], readiness="interested", stage="persuasion", discount_codes=[],
                       signals={"asks_discount": True})
-        self.assertIn("no extra code", t)
+        self.assertIn("no discount code available right now", t)
 
 
 class TraceAndPurityTests(SimpleTestCase):
     def test_rule_trace_records_inputs_as_plain_data(self):
         trace = decide().discount.rule_trace
         for key in ("codes_total", "codes_valid", "stage", "readiness", "engaged_sku", "turn_no", "shown_count",
-                    "offer_history", "price_objection", "hesitation", "asks_discount", "trigger", "open_objections"):
+                    "offer_history", "hesitating", "price_related", "asks_discount", "alt_first_available",
+                    "alt_first_done", "trigger", "open_objections"):
             self.assertIn(key, trace)
         self.assertEqual((trace["codes_total"], trace["codes_valid"], trace["engaged_sku"], trace["turn_no"]), (1, 1, "A1", 3))
-        self.assertEqual(trace["trigger"], "price_objection")
+        self.assertEqual(trace["trigger"], "hesitation")
         for value in trace.values():
             self.assertIsInstance(value, (str, int, bool, list, type(None)))
 
@@ -812,7 +944,7 @@ class TraceAndPurityTests(SimpleTestCase):
 
     def test_same_input_same_output(self):
         codes = [code(2, "B", age_days=3), code(1, "A", age_days=8)]
-        kw = dict(discount_codes=codes, search_result=search(cand("B7", "150")), signals={"asks_discount": True})
+        kw = dict(discount_codes=codes, search_result=search(cand("B7", "150")), signals={**HES_PRICE, "asks_discount": True})
         results = [decide(**kw) for _ in range(5)]
         for r in results[1:]:
             self.assertEqual(r, results[0])
@@ -827,19 +959,20 @@ class TraceAndPurityTests(SimpleTestCase):
         self.assertEqual(len(codes), 1)
 
     def test_state_updates_is_a_fresh_dict(self):
-        a = decide(search_result=search(cand("B", "100")))
-        b = decide(search_result=search(cand("B", "100")))
-        a.state_updates["sales"]["alt_first_done"] = False
-        self.assertTrue(b.state_updates["sales"]["alt_first_done"])
+        a = decide(signals=HES_PRICE, search_result=search(cand("B", "100")))
+        b = decide(signals=HES_PRICE, search_result=search(cand("B", "100")))
+        a.state_updates["sales"]["alt_first_attempts"] = 99
+        self.assertEqual(b.state_updates["sales"]["alt_first_attempts"], 1)
 
     def test_garbage_state_is_tolerated(self):
         for bad in ("x", 5, [], {"sales": "oops"}, {"sales": None}):
-            s = decide(conversation_state=bad, search_result=search(cand("B", "100")))
+            s = decide(signals=HES_PRICE, conversation_state=bad, search_result=search(cand("B", "100")))
             self.assertTrue(s.alternative_first, bad)
 
     def test_garbage_signals_are_tolerated(self):
         for bad in (None, "ready", 3, []):
-            self.assertTrue(decide(signals=bad).discount.allowed)
+            s = decide(signals=bad)       # ما في تحليل صالح = ما في دليل تردد ← ما في خصم (وما في استثناء)
+            self.assertEqual((s.discount.allowed, s.discount.reason), (False, "no_hesitation"))
 
     def test_now_defaults_to_the_current_time(self):
         live = DiscountCode(id=1, code="A", is_active=True, expires_at=timezone.now() + timedelta(hours=1))

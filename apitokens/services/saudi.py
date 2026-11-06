@@ -81,3 +81,109 @@ def to_saudi(text):
 
 def unmapped(text):
     return [w for w in find_non_saudi(text) if w not in _SUBSTITUTIONS]
+
+
+# ---------------------------------------------------------------- صيغة المذكر/المؤنث بخطاب الزبون
+# شبكة أمان حتمية فوق البرومبت: قائمة مغلقة من أفعال البيع الشائعة بصيغة المخاطَب.
+# - جنس الزبون مجهول أو ذكر ← أي صيغة مؤنثة بتنقلب مذكر (ما منفترض إنه امرأة من نوع القطعة).
+# - الزبون كشف إنه أنثى بكلامه ← أي صيغة مذكرة بتنقلب مؤنث، حتى ما تتخلط الصيغ.
+# بتشتغل على كلمات كاملة (مع سابقة و/ف وضمير متصل ه/ها/ك/لي/لك). ما بتلمس غير القائمة.
+_GENDER_PAIRS = (  # (مذكر، مؤنث) بدون تشكيل
+    ("جرب", "جربي"), ("شوف", "شوفي"), ("خذ", "خذي"), ("كمل", "كملي"), ("اختر", "اختاري"), ("ارفع", "ارفعي"),
+    ("اطلب", "اطلبي"), ("تعال", "تعالي"), ("فكر", "فكري"), ("ارجع", "ارجعي"), ("قارن", "قارني"),
+    ("اضغط", "اضغطي"), ("استخدم", "استخدمي"), ("تأكد", "تأكدي"), ("خلك", "خليك"),
+    ("تقدر", "تقدرين"), ("تبي", "تبين"), ("تبغى", "تبغين"), ("تحتاج", "تحتاجين"), ("تختار", "تختارين"),
+    ("تشوف", "تشوفين"), ("تلبس", "تلبسين"), ("تطلب", "تطلبين"), ("تكمل", "تكملين"), ("تحب", "تحبين"),
+    ("تفضل", "تفضلين"), ("ترتاح", "ترتاحين"), ("تتهنى", "تتهنين"), ("تجرب", "تجربين"), ("تفكر", "تفكرين"),
+    ("تقرر", "تقررين"), ("تاخذ", "تاخذين"), ("تضغط", "تضغطين"), ("تعرف", "تعرفين"), ("تقارن", "تقارنين"),
+    ("تتأكد", "تتأكدين"), ("تستخدم", "تستخدمين"), ("تدور", "تدورين"), ("تنتظر", "تنتظرين"), ("تبدا", "تبدين"),
+    ("تضيف", "تضيفين"), ("تختارها", "تختارينها"),
+)
+_FEM_TO_MASC = {f: m for m, f in _GENDER_PAIRS}
+_MASC_TO_FEM = {m: f for m, f in _GENDER_PAIRS}
+_PREFIXES = ("", "و", "ف")
+_SUFFIXES = ("", "ه", "ها", "ك", "لي", "لك")
+
+
+def _swap_gender_token(raw, table):
+    plain = _plain(raw)
+    for prefix in _PREFIXES:
+        if prefix and not plain.startswith(prefix):
+            continue
+        body = plain[len(prefix):]
+        for suffix in _SUFFIXES:
+            if suffix and not body.endswith(suffix):
+                continue
+            stem = body[: len(body) - len(suffix)] if suffix else body
+            if stem in table:
+                return prefix + table[stem] + suffix
+    return None
+
+
+def fix_gender(text, gender):
+    """(نص مصحّح، قائمة التغييرات). gender: "female" | "male" | "" (مجهول = مذكر عام)."""
+    female = gender == "female"
+    table = _MASC_TO_FEM if female else _FEM_TO_MASC
+    changes = []
+
+    def swap(match):
+        new = _swap_gender_token(match.group(0), table)
+        if new is None:
+            return match.group(0)
+        changes.append(f"{_plain(match.group(0))}->{new}")
+        return new
+
+    return _ARABIC_TOKEN.sub(swap, text or ""), changes
+
+
+# ---------------------------------------------------------------- أجزاء غريبة بالرد
+# أحياناً الموديل بيلصق بآخر الرد كلمة بحروف تانية ("оставка")، أو صيغة نداء أداة ("show_product(sku=...)")، أو
+# رموز تالفة. هدول ما بيوصلوا للزبون. أبجديات غير العربية/اللاتينية بتنشال إلا لو الزبون نفسه كاتب فيها.
+_FOREIGN_SCRIPTS = re.compile(
+    "[\u0370-\u03ff\u0400-\u052f\u0530-\u058f\u0590-\u05ff\u0900-\u0dff\u0e00-\u0eff\u1100-\u11ff"
+    "\u3040-\u30ff\u3400-\u4dbf\u4e00-\u9fff\uac00-\ud7af]+"
+)
+_GARBAGE_CHARS = re.compile("[\ufffd\u200b-\u200f\u202a-\u202e\u2060\ufeff\x00-\x08\x0b\x0c\x0e-\x1f]")
+_TOOL_CALL = re.compile(
+    r"\b(?:show_product|search_products|get_product|compare_products|recommend_size|update_customer_profile|"
+    r"offer_discount_code|recommend_product)\s*\([^)]*\)?",
+    re.IGNORECASE,
+)
+# كلمة لاتينية (4 حروف وأكثر) ملزوقة بحرف/علامة عربية بدون مسافة: ".ostavka" — بقايا، مش اسم منتج.
+_GLUED_LATIN = re.compile("(?<=[\u0600-\u06ff.،؟!؛:])([A-Za-z]{4,})(?![A-Za-z0-9_-])")
+
+
+def strip_stray(text, customer_text="", allowed_latin=frozenset()):
+    """(نص نظيف، قائمة اللي انشال). allowed_latin: كلمات لاتينية مشروعة (SKU، عناوين منتجات، أكواد، معلومات المتجر)."""
+    original = text or ""
+    removed = []
+    customer_scripts = set(_FOREIGN_SCRIPTS.findall(customer_text or ""))
+
+    def drop(match):
+        if customer_scripts:           # الزبون كاتب بهالأبجدية: ما منلمسها
+            return match.group(0)
+        removed.append(match.group(0))
+        return ""
+
+    text = _GARBAGE_CHARS.sub("", original)
+    text = _FOREIGN_SCRIPTS.sub(drop, text)
+
+    def drop_call(match):
+        removed.append(match.group(0))
+        return ""
+
+    text = _TOOL_CALL.sub(drop_call, text)
+
+    allowed = {w.lower() for w in allowed_latin}
+
+    def drop_latin(match):
+        if match.group(1).lower() in allowed:
+            return match.group(0)
+        removed.append(match.group(1))
+        return ""
+
+    text = _GLUED_LATIN.sub(drop_latin, text)
+    if removed or text != original:
+        text = re.sub(r"[ \t]{2,}", " ", text)
+        text = re.sub(r"\s+([،.؟!؛:])", r"\1", text).strip()
+    return text, removed

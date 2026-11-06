@@ -49,23 +49,26 @@ def basic_offer_gate(*, user_turns, engaged, already_offered):
 # اللي بيشوفه الزبون هو وصف التاجر حرفياً (يتعامل معه seller_v2). الأكواد القديمة بدون حقول
 # نسبة/قيمة ← ما منستنتج أي رقم منها، ولا منختار كود حسب نسبة بوصفه.
 #
-# بوّابات الخصم (بهالترتيب — أول فشل بيحدد reason):
+# بوّابات الخصم (بهالترتيب — أول فشل بيحدد reason). القاعدة: زبون مهتم فعلاً بمنتج + متردد بإتمام
+# الشراء (مهما كان السبب) ← الكود الوحيد المتاح. التمييز بين تردد حقيقي وسؤال عادي مسؤولية المحلّل
+# (فهم سياق الرسالة والمحادثة)، مش قوائم كلمات ولا أنواع اعتراضات هون.
 #   G1 في كود صالح (valid_codes)               ← no_codes | expired
-#   G2 في منتج الزبون مركّز عليه               ← not_engaged
-#   G3 turn_no >= 2                             ← too_early
+#   G2 اهتمام حقيقي بمنتج محدد                  ← not_engaged (engaged_product = المنتج يلي عليه اهتمام؛ مش صفحة/معروض/مُشاهَد)
+#   G3 turn_no >= 3 (الدورين الأول والتاني ممنوعين) ← too_early
 #   G4 ما انعرض كود بهالمحادثة (ما في تبريد بين المحادثات) ← already_offered
-#   G5 المرحلة مش discovery                     ← not_engaged (ما في منتج انعرض فعلياً)
-# بعدها المحفّزات (واحد يكفي): price_objection | hesitation | asked، وإلا:
-#   ready_no_price_concern (جاهز بدون اعتراض/تردد: منحمي هامش التاجر) أو no_trigger.
-# بديل-أولاً: اعتراض سعر + بديل أرخص فعلياً (>=15%) + ما انعمل مرة ← alternative_first
-#   (الخصم مرفوض هالدور بسبب alternative_first)؛ بعد ما ينعمل مرة والزبون لسا معترض ← الكود مسموح.
+#   G5 الزبون متردد بهالرسالة                    ← no_hesitation
+#        متردد = readiness hesitant، أو سبب تردد (أي سبب)، أو اعتراض سعري بنفس الدور ("تمام آخذه بس غالي").
+#        رفض منتج ("مو حلو") بدون سبب سعري مش تردد. اعتراض قديم مفتوح لحاله مش تردد.
+#   G6 بديل أرخص أولاً — بس لو التردد سعري ويوجد بديل أرخص مناسب (>=15%) لسا ما انعرض ولا تأكّد إنه انعرض
+#        ← alternative_first. الأسباب التانية للتردد ما بتمرّ بمسار البديل.
+#   وإلا: مسموح بأقدم كود صالح. ما في ربط بين سبب التردد وصلاحية الكود.
 #
 # مفاتيح الحالة (Conversation.state["sales"]):
-#   alt_first_done: bool — انعرض بديل أرخص مرة بهالمحادثة.
+#   alt_first_done: bool     — انعرض بطاقة بديل أرخص فعلاً بالرد يلي وصل للزبون (بيسجّلها v2_turn بعد حفظ الرد، مش decide).
+#   alt_first_attempts: int  — كم مرة طلبنا من البائع يعرض بديل: للمراقبة (trace) فقط، ما بيفتح الخصم أبداً.
 # =====================================================================================
 
 PRICE_OBJECTIONS = frozenset({"price", "competitor_price"})
-SOFT_OBJECTIONS = frozenset({"quality", "fit", "trust", "shipping"})   # بتنعالج أولاً، مش محفّز خصم لحالها
 SLOT_PRIORITY = ("category", "occasion", "color", "size")
 SLOT_LABELS = {
     "category": "what kind of item they are looking for",
@@ -75,6 +78,7 @@ SLOT_LABELS = {
     "budget": "their budget",
 }
 MAX_QUESTIONS = 2
+FIRST_DISCOUNT_TURN = 3   # أول رسالة زبون ممكن يتعرض فيها كود (الأول والتاني ممنوعين)
 ALT_MIN_SAVING = Decimal("0.15")
 WIDE_SPREAD_RATIO = Decimal("2.5")
 
@@ -96,6 +100,7 @@ def _signals(signals):
     s = signals if isinstance(signals, dict) else {}
     return {
         "intent": s.get("intent") or "other",
+        "readiness": s.get("readiness") or "",
         "hesitation_reason": s.get("hesitation_reason") or "",
         "asks_discount": bool(s.get("asks_discount")),
         "wants_alternative": bool(s.get("wants_alternative")),
@@ -114,16 +119,14 @@ def _price(product):
         return None
 
 
-def cheaper_alternative(engaged_product, search_result, requirements=None):
-    """أول مرشّح حقيقي أرخص بوضوح (>= 15%) من منتج الزبون ويحترم المتطلبات، أو None.
-    exact أولاً؛ غير exact بنقبله بس لو التساهل مش بالفئة/المقاس/اللون/الميزانية."""
-    if engaged_product is None or search_result is None:
-        return None
+def _alt_eligible(engaged_product, requirements):
+    """شرط البديل الأرخص: >= 15% أرخص من منتج الزبون، مش منتجه، مش مرفوض، ضمن الميزانية، متوفر
+    (إلا إذا المتطلبات بتسمح)، وما انتساهل فيه بالفئة/المقاس/اللون/الميزانية."""
     base = _price(engaged_product)
     if base is None or base <= 0:
         return None
     ceiling = base * (Decimal("1") - ALT_MIN_SAVING)
-    excluded = getattr(requirements, "excluded_skus", frozenset())
+    excluded = set(getattr(requirements, "excluded_skus", frozenset()))
     budget_max = getattr(requirements, "budget_max", None)
     allow_oos = bool(getattr(requirements, "include_out_of_stock", False))
 
@@ -138,11 +141,48 @@ def cheaper_alternative(engaged_product, search_result, requirements=None):
             return False
         return cand.exact or not (set(cand.relaxed) & {"category", "size", "color", "budget"})
 
-    pool = list(search_result.candidates or [])
+    return eligible
+
+
+def cheaper_alternative(engaged_product, search_result, requirements=None, shown_skus=frozenset()):
+    """أول مرشّح حقيقي أرخص بوضوح ولسا ما انعرض للزبون، أو None. exact أولاً. اللي انعرض أصلاً
+    مستبعد هون (شوف cheaper_presented): البديل لازم يكون شي بيقدر البائع يعرضه فعلاً."""
+    if engaged_product is None or search_result is None:
+        return None
+    eligible = _alt_eligible(engaged_product, requirements)
+    if eligible is None:
+        return None
+    shown = set(shown_skus or ())
+    pool = [c for c in (search_result.candidates or []) if c.product.sku not in shown]
     for cand in [c for c in pool if c.exact] + [c for c in pool if not c.exact]:
         if eligible(cand):
             return cand
     return None
+
+
+def cheaper_presented(engaged_product, search_result, requirements=None, shown_skus=frozenset()):
+    """هل في بديل أرخص مناسب انعرض للزبون من قبل وما زال مناسب (متوفر، ضمن قيوده، مش مرفوض)؟
+    إذا إي ← بنعتبره مُقدَّم وما منعرضه مرة تانية بلا داعي."""
+    if engaged_product is None or search_result is None:
+        return False
+    eligible = _alt_eligible(engaged_product, requirements)
+    if eligible is None:
+        return False
+    shown = set(shown_skus or ())
+    return any(c.product.sku in shown and eligible(c) for c in (search_result.candidates or []))
+
+
+def alternative_shown(engaged_product, shown_products):
+    """هل في بين المنتجات يلي انعرضت فعلاً هالدور بديل أرخص (>= 15%) من منتج الزبون؟"""
+    base = _price(engaged_product) if engaged_product is not None else None
+    if base is None or base <= 0:
+        return False
+    ceiling = base * (Decimal("1") - ALT_MIN_SAVING)
+    for product in shown_products:
+        price = _price(product)
+        if price is not None and price <= ceiling and product.sku != engaged_product.sku:
+            return True
+    return False
 
 
 def _pick_ask_slot(known_slots, *, price_hint, search_result):
@@ -158,33 +198,29 @@ def _pick_ask_slot(known_slots, *, price_hint, search_result):
     return None
 
 
+def _is_hesitating(sig, price_now):
+    """تردد بإتمام الشراء بهالرسالة (إشارات المحلّل لهالدور، مش حالة قديمة). رفض المنتج لحاله مش تردد."""
+    price_related = price_now or sig["hesitation_reason"] == "price"
+    if sig["intent"] == "reject" and not price_related:
+        return False
+    return bool(sig["readiness"] == "hesitant" or sig["hesitation_reason"] or price_now)
+
+
 def _discount_verdict(*, stage, readiness, sig, objections, engaged_product, turn_no, shown_count,
-                      discount_codes, offer_history, alt_first_available, alt_first_done, now):
+                      discount_codes, offer_history, alternative_first, alt_first_available, alt_first_done,
+                      price_related, hesitating, now):
     now = now or timezone.now()
     valid = valid_codes(discount_codes, now)
-    types = [t for t, _sku in objections]
-    reason = sig["hesitation_reason"]
-    price_open = any(t in PRICE_OBJECTIONS for t in types)
-    timing_open = "timing" in types
-    explained_by_soft = bool(types) and set(types) <= SOFT_OBJECTIONS and reason not in ("price", "other")
-    hesitation = shown_count > 0 and (
-        reason in ("price", "other")
-        or timing_open
-        or (readiness == "hesitant" and reason == "" and not explained_by_soft)
-    )
     engaged = engaged_product is not None
-    asked = (
-        sig["asks_discount"] and engaged
-        and (readiness in ("interested", "hesitant") or sig["intent"] in ("accept", "compare"))
-    )
-    trigger = "price_objection" if price_open else "hesitation" if hesitation else "asked" if asked else ""
+    trigger = ("price_hesitation" if price_related else "hesitation") if hesitating else ""
 
     trace = {
         "codes_total": len(discount_codes), "codes_valid": len(valid), "stage": stage, "readiness": readiness,
         "engaged_sku": getattr(engaged_product, "sku", None), "turn_no": turn_no, "shown_count": shown_count,
-        "offer_history": bool(offer_history), "price_objection": price_open, "hesitation": hesitation,
+        "offer_history": bool(offer_history), "hesitating": hesitating, "price_related": price_related,
         "asks_discount": sig["asks_discount"], "alt_first_available": alt_first_available,
-        "alt_first_done": alt_first_done, "trigger": trigger, "open_objections": sorted(set(types)),
+        "alt_first_done": alt_first_done, "trigger": trigger,
+        "open_objections": sorted({t for t, _sku in objections}),
     }
 
     def deny(why):
@@ -196,15 +232,13 @@ def _discount_verdict(*, stage, readiness, sig, objections, engaged_product, tur
         return deny("expired" if any(c.expires_at and c.expires_at <= now for c in active) else "no_codes")
     if not engaged:
         return deny("not_engaged")
-    if turn_no < 2:
+    if turn_no < FIRST_DISCOUNT_TURN:
         return deny("too_early")
     if offer_history:
         return deny("already_offered")
-    if stage == "discovery":
-        return deny("not_engaged")
-    if not trigger:
-        return deny("ready_no_price_concern" if readiness == "ready" else "no_trigger")
-    if trigger == "price_objection" and alt_first_available and not alt_first_done:
+    if not hesitating:
+        return deny("no_hesitation")
+    if alternative_first:
         return deny("alternative_first")
     trace["selected_code_id"] = valid[0].id
     return contracts.DiscountVerdict(allowed=True, code=valid[0], reason="ok", trigger=trigger, rule_trace=trace)
@@ -269,24 +303,37 @@ def _stage_directives(stage, *, ask_slot, forbid, search_result, objections, rea
 
 def decide(*, stage, signals, readiness, objections, engaged_product, turn_no, shown_count, known_slots,
            questions_asked_in_conversation, requirements, discount_codes, offer_history, search_result=None,
-           conversation_state=None, now=None):
-    """استراتيجية الدور. دالة نقية: نفس المدخلات ← نفس المخرجات، بدون DB (كل شي بيجي جاهز)."""
+           conversation_state=None, now=None, price_now=False, shown_skus=frozenset()):
+    """استراتيجية الدور. دالة نقية: نفس المدخلات ← نفس المخرجات، بدون DB (كل شي بيجي جاهز).
+    engaged_product = المنتج يلي عليه اهتمام حقيقي (None إذا ما في). price_now = اعتراض سعري انذكر بهالدور."""
     stage = stage if stage in contracts.STAGES else "discovery"
     readiness = readiness if readiness in contracts.READINESS else "browsing"
     sig = _signals(signals)
     objections = [(t, s) for t, s in (objections or ())]
     known_slots = set(known_slots or ())
-    alt_done = bool(_sales_state(conversation_state).get("alt_first_done"))
+    sales = _sales_state(conversation_state)
+    attempts = sales.get("alt_first_attempts")
+    attempts = attempts if isinstance(attempts, int) else 0
+    alt_done = bool(sales.get("alt_first_done"))
 
     price_open = any(t in PRICE_OBJECTIONS for t, _s in objections)
-    alternative = cheaper_alternative(engaged_product, search_result, requirements) if price_open else None
+    hesitating = engaged_product is not None and _is_hesitating(sig, price_now)
+    price_related = hesitating and (price_now or sig["hesitation_reason"] == "price")
+    # بديل أرخص أولاً: بس للتردد السعري. إذا في بديل مناسب انعرض من قبل بنعتبره مُقدَّم.
+    alternative = None
+    presented = False
+    if price_related:
+        presented = cheaper_presented(engaged_product, search_result, requirements, shown_skus)
+        if not presented:
+            alternative = cheaper_alternative(engaged_product, search_result, requirements, shown_skus)
     alt_first_available = alternative is not None
     alternative_first = alt_first_available and not alt_done
 
     verdict = _discount_verdict(
         stage=stage, readiness=readiness, sig=sig, objections=objections, engaged_product=engaged_product,
         turn_no=turn_no, shown_count=shown_count, discount_codes=list(discount_codes or ()),
-        offer_history=offer_history, alt_first_available=alt_first_available, alt_first_done=alt_done, now=now,
+        offer_history=offer_history, alternative_first=alternative_first, alt_first_available=alt_first_available,
+        alt_first_done=alt_done or presented, price_related=price_related, hesitating=hesitating, now=now,
     )
 
     forbid = []
@@ -317,27 +364,35 @@ def decide(*, stage, signals, readiness, objections, engaged_product, turn_no, s
         directives.append("Present the approved code from the APPROVED OFFER block as a good reason to decide on this piece: "
                           "use only the merchant's own description, no calculated prices, no other promotions, "
                           "no free shipping, no deadline.")
+        if sig["asks_discount"]:
+            directives.append("They asked about a discount or for a bigger one: say naturally that this code, exactly as the "
+                              "merchant describes it, is the maximum discount the store has approved; do not negotiate, do not repeat the percentage "
+                              "or amount they asked for, and do not invent any other offer.")
     else:
         directives.append("Do not offer, hint at or promise any discount, code or special price this turn.")
         if alternative_first:
             directives.append("The customer is price-sensitive: first show ONE clearly cheaper real alternative from the "
                               f"catalog (sku {alternative.product.sku}) and say what makes it a good fit; "
-                              "do not mention discounts.")
+                              "do not bring up discounts yourself.")
         asks = sig["asks_discount"]
-        if asks and verdict.reason in ("not_engaged", "too_early", "no_trigger"):
-            directives.append("They asked about discounts before choosing anything: say warmly you will look for the best "
-                              "deal once they pick something they like, and mention only REAL sale items (those with a "
-                              "catalog compare-at price); never invent a code, percentage or promotion.")
+        if asks and verdict.reason == "already_offered":
+            directives.append("This customer already received the store's code earlier in this conversation (see DISCOUNT). "
+                              "If they ask for more, for a bigger discount or for the code again, say naturally that this code, "
+                              "as the merchant describes it, is the maximum discount the store has approved; do not offer another one, do not "
+                              "negotiate, do not repeat the percentage or amount they asked for, do not invent other offers.")
         elif asks and verdict.reason in ("no_codes", "expired"):
-            directives.append("There is no extra code to give right now: do not claim otherwise; say so warmly and point "
-                              "to the product's real value and any REAL sale items.")
-        elif asks and verdict.reason == "already_offered":
-            directives.append("A code was already shared in this conversation: do not offer another one; "
-                              "remind them of it only if they ask.")
-        elif asks and verdict.reason == "ready_no_price_concern":
-            directives.append("If they ask about discounts, do not offer a code: keep the answer brief and warm, "
-                              "point to the product's value and move to the buy step.")
-        price_side = (price_open or asks or sig["hesitation_reason"] in ("price", "other")
+            directives.append("They asked about discounts and the store has no discount code available right now: say so "
+                              "plainly and naturally in ONE short sentence, with no long apology. Do not repeat the percentage or "
+                              "amount they asked for, never promise one for later, never invent an alternative offer. Then keep "
+                              "helping: the product's real value, REAL sale items (those with a catalog compare-at price) or a "
+                              "cheaper real alternative.")
+        elif asks:
+            directives.append("They asked about discounts: say naturally in ONE short sentence that you cannot offer a discount "
+                              "right now. Do NOT say that no codes exist, never reveal or hint at any code, amount or percentage, "
+                              "do not repeat the percentage or amount they asked for, never promise one for later, never invent an "
+                              "alternative offer. Then keep helping: the product's real value, REAL sale items (those with a "
+                              "catalog compare-at price) or a cheaper real alternative.")
+        price_side = (price_open or asks or sig["hesitation_reason"] == "price" or price_now
                       or readiness == "hesitant" or verdict.reason in ("no_codes", "expired"))
         if price_side:
             directives.append("Keep selling constructively: reframe the value with concrete catalog facts, offer a cheaper "
@@ -347,5 +402,5 @@ def decide(*, stage, signals, readiness, objections, engaged_product, turn_no, s
     return contracts.Strategy(
         stage=stage, readiness=readiness, directives=directives, ask_slot=ask_slot, forbid=forbid,
         alternative_first=alternative_first, discount=verdict,
-        state_updates={"sales": {"alt_first_done": True}} if alternative_first else {},
+        state_updates={"sales": {"alt_first_attempts": attempts + 1}} if alternative_first else {},
     )

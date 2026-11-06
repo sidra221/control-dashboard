@@ -295,6 +295,34 @@ def excluded_skus(profile):
     return {sku for sku, reaction in latest.items() if reaction == "rejected"}
 
 
+INTEREST_REACTIONS = ("liked", "asked", "tried_on", "buy_click", "add_to_cart")
+
+
+def interest_skus(conversation, profile=None):
+    """منتجات عليها اهتمام حقيقي بهالمحادثة، الأحدث أولاً: آخر ردّ فعل صريح عليها (إعجاب، سؤال، تجربة،
+    ضغطة شراء، سلة). المعروض/المُشاهَد ما بيعدّ، والمرفوض (هون أو من زيارة سابقة) بيطلع."""
+    rows = list(
+        ProductReaction.objects.filter(conversation=conversation)
+        .exclude(reaction__in=NON_PREFERENCE_REACTIONS + ("neutral",))
+        .order_by("id").values_list("sku", "reaction")
+    )
+    latest = {}
+    for index, (sku, reaction) in enumerate(rows):
+        latest[sku] = (index, reaction)
+    rejected = excluded_skus(profile) if profile is not None else set()
+    liked = [(i, sku) for sku, (i, reaction) in latest.items() if reaction in INTEREST_REACTIONS and sku not in rejected]
+    return [sku for _i, sku in sorted(liked, reverse=True)]
+
+
+def last_shown_sku(conversation, profile=None):
+    """آخر منتج انعرض للزبون ومش مرفوض: بيتحدد منه "آخذه" لما ما في ردّ فعل مسجّل."""
+    rejected = excluded_skus(profile) if profile is not None else set()
+    for sku in ProductReaction.objects.filter(conversation=conversation, reaction="shown").order_by("-id").values_list("sku", flat=True):
+        if sku not in rejected:
+            return sku
+    return None
+
+
 def last_assistant_time(conversation):
     last = Message.objects.filter(conversation=conversation, role="assistant").order_by("-seq").first()
     return last.created_at if last else None
@@ -355,10 +383,12 @@ def apply_objections(ctx, validated, turn):
     return created
 
 
-def resolve_open_objections(conversation, turn):
-    return Objection.objects.filter(conversation=conversation, status="open").update(
-        status="resolved", resolved_turn=turn
-    )
+def resolve_open_objections(conversation, turn, keep_current=False):
+    """keep_current: اعتراض انرفع بهالدور نفسه ما بينحل (الزبون قال "آخذه بس غالي")."""
+    rows = Objection.objects.filter(conversation=conversation, status="open")
+    if keep_current:
+        rows = rows.exclude(raised_turn=turn)
+    return rows.update(status="resolved", resolved_turn=turn)
 
 
 def open_objections(conversation):

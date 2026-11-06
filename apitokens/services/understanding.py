@@ -108,7 +108,13 @@ ANALYZE_TOOL = {
             },
             "resolved_objections": {"type": "array", "items": {"type": "string", "enum": list(OBJECTIONS)}},
             "questions_asked": {"type": "array", "items": {"type": "string", "enum": list(TOPICS)}},
-            "gender": {"type": "string", "enum": ["female", "male", "unknown"]},
+            "gender": {
+                "type": "string", "enum": ["female", "male", "unknown"],
+                "description": "ONLY if the customer's own words reveal their gender through grammatical gender about "
+                               "THEMSELVES (e.g. مترددة/محتارة/متأكدة = female, متردد/محتار/متأكد = male). Never from what "
+                               "they shop for (a dress), never from gender-neutral words like أبي/أبغى/هلا. Otherwise unknown.",
+            },
+            "gender_evidence": {"type": "string", "description": "The exact gendered word(s) the customer used about themselves."},
             "signals": {
                 "type": "object",
                 "description": "How the customer is doing right now, judged from the MEANING of the latest message in context.",
@@ -117,7 +123,7 @@ ANALYZE_TOOL = {
                     "readiness": {"type": "string", "enum": list(SIGNAL_READINESS)},
                     "hesitation_reason": {
                         "type": "string", "enum": list(HESITATION_REASONS) + [""],
-                        "description": "Why the customer is unsure; empty when not hesitating.",
+                        "description": "Why the customer is unsure about buying; empty for plain questions, comparisons, rejections and when not hesitating.",
                     },
                     "asks_discount": {"type": "boolean", "description": "The customer asks for a discount, a code, a better price or a deal."},
                     "wants_alternative": {"type": "boolean", "description": "The customer wants to see something different or other options."},
@@ -146,14 +152,21 @@ retraction for the old value. "Forget that / ignore my budget" → retractions.
 (value = the relation, e.g. "sister").
 - `reaction`: only if the latest message reacts to ONE specific product from the products list: \
 liked / rejected (+ reason_type) / asked (a question about it) / neutral. Copy its sku exactly. \
+A price remark is NOT a rejection. "حلو بس غالي", "عجبني بس سعره مرتفع", "حلو بس مو متأكد بسبب السعر", \
+"حلو بس غالي علي شوي" = the customer LIKES it: reaction type liked (evidence: the liking words, e.g. "حلو"), \
+plus an objection of type price, plus signals readiness hesitant / hesitation_reason price. Use "rejected" ONLY \
+when the customer says they do not want THIS product or do not like it ("ما أبيه", "مو حلو", "ما عجبني"), even \
+if the price is also mentioned ("غالي وما أبيه" = rejected, reason price). Asking for something cheaper or \
+complaining about the price in general ("غالية! عندكم أرخص؟") is not a rejection of the product: use neutral or \
+no reaction. \
 Resolving "it / this / هذا": if a product is marked "OPENED AFTER the assistant's last message", the customer \
 is reacting to THAT page; if the page was already open, or none is marked, use the product the assistant \
 just showed; if the customer names a product, use the named one.
 - Products tagged "[REJECTED earlier by the customer, hidden]" are hidden from the customer. If the customer asks to see one \
 again, bring it back, or says they changed their mind about it (even without naming it: "the first one", "the one I \
 rejected", "الأول اللي رفضته"), emit reaction type "asked" (or "liked") for that sku: an explicit request lifts the rejection.
-- Rejection reasons: price (too expensive), style (not my taste), color, fit (size/cut), quality, \
-material, other, unknown.
+- Rejection reasons (only for a real rejection): price (they refuse it because of the price), style \
+(not my taste), color, fit (size/cut), quality, material, other, unknown.
 - objections: price, competitor_price (found it cheaper elsewhere), trust, quality, fit, shipping, \
 timing ("I'll think about it"), other — with the customer's exact words as evidence. \
 resolved_objections: types the customer now says are settled.
@@ -166,13 +179,25 @@ product/shipping/size/payment), compare (weighs options), object (a concern or d
 what was shown), accept (agrees / likes / wants it), buy (wants to order or pay now), ask_discount (asks for a \
 discount/code/better price), chitchat (greetings, thanks, small talk), other.
   - readiness: "ready" ONLY when the customer clearly decided to buy now (asks how to pay or order, says \
-they'll take it, asks for the payment/checkout link). "hesitant" when interested but unsure: comparing, \
-price worry, doubts, "I'll think about it", "let me ask my husband/sister". "interested" when positive but \
-no decision yet. "browsing" otherwise (just looking, greetings, general questions).
-  - hesitation_reason (only when hesitant): price | style | fit | trust | timing | other; otherwise "".
+they'll take it, asks for the payment/checkout link) and voices no remaining doubt. "hesitant" ONLY when the \
+customer is interested in a specific product but is unsure about BUYING it, judged from the whole conversation: \
+a price worry ("حلو بس غالي", "تمام آخذه بس غالي"), doubt ("مو متأكدة إذا أشتريه", "عجبني بس محتارة", "مترددة"), \
+"I'll think about it" ("بفكر"), "let me ask my husband/sister". Plain questions are NOT hesitation, even when \
+they sound like weighing options: "وش أحسن واحد؟", "قارن لي بين هذا وهذا", "وش القماش؟", "متى يوصل؟", \
+"كم الشحن؟", "عندكم مقاس كبير؟" — these are ask_info / compare / browse and the customer is "interested" or \
+"browsing" unless the SAME message also voices doubt about buying. Disliking a product ("مو حلو") is a \
+reject, not hesitation. "interested" when positive but no decision yet. "browsing" otherwise (just looking, \
+greetings, general questions).
+  - hesitation_reason (only when readiness is hesitant, i.e. real hesitation as defined above): price | style | \
+fit | trust | timing | other; otherwise "" — leave it empty for plain questions and for rejections.
   - asks_discount: true only if the customer asks for a discount, a code or a lower price.
   - wants_alternative: true if the customer asks for other options or something different.
   Leave a field out if you cannot tell. Never infer "ready" from politeness or from a compliment.
+- `gender` + `gender_evidence`: fill ONLY when the customer's own words reveal their gender through grammatical \
+gender about themselves: feminine "مترددة / محتارة / متأكدة / مبسوطة / جاهزة / أنا بنت" ⇒ female; masculine \
+"متردد / محتار / متأكد / مبسوط / جاهز" ⇒ male. Copy the gendered word exactly as `gender_evidence`. It is NOT a signal: \
+what they shop for (a dress, an abaya), greetings, and gender-neutral verbs like أبي / أبغى / أدور / وريني. \
+Otherwise leave gender out (unknown). Never guess.
 - Nothing new → return empty lists. Never invent."""
 
 
@@ -281,8 +306,98 @@ def _as_list(value):
     return [value] if isinstance(value, dict) else []
 
 
-def validate(raw, *, user_texts, products_by_sku, merchant_currency):
-    """raw: وسائط أداة المحلّل. user_texts: رسائل الزبون (للتحقق من الاقتباسات)."""
+# كلمات مش دليل على جنس الزبون: أفعال رغبة/تحية محايدة، ونوع القطعة (فستان لا يعني امرأة).
+_NEUTRAL_WORDS = frozenset(norm_text(w) for w in (
+    "ابي", "ابغى", "ابغا", "ابى", "بدي", "اريد", "ادور", "وريني", "ورني", "هلا", "اهلا", "مرحبا", "السلام", "عليكم",
+    "فستان", "فساتين", "عباية", "عبايات", "شنطة", "شنط", "قميص", "بنطلون", "جاكيت", "حذاء", "جزمة", "عرس", "زواج",
+    "سهرة", "حفلة", "دوام", "هدية", "لون", "مقاس", "الاسود", "اسود", "ابيض", "احمر", "اخضر", "ازرق", "بيج", "وردي",
+))
+
+
+def _only_neutral_words(evidence, products_by_sku):
+    """الدليل كله كلمات محايدة أو من عناوين المنتجات؟ ← مش دليل جنس."""
+    titles = set()
+    for product in (products_by_sku or {}).values():
+        titles.update(norm_text(getattr(product, "title", "")).split())
+        titles.update(norm_text(getattr(product, "category", "") or "").split())
+    known = _NEUTRAL_WORDS | titles
+
+    def neutral(token):
+        # سوابق شائعة: و/ف/ب/ل/ك + ال ("للعرس"، "بالفستان"، "والفستان")
+        variants = {token}
+        for cut in (1, 2, 3):
+            if len(token) > cut + 1:
+                variants.add(token[cut:])
+        if token.startswith("لل"):
+            variants.add("ال" + token[2:])
+        return bool(variants & known) or any(v.startswith("ال") and v[2:] in known for v in variants)
+
+    tokens = norm_text(evidence).split()
+    return bool(tokens) and all(neutral(t) for t in tokens)
+
+
+# ---- جنس الزبون من نفس الرسالة (شبكة حتمية فوق المحلّل، بدون انتظار الدور التالي)
+# أوصاف الزبون لنفسه بصيغة واضحة (مذكر/مؤنث). كلمات ملتبسة ("جاهز" = الطلب جاهز؟) مستبعدة عمداً.
+_SELF_GENDER_PAIRS = (
+    ("متردد", "مترددة"), ("محتار", "محتارة"), ("متأكد", "متأكدة"), ("مقتنع", "مقتنعة"), ("مبسوط", "مبسوطة"),
+    ("مهتم", "مهتمة"), ("متحمس", "متحمسة"), ("مستعجل", "مستعجلة"), ("زعلان", "زعلانة"), ("فرحان", "فرحانة"),
+    ("تعبان", "تعبانة"), ("محرج", "محرجة"), ("ضايع", "ضايعة"), ("مرتبك", "مرتبكة"), ("خايف", "خايفة"),
+    ("قلقان", "قلقانة"), ("متشوق", "متشوقة"), ("منبهر", "منبهرة"),
+)
+_SELF_GENDER = {}
+for _m, _f in _SELF_GENDER_PAIRS:
+    _SELF_GENDER[norm_text(_m)] = "male"
+    _SELF_GENDER[norm_text(_f)] = "female"
+_SELF_PHRASES = (("انا بنت", "female"), ("انا امراه", "female"), ("انا مره", "female"), ("انا رجل", "male"),
+                 ("انا شاب", "male"), ("انا ولد", "male"))
+_ADDRESSING = frozenset(norm_text(w) for w in ("انت", "انتي", "انتم", "إنت", "أنت", "أنتِ", "هل"))
+
+
+def detect_self_gender(text):
+    """(gender, الكلمة) من وصف الزبون لنفسه بنفس الرسالة، أو None. بيتجاهل: سؤال موجّه للمساعد ("أنت متأكد؟")،
+    ورسالة فيها الصيغتين (متضاربة)."""
+    found = []
+    for sentence in re.findall(r"[^.!?؟\n]+[.!?؟]*", text or ""):
+        tokens = norm_text(sentence).split()
+        asking = sentence.strip().endswith(("؟", "?"))
+        for i, token in enumerate(tokens):
+            base = token if token in _SELF_GENDER else (token[1:] if token[:1] in "وف" and token[1:] in _SELF_GENDER else None)
+            if base is None:
+                continue
+            if any(t in _ADDRESSING for t in tokens[max(0, i - 3):i]) or (asking and len(tokens) <= 2):
+                continue
+            found.append((_SELF_GENDER[base], base))
+    norm_all = norm_text(text)
+    for phrase, gender in _SELF_PHRASES:
+        if phrase in norm_all:
+            found.append((gender, phrase))
+    genders = {g for g, _w in found}
+    return found[0] if len(genders) == 1 else None
+
+
+# نوايا بتناقض "رفض المنتج": المحلّل نفسه صنّف الرسالة كاعتراض/سؤال مش رفض.
+NOT_A_REJECTION_INTENTS = frozenset({"object", "ask_discount", "compare", "ask_info", "search", "browse", "accept", "chitchat"})
+
+
+def _reconcile_price_rejections(out):
+    """ملاحظة على السعر مش رفض للمنتج ("حلو بس غالي"). إذا المحلّل سجّل rejected(price) بس صنّف الرسالة بنفسه
+    كاعتراض/سؤال (intent مش reject): ما منخفي المنتج. إذا كان متردد (readiness hesitant = مهتم بس مش محسوم) ← liked
+    (اهتمام حقيقي)، وإلا neutral. اعتراض السعر بيضل مسجّل. الرفض الحقيقي ("غالي وما أبيه") intent=reject وما بيتأثر."""
+    sig = out.signals
+    if sig.get("intent") not in NOT_A_REJECTION_INTENTS:
+        return
+    for r in out.reactions:
+        if r["type"] == "rejected" and r["reason_type"] == "price":
+            r["type"] = "liked" if sig.get("readiness") == "hesitant" else "neutral"
+            r["reason_type"] = ""
+            out.dropped.append(f"reaction:price_remark_is_not_a_rejection:{r['sku']}")
+            if not any(o["type"] == "price" for o in out.objections):
+                out.objections.append({"type": "price", "sku": r["sku"], "text": r.get("reason_text", ""), "current": True})
+
+
+def validate(raw, *, user_texts, products_by_sku, merchant_currency, current_text=None):
+    """raw: وسائط أداة المحلّل. user_texts: رسائل الزبون (للتحقق من الاقتباسات).
+    current_text: رسالة الزبون الحالية — اعتراض اقتباسه مش فيها (الموديل أعاد اعتراض قديم) بيتعلّم current=False."""
     out = Validated()
     if not isinstance(raw, dict):
         return out
@@ -367,13 +482,32 @@ def validate(raw, *, user_texts, products_by_sku, merchant_currency):
             out.dropped.append(f"objection:{kind}:no_quote")
             continue
         sku = str(item.get("sku") or "").strip()
-        out.objections.append({"type": kind, "sku": sku if sku in products_by_sku else "", "text": evidence})
+        out.objections.append({
+            "type": kind, "sku": sku if sku in products_by_sku else "", "text": evidence,
+            # "حالي": اقتباسه موجود برسالة الزبون هالدور (مش اعتراض قديم أعاده المحلّل مع سياق المحادثة)
+            "current": quote_in(evidence, [current_text]) if current_text is not None else True,
+        })
 
     out.resolved = [o for o in (raw.get("resolved_objections") or []) if o in OBJECTIONS]
     out.topics = [t for t in (raw.get("questions_asked") or []) if t in TOPICS]
     gender = raw.get("gender")
     out.gender = gender if gender in ("female", "male") else ""
+    if out.gender:
+        evidence = clean_value(raw.get("gender_evidence"), 120)
+        if not quote_in(evidence, user_texts):
+            out.dropped.append(f"gender:{out.gender}:no_quote")      # بدون كلمة الزبون الحرفية = تخمين
+            out.gender = ""
+        elif _only_neutral_words(evidence, products_by_sku):
+            out.dropped.append(f"gender:{out.gender}:evidence_not_gendered")   # "أبي فستان" مش إشارة جنس
+            out.gender = ""
+    if current_text is not None:
+        detected = detect_self_gender(current_text)
+        if detected and detected[0] != out.gender:
+            # صيغة واضحة بنفس الرسالة ← بتُسجَّل فوراً (الصيغة الصريحة بتغلب تخمين/تأخّر المحلّل)
+            out.dropped.append(f"gender:detected_in_message:{detected[0]}:{detected[1]}")
+            out.gender = detected[0]
     out.signals = sanitize_signals(raw.get("signals"), out.dropped)
+    _reconcile_price_rejections(out)
     return out
 
 

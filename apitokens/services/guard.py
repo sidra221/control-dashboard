@@ -63,6 +63,84 @@ STORE_PROMO = re.compile(
     re.IGNORECASE,
 )
 
+# ---- "ما في خصم" الصادق مقابل الترويج
+# جملة بتنفي وجود خصم/كود ("ما عندي كود حالياً"، "there is no discount right now") مش ترويج، فمسموحة
+# حتى لو ما في كود معتمد. لازم كل الشروط: كلمة نفي قريبة من كلمة الخصم/الكود (كل ذكر منفي)، وكلمة
+# توفّر/قدرة ("فيه/عندي/متاح/أقدر/available/have"...)، بدون أرقام، وبدون شرط/وعد مؤجَّل ("لو/إذا/بعدين/if/when").
+# هيك "ما أحلى هالخصم" أو "ما في كود، بس لو اشتريت قطعتين بنخفّض" ما بتعدّي. الأرقام والنسب والأكواد
+# الفعلية بتنفحص بشكل مستقل وما بتتأثر.
+_AR = "\u0621-\u064a"
+NEGATION = re.compile(
+    rf"(?<![{_AR}])(?:ما|مو|مب|لا|ليس|ليست|غير|بدون|مافي|مافيه|ماعندي|ماعندنا|ماعندك|ماعندكم|ماني|ماقدر|مااقدر|ماأقدر)(?![{_AR}])"
+    r"|(?<![a-z'])(?:no|not|none|never|without|cannot|can't|cant|don't|dont|doesn't|doesnt|isn't|isnt|aren't|arent|"
+    r"there's\s+no|there\s+is\s+no|nothing)(?![a-z'])",
+    re.IGNORECASE,
+)
+AVAILABILITY = re.compile(
+    rf"(?<![{_AR}])(?:في|فيه|عندي|عندنا|عندك|عندكم|يوجد|توجد|متاح|متاحة|متوفر|متوفرة|موجود|موجودة|اقدر|أقدر|نقدر|أقدم|اقدم|"
+    rf"أعطيك|اعطيك|أوعد|اوعد|أعرض|اعرض|نملك|حالياً|حاليا|الحين|حالي|للحين|الآن)(?![{_AR}])"
+    r"|(?<![a-z])(?:available|have|has|offer|offering|give|promise|currently|right\s+now|at\s+the\s+moment|there\s+is|there's|exist|exists)(?![a-z])",
+    re.IGNORECASE,
+)
+DEFERRAL = re.compile(
+    rf"(?<![{_AR}])(?:لو|إذا|اذا|إن|لين|لما|متى|بعدين|بعد|مستقبلاً|لاحقاً|لاحقا|قريباً|قريبا|إلا|الا|بس\s+لو|لكن\s+لو)(?![{_AR}])"
+    r"|(?<![a-z])(?:if|when|once|unless|later|soon|maybe|might|future|until|after)(?![a-z])",
+    re.IGNORECASE,
+)
+_WORD = re.compile(rf"[{_AR}a-z0-9']+", re.IGNORECASE)
+_CLAUSE_SPLIT = re.compile(rf"[،,;؛:]|(?<![{_AR}])(?:بس|لكن)(?![{_AR}])|(?<![a-z])(?:but|however|though)(?![a-z])", re.IGNORECASE)
+_NEG_BEFORE, _NEG_AFTER = 4, 3
+
+
+def _negated_in_clause(clause):
+    hits = [m.span() for m in DISCOUNT_LEXICON.finditer(clause)] + [m.span() for m in CODE_LEXICON.finditer(clause)]
+    if not hits:
+        return True   # جملة فرعية بدون كلمة خصم ما بتعنينا هون
+    negations = [m.span() for m in NEGATION.finditer(clause)]
+    if not negations:
+        return False
+    words = [m.span() for m in _WORD.finditer(clause)]
+
+    def negated(start, end):
+        before = [w for w in words if w[1] <= start][-_NEG_BEFORE:]
+        after = [w for w in words if w[0] >= end][:_NEG_AFTER]
+        window = before + after
+        if not window:
+            return False
+        lo, hi = min(w[0] for w in window), max(w[1] for w in window)
+        return any(n[0] >= lo and n[1] <= hi for n in negations)
+
+    return all(negated(a, b) for a, b in hits)
+
+
+def is_truthful_no_discount(norm):
+    """norm = جملة مطبّعة (normalize). صح فقط لو الجملة بتنفي وجود خصم/كود بدون أي وعد أو رقم:
+    كل جملة فرعية فيها كلمة خصم/كود لازم تكون منفية بحد ذاتها."""
+    has_hit = DISCOUNT_LEXICON.search(norm) or CODE_LEXICON.search(norm)
+    if not has_hit or re.search(r"\d", norm) or DEFERRAL.search(norm) or not AVAILABILITY.search(norm):
+        return False
+    return all(_negated_in_clause(c) for c in _CLAUSE_SPLIT.split(norm))
+
+
+# كود مكتوب بجنب كلمة "كود": إذا في كود معتمد، أي كود تاني (حروف كبيرة/أرقام) بيعتبر كود مخترَع.
+CODE_TOKEN_AFTER_WORD = re.compile(
+    r"(?:كود|الكود|كوبون|الكوبون|بروموكود|coupon|voucher|promo\s*code|code|codes)\s*[:：=\-]?\s*(?:هو\s*|is\s*)?"
+    r"[\"'«“]?([A-Za-z0-9][A-Za-z0-9_-]{2,})",
+    re.IGNORECASE,
+)
+
+
+def _invented_code_tokens(sentence, approved, product_skus=()):
+    approved = (approved or "").strip().lower()
+    found = []
+    for m in CODE_TOKEN_AFTER_WORD.finditer(sentence.translate(_DIGIT_MAP)):
+        tok = m.group(1)
+        looks_like_code = any(ch.isdigit() for ch in tok) or (tok.isupper() and len(tok) >= 3)
+        if looks_like_code and tok.lower() != approved and tok.lower() not in product_skus:
+            found.append(tok)
+    return found
+
+
 SENTENCE_SPLIT = re.compile(r"(?<=[.!?؟…])\s+|\n+")
 
 SAFE_REPLY = {
@@ -116,6 +194,7 @@ class GroundingContext:
     sale_in_response: bool = False
     store_promo_allowed: bool = False
     store_info_norm: str = ""
+    product_skus: set = field(default_factory=set)   # أكواد المنتجات (SKU) مش أكواد خصم
 
 
 def build_context(
@@ -126,6 +205,7 @@ def build_context(
     ctx = GroundingContext()
     ctx.merchant_codes = [str(c).strip() for c in merchant_codes if str(c).strip()]
     amounts, discount_percents, general_percents = [], [], []
+    ctx.product_skus = {str(getattr(p, "sku", "")).lower() for p in products if getattr(p, "sku", "")}
 
     def add_price(value):
         value = Decimal(str(value))
@@ -183,11 +263,16 @@ def _sentence_violations(sentence, ctx):
         if re.search(rf"(?<![a-z0-9]){re.escape(code.lower())}(?![a-z0-9])", norm):
             found.append(Violation(UNAPPROVED_CODE, code))
     code_hit = CODE_LEXICON.search(norm)
-    if code_hit and not ctx.approved_code:
-        found.append(Violation(UNAPPROVED_PROMO, code_hit.group(0)))
     discount_hit = DISCOUNT_LEXICON.search(norm)
-    if discount_hit and not ctx.approved_code and not ctx.sale_in_response:
+    # "ما عندي كود حالياً": صدق مش ترويج (أي رقم/وعد/كود فعلي بالجملة بيلغي هالاستثناء).
+    truthful_no_discount = bool(code_hit or discount_hit) and not ctx.approved_code and is_truthful_no_discount(norm)
+    if code_hit and not ctx.approved_code and not truthful_no_discount:
+        found.append(Violation(UNAPPROVED_PROMO, code_hit.group(0)))
+    if discount_hit and not ctx.approved_code and not ctx.sale_in_response and not truthful_no_discount:
         found.append(Violation(UNAPPROVED_PROMO, discount_hit.group(0)))
+    if ctx.approved_code:
+        for tok in _invented_code_tokens(sentence, ctx.approved_code, ctx.product_skus):
+            found.append(Violation(UNAPPROVED_CODE, tok))
     has_discount_words = bool(discount_hit or code_hit)
 
     percents = _percents(sentence)
