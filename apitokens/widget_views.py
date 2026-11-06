@@ -77,8 +77,8 @@ DISCOUNT_PRICE_LINE = {
     "en": "With the code it's {new_price} {currency} instead of {price} {currency} 🎁",
 }
 WHO_IS_IT_FOR_REPLY = {
-    "ar": "أبشر! بس قبل، تبيها رجالية ولا نسائية؟ ولك ولا هدية؟ 😊",
-    "en": "Happy to help! Is it men's or women's — and for you or a gift? 😊",
+    "ar": "أبشر! بس قبل، تبيها رجالية ولا نسائية؟ 😊",
+    "en": "Happy to help! Men's or women's? 😊",
 }
 GIFT_REPLY = {
     "ar": "اختيار حلو كهدية 🎁 تقدر تطلبه من زر الشراء تحت.",
@@ -131,9 +131,12 @@ def _is_arabic_text(text):
 
 
 def _customer_lang(messages):
-    """عربي إذا آخر رسالة من الزبون عربية (بأي حروف)، وإلا إنجليزي."""
-    last_user = next((m["content"] for m in reversed(messages) if m["role"] == "user"), "")
-    return "ar" if _is_arabic_text(last_user) else "en"
+    """عربي إذا آخر رسالة من الزبون فيها حروف عربية (أو Arabizi)، وإلا إنجليزي.
+    رسالة بلا حروف (أرقام بس متل "180 85"، أو إيموجي) ما بتحدد لغة — منرجع للرسالة اللي قبلها."""
+    for m in reversed(messages):
+        if m["role"] == "user" and any(ch.isalpha() for ch in m["content"]):
+            return "ar" if _is_arabic_text(m["content"]) else "en"
+    return "ar"
 
 RECOMMEND_TOOL = {
     "name": "recommend_product",
@@ -322,10 +325,11 @@ more, and never several questions in one message. Prioritize whichever you don't
 color, occasion. If they've already given you enough — or the catalog has one item that clearly fits \
 what they said — recommend it right away and ask any follow-up AFTER showing it. Showing a good \
 product beats asking a question.
-   Who will wear it comes first: if the catalog has both men's and women's clothing and nothing yet \
-tells you who it's for (they never said, and no gendered item or "for my husband/sister" came up), \
-your FIRST question is that, in one short line — e.g. men's or women's, for you or a gift. Never guess \
-it: showing a dress to a man (or a men's shirt to a woman) loses the sale at once.
+   Who will wear it: ONLY when the request is vague (no item type named — "anything", "something for an \
+outing") and the catalog has both men's and women's clothing, your first question is men's or women's, \
+in one short line. Never guess it. But as soon as they name an item (a dress, an abaya, a men's shirt, \
+"the green dress") or say who it's for, that's settled — do NOT ask "for you or a gift?", just show it. \
+If they give measurements, call `recommend_size` right away.
 2. Gifts and other people. If they say it's for someone else (a gift, a family member, anyone other \
 than themselves), remember it for the REST of the conversation: every mention of trying it on or how \
 it will look must refer to that person (by name or relation if given), never to the customer, until \
@@ -1265,7 +1269,7 @@ def chat(request):
             corrected_system_prompt = system_prompt + (
                 "\n\nCORRECTION — you don't know yet whether this is for a man or a woman (they haven't "
                 "said), and you showed gendered clothing. Don't show any product now: reply with ONE short "
-                "question asking whether they want men's or women's (and if it's for them or a gift)."
+                "question asking whether they want men's or women's."
             )
             try:
                 corrected = llm.chat_with_retry(provider, corrected_system_prompt, clean_messages, tools)

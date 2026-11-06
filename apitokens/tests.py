@@ -670,6 +670,15 @@ class WidgetChatShopifyReadyTests(TestCase):
         data = self.post([{"role": "user", "content": "hello there"}]).json()
         self.assertEqual(data["reply"], "Welcome!")
 
+    def test_numbers_only_message_keeps_the_conversation_language(self):
+        from .widget_views import _customer_lang
+
+        convo = [{"role": "user", "content": "شوفي قياسات"}, {"role": "assistant", "content": "كم طولك ووزنك؟"},
+                 {"role": "user", "content": "180 85"}]
+        self.assertEqual(_customer_lang(convo), "ar")
+        self.assertEqual(_customer_lang([{"role": "user", "content": "size?"}, {"role": "user", "content": "180 85"}]), "en")
+        self.assertEqual(_customer_lang([{"role": "user", "content": "👍"}]), "ar")
+
     def test_arabizi_counts_as_arabic(self):
         from .widget_views import _is_arabic_text, _script_mismatch
 

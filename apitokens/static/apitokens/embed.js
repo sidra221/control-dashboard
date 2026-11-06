@@ -45,9 +45,12 @@
     en: { add: "Add to cart 🛒", added: "Added to cart ✓ — checkout", addFailed: "Couldn't add it to the cart, try from the product page.", buy: "Buy now" },
   };
   function uiLang() {
+    // رسالة بلا حروف (أرقام بس متل "180 85"، أو إيموجي) ما بتحدد لغة — منرجع للي قبلها.
     var lastUser = "";
     for (var i = history.length - 1; i >= 0; i--) {
-      if (history[i].role === "user") { lastUser = history[i].content; break; }
+      if (history[i].role === "user" && /[A-Za-z\u0600-\u06FF]/.test(history[i].content)) {
+        lastUser = history[i].content; break;
+      }
     }
     return /[\u0600-\u06FF]/.test(lastUser) || !lastUser ? "ar" : "en";
   }

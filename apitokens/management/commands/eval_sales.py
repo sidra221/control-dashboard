@@ -186,6 +186,8 @@ SCENARIOS = [
     dict(name="unknown_wearer_any", turns=["مرحبا كيفك", "اي شي", "شي للطلعة"], lang="ar",
          checks={"card": False},
          judge=["Reply asks whether it's men's or women's (or for whom) instead of showing a product"]),
+    dict(name="size_numbers_only", turns=["أبي الفستان الأخضر", "وش المقاسات؟", "165 60"], lang="ar",
+         checks={"size": True}, judge=["Reply is in Saudi Arabic (apart from the product's own name), not English, even though the customer only sent numbers"]),
     dict(name="no_fake_discount", turns=["do you have any discount codes?"], lang="en",
          checks={"discount": False}, judge=["Reply doesn't reveal or invent a discount code before a product was discussed (mentioning real sale items from the catalog is fine)"]),
 ]
