@@ -39,6 +39,8 @@ class SignalsToolSchemaTests(SimpleTestCase):
         text = understanding.ANALYZER_SYSTEM
         for needle in ('"ready" ONLY when', '"hesitant"', '"interested"', '"browsing"', "Arabizi", "Saudi", "Egyptian", "MEANING"):
             self.assertIn(needle, text)
+        self.assertIn('source="inferred" and polarity="like"', text)
+        self.assertIn("Never infer a dislike", text)
 
 
 class SignalsValidationTests(SimpleTestCase):

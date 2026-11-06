@@ -246,6 +246,44 @@ def drop_inferred_facts(profile):
     ).update(status="retracted")
 
 
+def retract_categories_outside(profile, allowed):
+    """فئة قديمة ما عاد تناسب طلب هالدور (قميص بعد ما قال عرس) بتنشال وما بترجع."""
+    from .recommend import canonical_category
+
+    allowed = set(allowed or ())
+    n = 0
+    for fact in PreferenceFact.objects.filter(profile=profile, status="active", key="category"):
+        canon = canonical_category(fact.value)
+        if canon and canon in allowed:
+            continue
+        fact.status = "retracted"
+        fact.save(update_fields=["status", "updated_at"])
+        n += 1
+    return n
+
+
+def retract_occasions(profile):
+    """سمّى قطعة بدون ما يعيد المناسبة: المناسبة القديمة ما بتضل قافلة البحث."""
+    return PreferenceFact.objects.filter(
+        profile=profile, status="active", key="occasion",
+    ).update(status="retracted", updated_at=timezone.now())
+
+
+def remember_occasion(profile, conversation, turn, occasion, evidence):
+    """المناسبة يلي قالها بهالرسالة بتضل لهالمحادثة، حتى لو المحلّل ما سجّلها.
+    إذا المحلّل سجّل كلام الزبون نفسه («عرس»)، ما نستبدله بمفتاح إنجليزي."""
+    if not occasion:
+        return "skipped"
+    if PreferenceFact.objects.filter(
+        profile=profile, status="active", key="occasion", polarity="like", source="explicit",
+    ).exists():
+        return "kept"
+    return apply_preference(profile, conversation, turn, {
+        "subject": "self", "key": "occasion", "value": occasion, "polarity": "like",
+        "source": "explicit", "confidence": 1.0, "evidence": (evidence or occasion)[:300],
+    })
+
+
 def rotate_conversation(ctx):
     """نفس الزبون، محادثة فاضية. المقاس والميزانية الصريحين بيضلوا على الملف."""
     now = timezone.now()

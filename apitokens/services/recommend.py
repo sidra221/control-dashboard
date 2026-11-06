@@ -20,7 +20,7 @@ from . import guard, sizing
 from .contracts import Candidate, Reason, Requirements, SearchResult
 from .understanding import norm_text
 
-DROP_KEYS = ("stock", "rejected", "budget", "category", "color", "avoid_color", "size")
+DROP_KEYS = ("stock", "rejected", "budget", "occasion", "category", "color", "avoid_color", "size")
 DESCRIPTION_CHARS = 220
 MAX_PER_PREFIX = 2
 
@@ -115,6 +115,216 @@ for _family in _FAMILIES:
     for _cat in _family:
         RELATED.setdefault(_cat, set()).update(_family - {_cat})
 RELATED = {k: frozenset(v) for k, v in RELATED.items()}
+
+
+# =========================================================== المناسبات
+# المناسبة مو فئة. «عرس» ما بتصير قميص لأن فئة قديمة محفوظة، ولا بنركّب المناسبة
+# على قطعة وصفها ما فيها. التطابق على كلام الكتالوج نفسه (عنوان، وسوم، وصف، فئة).
+
+_OCCASION_SPEC = (
+    ("wedding", {
+        "triggers": ("عرس", "زفاف", "زواج", "ملكه", "خطوبه", "خطبه", "wedding"),
+        "match": ("عرس", "اعراس", "زفاف", "زواج", "زواجات", "سهره", "سهرات", "رسمي", "تخرج"),
+        "women": ("dress", "set", "abaya", "kaftan"),
+        "men": ("thobe",),
+    }),
+    ("evening", {
+        "triggers": ("سهره", "حفله", "حفل", "تخرج"),
+        "match": ("سهره", "سهرات", "رسمي", "تخرج"),
+        "women": ("dress", "set", "abaya", "kaftan"),
+        "men": ("thobe",),
+    }),
+    ("work", {
+        "triggers": ("دوام", "مكتب", "شغل"),
+        "match": ("دوام", "عمل", "مكتب"),
+    }),
+    ("beach", {
+        "triggers": ("بحر", "سباحه"),
+        "match": ("بحر", "سباحه", "مايوه"),
+    }),
+    ("summer", {
+        "triggers": ("صيف",),
+        "match": ("صيف", "صيفي"),
+    }),
+    ("casual", {
+        "triggers": ("كاجوال", "طلعه"),
+        "match": ("كاجوال", "طلعه", "طلعات"),
+    }),
+)
+_OCCASIONS = {key: spec for key, spec in _OCCASION_SPEC}
+_TOKEN_PREFIXES = (("وال", 5), ("بال", 5), ("لل", 4), ("ال", 4), ("ل", 4))
+_ABOUT_OPEN = frozenset({"هذا", "هاد", "هذي", "هالقطعه", "ينفع", "يناسب", "this"})
+
+
+def _bare_token(token):
+    for prefix, floor in _TOKEN_PREFIXES:
+        if token.startswith(prefix) and len(token) > floor:
+            return token[len(prefix):]
+    return token
+
+
+def _content_tokens(text):
+    out = []
+    for raw in norm_text(text).split():
+        token = _bare_token(raw)
+        if token and token not in out:
+            out.append(token)
+    return out
+
+
+def named_occasion(text):
+    """المناسبة من كلام الزبون الحالي. None إذا ما سمّى مناسبة."""
+    tokens = set(_content_tokens(text))
+    if not tokens:
+        return None
+    for key, spec in _OCCASION_SPEC:
+        triggers = {_bare_token(norm_text(word)) for word in spec["triggers"]}
+        if tokens & triggers:
+            return key
+    return None
+
+
+def categories_in_text(text):
+    """فئات سمّاها الزبون بهالرسالة، بالترتيب."""
+    return _scan(text or "", "category")
+
+
+def occasion_categories(occasion, gender):
+    """فئات القطعة لهالمناسبة حسب جنس الزبون. () = ما في قيد جنس، المناسبة لحاله بتفلتر."""
+    spec = _OCCASIONS.get(occasion or "")
+    if not spec:
+        return ()
+    if gender == "female":
+        return tuple(spec.get("women", ()))
+    if gender == "male":
+        return tuple(spec.get("men", ()))
+    return ()
+
+
+def occasion_match_tokens(occasion):
+    spec = _OCCASIONS.get(occasion or "")
+    if not spec:
+        return ()
+    return tuple(_bare_token(norm_text(word)) for word in spec["match"])
+
+
+def _product_tokens(product):
+    parts = (
+        getattr(product, "title", "") or "",
+        getattr(product, "category", "") or "",
+        getattr(product, "tags", "") or "",
+        getattr(product, "description", "") or "",
+    )
+    return set(_content_tokens(" ".join(parts)))
+
+
+def product_matches_occasion(product, occasion):
+    """القطعة تناسب المناسبة فقط إذا كلام الكتالوج نفسه فيها، مو إذا الموديل ركّبها."""
+    wanted = set(occasion_match_tokens(occasion))
+    if not wanted:
+        return False
+    for token in _product_tokens(product):
+        if token in wanted or any(len(word) >= 4 and token.endswith(word) for word in wanted):
+            return True
+    return False
+
+
+def mentions_open_product(text):
+    """السؤال عن القطعة المفتوحة («هذا بينفع للعرس؟»)، مو طلب قطعة جديدة."""
+    tokens = set(_content_tokens(text))
+    return bool(tokens & _ABOUT_OPEN)
+
+
+def liked_categories(facts, conversation_id):
+    """فئات صريحة بهالمحادثة. فئة محادثة قديمة ما بترجع."""
+    found = []
+    for fact in facts or ():
+        if getattr(fact, "status", "active") != "active" or getattr(fact, "key", "") != "category":
+            continue
+        if getattr(fact, "polarity", "like") != "like" or _fact_source(fact) == "inferred":
+            continue
+        conv = getattr(fact, "conversation_id", None)
+        if conversation_id is not None and conv not in (None, conversation_id):
+            continue
+        canon = canonical_category(str(getattr(fact, "value", "") or ""))
+        if canon and canon not in found:
+            found.append(canon)
+    return tuple(found)
+
+
+def occasion_from_facts(facts, conversation_id):
+    """آخر مناسبة صريحة بهالمحادثة. مناسبة محادثة قديمة ما بترجع."""
+    found = ""
+    for fact in facts or ():
+        if getattr(fact, "status", "active") != "active" or getattr(fact, "key", "") != "occasion":
+            continue
+        if getattr(fact, "polarity", "like") != "like" or _fact_source(fact) != "explicit":
+            continue
+        conv = getattr(fact, "conversation_id", None)
+        if conversation_id is not None and conv not in (None, conversation_id):
+            continue
+        value = str(getattr(fact, "value", "") or "")
+        found = named_occasion(value) or (value if value in _OCCASIONS else found)
+    return found
+
+
+def _occasion_family(occasion):
+    spec = _OCCASIONS.get(occasion or "") or {}
+    return set(spec.get("women", ())) | set(spec.get("men", ()))
+
+
+def _request(occasion, categories, *, drop=False, retract=None, remember="", needs_gender=False):
+    return {
+        "occasion": occasion, "categories": categories, "drop_occasion": drop,
+        "retract_categories_to": retract, "remember_occasion": remember, "needs_gender": needs_gender,
+    }
+
+
+def plan_request(text, facts=(), gender="", conversation_id=None):
+    """شو بينفرض هالدور. categories=None يعني خذ فئات هالمحادثة بس.
+    tuple (حتى الفاضية) يعني استبدل الفئات. retract_categories_to=None يعني لا تمسح."""
+    current = named_occasion(text) or ""
+    cats_now = categories_in_text(text)
+    remembered = "" if current else occasion_from_facts(facts, conversation_id)
+    occasion = current or remembered
+    family = occasion_categories(occasion, gender) if occasion else ()
+    either = _occasion_family(occasion)
+    fits = bool(cats_now) and (not either or bool(set(cats_now) & (set(family) or either)))
+    incompatible = bool(occasion and cats_now and either and not fits)
+    if cats_now and not occasion:
+        return _request("", tuple(cats_now), drop=bool(remembered), retract=tuple(cats_now))
+    if cats_now and incompatible:
+        # «قميص للعرس» أو قميص بعد ما المناسبة انحفظت: ما بنلبس المناسبة على قطعة ما تطابقها.
+        if current:
+            return _request(current, tuple(cats_now), remember=current)
+        return _request("", tuple(cats_now), drop=True, retract=tuple(cats_now))
+    if cats_now and occasion:
+        keep = tuple(family) if family else tuple(cats_now)
+        return _request(occasion, tuple(cats_now), retract=keep, remember=current)
+    # «عرس» لحاله وجنس مجهول: سؤال واحد هالدور. ما منخمّن فستان أو ثوب، وما منمسح فئة انقالت قبل.
+    if current and either and gender not in ("female", "male") and not cats_now:
+        return _request(current, (), retract=tuple(either), remember=current, needs_gender=True)
+    if occasion and gender not in ("female", "male"):
+        liked = liked_categories(facts, conversation_id)
+        return _request(occasion, liked or None, retract=None, remember=current)
+    if occasion:
+        return _request(occasion, tuple(family), retract=tuple(family) if family else None, remember=current)
+    return _request("", None)
+
+
+def facts_for_request(facts, conversation_id, categories):
+    """categories is None: فئات محادثة ثانية ما بتفلتر. غير هيك: الفئات بتتحدد من الطلب الحالي."""
+    out = []
+    for fact in facts or ():
+        if getattr(fact, "key", "") != "category":
+            out.append(fact)
+            continue
+        if categories is not None:
+            continue
+        conv = getattr(fact, "conversation_id", None)
+        if conversation_id is not None and conv == conversation_id:
+            out.append(fact)
+    return out
 
 SIZE_ORDER = ("XS", "S", "M", "L", "XL", "XXL", "XXXL")
 ONE_SIZE = "ONE"   # مقاس واحد/فري سايز
@@ -486,7 +696,7 @@ def requirements_from_facts(facts, excluded_skus=(), exempt_skus=(), include_out
 # ============================================================ الفلاتر الصلبة
 
 def _violations(product, req, prof):
-    """الفلاتر بالترتيب الثابت: stock, rejected, budget, category, color, avoid_color, size."""
+    """الفلاتر بالترتيب الثابت: stock, rejected, budget, occasion, category, color, avoid_color, size."""
     out = []
     sku = str(getattr(product, "sku", ""))
     exempt = sku in req.exempt_skus
@@ -501,6 +711,9 @@ def _violations(product, req, prof):
                 req.budget_min is not None and price < req.budget_min
             ):
                 out.append("budget")
+    occasion = getattr(req, "occasion", "") or ""
+    if occasion and not product_matches_occasion(product, occasion):
+        out.append("occasion")
     if req.categories and not (set(req.categories) & prof.cats):
         out.append("category")
     if req.colors and not (set(req.colors) & prof.colors):
@@ -655,6 +868,9 @@ def search(products, req, *, query="", limit=8, shown_skus=(), relax=True, query
     items = list(products or [])
     limit = max(int(limit or 0), 0)
     shown = {str(s) for s in (shown_skus or ())}
+    occasion = getattr(req, "occasion", "") or ""
+    if occasion:
+        query = f"{query} {' '.join(occasion_match_tokens(occasion))}".strip()
     qtokens = _query_tokens(query)
     qcolors, qcats = set(_scan(query or "", "color")), set(_scan(query or "", "category"))
 

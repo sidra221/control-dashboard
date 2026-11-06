@@ -867,7 +867,8 @@ class PromptTests(SellerBase):
     def test_honesty_rules_are_in_the_prompt(self):
         prompt = self.prompt()
         for needle in ("Never invent materials", "ONLY from \"Store information\"", "Never compute prices",
-                       "recommend_size", "show_product", "ONE short, confident nudge", "ONE question per reply"):
+                       "recommend_size", "show_product", "ONE short, confident nudge", "ONE question per reply",
+                       "no invented durability", "was_price", "name no fabric"):
             self.assertIn(needle, prompt)
 
     def test_a_search_without_a_card_still_shows_the_real_product(self):

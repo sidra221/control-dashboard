@@ -27,6 +27,7 @@ class Requirements:
     avoid_colors: tuple = ()
     sizes: tuple = ()             # مقاسات مطلوبة قياسية: ("M",) أو ("42",)
     categories: tuple = ()        # فئات قياسية: ("dress",)
+    occasion: str = ""            # مناسبة قالها الزبون هالدور أو بهالمحادثة: wedding|evening|...
     excluded_skus: frozenset = frozenset()   # مرفوضة
     exempt_skus: frozenset = frozenset()     # طلبها الزبون صراحة هالدور ← بتتجاوز فلتر الميزانية/الرفض
     include_out_of_stock: bool = False
@@ -81,6 +82,7 @@ class Strategy:
     alternative_first: bool = False
     stay_sku: str = ""              # إذا تعبّى: البائع يرفض أي كرت غير هالقطعة
     hold_cards: bool = False        # الزبون ما قال شو بده: ممنوع أي كرت
+    hold_kind: str = ""             # "" | narrow | occasion
     discount: DiscountVerdict = field(default_factory=DiscountVerdict)
     state_updates: dict = field(default_factory=dict)  # بتنحفظ بـ Conversation.state
 

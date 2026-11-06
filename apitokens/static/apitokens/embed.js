@@ -134,16 +134,25 @@
   }
   var failedSend = null; // نفس الرسالة بعد انقطاع = نفس المعرّف (السيرفر ما بيكرّرها)
 
+  var proactivePending = false;
+  var PROACTIVE_TEXT = "أهلاً بك! إذا احتجت مساعدة بمقاس هذه القطعة أو تفاصيل القماش، أنا موجود.";
+
+  function proactiveStorageKey() {
+    return v2Key + "_proactive_shown";
+  }
+
   function chatV2(text) {
     var id = failedSend && failedSend.text === text ? failedSend.id : newMsgId();
     failedSend = { text: text, id: id };
-    return postJSON("/widget/v2/chat/", {
+    var body = {
       message: text,
       client_msg_id: id,
       session_token: v2state.session_token || null,
       shopper_token: v2state.shopper_token || null,
       page_url: window.location.href,
-    }).then(function (data) {
+    };
+    if (proactivePending) body.proactive = true;
+    return postJSON("/widget/v2/chat/", body).then(function (data) {
       applyTokens(data);
       if (data && data.ok) failedSend = null;
       return data;
@@ -348,6 +357,11 @@
     "  border-radius: 10px; padding: 0 14px; cursor: pointer; font-weight: 700; font-size: 13px;",
     "}",
     ".inputrow button:disabled { opacity: .5; cursor: default; }",
+    ".chips { align-self: flex-start; display: flex; }",
+    ".chips button {",
+    "  background: #fff; color: #4f46e5; border: 1px solid #e4e6ef; border-radius: 999px;",
+    "  padding: 6px 12px; font-size: 12.5px; font-weight: 700; cursor: pointer; font-family: inherit;",
+    "}",
     ".card.result img { cursor: zoom-in; }",
     ".lightbox {",
     "  position: fixed; inset: 0; z-index: 9999999; background: rgba(0,0,0,.85);",
@@ -426,7 +440,8 @@
     lightbox.classList.remove("open");
   });
 
-  function openPanel() {
+  function openPanel(opts) {
+    var quiet = opts && opts.quiet;
     var isFirstOpen = !hasEngaged;
     hasEngaged = true;
     if (nudgeHideTimer) {
@@ -435,6 +450,13 @@
     nudge.classList.remove("open");
     panel.classList.add("open");
     setPanelFlag(true);
+    if (isFirstOpen && quiet) {
+      proactivePending = true;
+      try { window.sessionStorage.setItem(proactiveStorageKey(), "1"); } catch (e) {}
+      addBotMessage(PROACTIVE_TEXT, addNotNow);
+      history.push({ role: "assistant", content: PROACTIVE_TEXT });
+      return;
+    }
     if (isFirstOpen) {
       // منستنى جواب صفحة المنتج شوي بس، حتى ما يتأخر الترحيب لو السيرفر بطيء.
       var welcomed = false;
@@ -527,23 +549,48 @@
     if (hasEngaged || panel.classList.contains("open")) {
       return;
     }
-    var messages = NUDGE_MESSAGES;
-    if (pageProduct && pageProduct.tryon_supported !== false) {
-      var name = "«" + shortTitle(pageProduct.title) + "»";
-      messages = [
-        "ودّك تشوف " + name + " عليك قبل لا تطلبه؟ جرّبه افتراضياً الحين! ✨",
-        "متردد في " + name + "؟ ارفع صورتك وشوف شكله عليك 😍",
-      ];
-    }
-    nudge.textContent = messages[nudgeIndex % messages.length];
+    nudge.textContent = NUDGE_MESSAGES[nudgeIndex % NUDGE_MESSAGES.length];
     nudgeIndex++;
     nudge.classList.add("open");
     nudgeHideTimer = setTimeout(function () {
       nudge.classList.remove("open");
     }, 6000);
   }
-  setTimeout(showNudge, 4000);
-  setInterval(showNudge, 15000);
+  function addNotNow() {
+    var row = document.createElement("div");
+    row.className = "chips";
+    var btn = document.createElement("button");
+    btn.type = "button";
+    btn.textContent = "مو هلق";
+    btn.addEventListener("click", function () {
+      proactivePending = false;
+      row.remove();
+      panel.classList.remove("open");
+      setPanelFlag(false);
+    });
+    msgsEl.appendChild(row);
+    scrollToBottom();
+  }
+
+  function openProactive() {
+    if (hasEngaged || panel.classList.contains("open") || !pageProduct) return;
+    try {
+      if (window.sessionStorage.getItem(proactiveStorageKey()) === "1") return;
+    } catch (e) {
+      return;
+    }
+    openPanel({ quiet: true });
+  }
+
+  pageProductReady.then(function () {
+    if (hasEngaged) return;
+    if (pageProduct) {
+      setTimeout(openProactive, 45000);
+      return;
+    }
+    setTimeout(showNudge, 4000);
+    setInterval(showNudge, 15000);
+  });
 
   function scrollToBottom() {
     msgsEl.scrollTop = msgsEl.scrollHeight;
@@ -900,6 +947,7 @@
       })
       .then(function (data) {
         typingEl.remove();
+        if (data.ok) proactivePending = false;
         if (!data.ok) {
           dropFailedTurn();
           sendBtn.disabled = false;

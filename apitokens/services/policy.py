@@ -324,13 +324,34 @@ def _stay_line(sku):
             "(size, fit, try-on or buying) and show no other product.")
 
 
-def _stage_directives(stage, *, ask_slot, forbid, search_result, objections, readiness, stay_sku=None, hold_cards=False):
+def narrow_before_cards(*, intent, has_category, is_gift, page_open, wants_products):
+    """هدية أو تصفّح واسع بلا فئة: نسأل قبل أي كرت. صفحة منتج، أو طلب يشوف الموجود، أو فئة معروفة، ما تنحجب."""
+    if page_open or wants_products or has_category:
+        return False
+    return bool(is_gift or intent == "browse")
+
+
+def _stage_directives(stage, *, ask_slot, forbid, search_result, objections, readiness, stay_sku=None,
+                      hold_cards=False, hold_kind=""):
     d = []
     if hold_cards:
-        d.append(
-            "The customer has not said what they want this turn. Ask ONE short question about what they are looking for. "
-            "Show no product card and do not name a specific product from the catalog."
-        )
+        if hold_kind == "narrow":
+            d.append(
+                "This is a gift or a wide browse and no category is known. Do NOT call show_product this turn. "
+                "Ask exactly ONE short gentle question that offers two kinds of options, for example clothes or accessories. "
+                "Do not name a specific product from the catalog."
+            )
+        elif hold_kind == "occasion":
+            d.append(
+                "They named an occasion but not which piece, and you do not know who it is for. "
+                "Do NOT call show_product. Ask exactly ONE short question: a dress or a thobe. "
+                "Do not name a specific product and do not describe one as if it fits."
+            )
+        else:
+            d.append(
+                "The customer has not said what they want this turn. Ask ONE short question about what they are looking for. "
+                "Show no product card and do not name a specific product from the catalog."
+            )
         return d
     if stay_sku and stage in ("discovery", "recommendation"):
         d.append(_stay_line(stay_sku))
@@ -342,8 +363,9 @@ def _stage_directives(stage, *, ask_slot, forbid, search_result, objections, rea
         d.append("Acknowledge the concern in a few words, with no apology and no long preamble.")
         types = {t for t, _s in objections}
         if types & PRICE_OBJECTIONS:
-            d.append("Reframe the value concretely from catalog facts (material, cut, versatility, a real sale price); "
-                     "never invent savings.")
+            d.append("On price, use only this product's was_price (if present) or a detail from its description or why tags. "
+                     "Do not invent durability, lifespan, versatility, or cost per wear. "
+                     "If nothing distinctive is there, go straight to the cheaper real alternative.")
         if "timing" in types:
             d.append("Respect that they want to think: give one concrete reason this piece suits them and keep the door "
                      "open while offering help with size or try-on.")
@@ -374,7 +396,7 @@ def _stage_directives(stage, *, ask_slot, forbid, search_result, objections, rea
 def decide(*, stage, signals, readiness, objections, engaged_product, turn_no, shown_count, known_slots,
            questions_asked_in_conversation, requirements, discount_codes, offer_history, search_result=None,
            conversation_state=None, now=None, price_now=False, shown_skus=frozenset(), page_sku="",
-           hold_cards=False):
+           hold_cards=False, hold_kind=""):
     """استراتيجية الدور. دالة نقية: نفس المدخلات ← نفس المخرجات، بدون DB (كل شي بيجي جاهز).
     engaged_product = المنتج يلي عليه اهتمام حقيقي (None إذا ما في). price_now = اعتراض سعري انذكر بهالدور."""
     stage = stage if stage in contracts.STAGES else "discovery"
@@ -437,7 +459,7 @@ def decide(*, stage, signals, readiness, objections, engaged_product, turn_no, s
         stay_sku = getattr(engaged_product, "sku", None) or ""
     directives = _stage_directives(
         stage, ask_slot=ask_slot, forbid=forbid, search_result=search_result, objections=objections,
-        readiness=readiness, stay_sku=stay_sku, hold_cards=hold_cards,
+        readiness=readiness, stay_sku=stay_sku, hold_cards=hold_cards, hold_kind=hold_kind,
     )
     if stage == "closing" and ask_slot == "size":
         directives.append("If the size is not settled, ask which size they want in the same short message as the buy step.")
@@ -490,10 +512,16 @@ def decide(*, stage, signals, readiness, objections, engaged_product, turn_no, s
                 f"The product they find expensive is already on sale: it was {was} and it is {now} now. "
                 "Say those two catalog prices. Do not calculate a new percentage."
             )
+    if (getattr(requirements, "occasion", "") or "") and not hold_cards:
+        directives.append(
+            "They named an occasion. Show a product only when its own title, tags or description match that occasion. "
+            "Never rewrite another product so it sounds suitable."
+        )
     directives.extend(_ALWAYS)
 
     return contracts.Strategy(
         stage=stage, readiness=readiness, directives=directives, ask_slot=ask_slot, forbid=forbid,
-        alternative_first=alternative_first, stay_sku=stay_sku, hold_cards=bool(hold_cards), discount=verdict,
+        alternative_first=alternative_first, stay_sku=stay_sku, hold_cards=bool(hold_cards),
+        hold_kind=hold_kind or "", discount=verdict,
         state_updates={"sales": {"alt_first_attempts": attempts + 1}} if alternative_first else {},
     )

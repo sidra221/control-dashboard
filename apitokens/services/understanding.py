@@ -150,9 +150,12 @@ Word order and light paraphrasing are fine; it does not have to be a character-f
 If you cannot point at their words, use source="inferred". Inferred IS allowed for a budget, a size, \
 and a product constraint (color, category, style, occasion, material, brand, fit) when the customer \
 expressed it and you are only normalizing it (digits for a budget, a standard size or color name). \
-NEVER invent a number, size, color or other constraint they did not express. NEVER infer a recipient. \
-polarity="avoid" is allowed ONLY as explicit, with their words refusing that thing ("ما أبي كاروهات"). \
-Never infer a dislike, a banned pattern or a taste.
+NEVER invent a number, size, color, brand, or recipient. NEVER infer a recipient. \
+polarity="avoid" is allowed ONLY as explicit, with their words refusing that thing ("ما أبي كاروهات", "مو بدلة"). \
+Never infer a dislike, a banned pattern or a taste. \
+A place, month, season, or occasion (beach, wedding, August, summer) may add material and style \
+with source="inferred" and polarity="like" only: short search hints such as linen, cotton, light, or smart casual. \
+Do not infer those when the customer already named a fabric or a style; record theirs as explicit instead.
 - Budget: budget_max for "up to / under / max / not more than / around N", budget_min for "at least N". \
 value = digits only. Fill `currency` only if the customer named one (ريال/ريال سعودي → SAR, دولار → USD ...).
 - Corrections ("actually", "no I meant", "change it to", "بدّلت رأيي", "لا قصدي") → emit the new \

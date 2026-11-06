@@ -7,7 +7,7 @@ from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 from types import SimpleNamespace
 
-from django.test import SimpleTestCase
+from django.test import SimpleTestCase, TestCase
 
 from .models import PreferenceFact, Product
 from .services import recommend as rec
@@ -486,7 +486,7 @@ class SearchFilterTests(SimpleTestCase):
                 excluded_skus=frozenset({"rej"}))
         res = search(items, req, relax=False)
         self.assertEqual(skus(res), ["ok1"])
-        self.assertEqual(res.dropped, {"stock": 1, "rejected": 1, "budget": 1, "category": 1, "color": 1,
+        self.assertEqual(res.dropped, {"stock": 1, "rejected": 1, "budget": 1, "occasion": 0, "category": 1, "color": 1,
                                        "avoid_color": 0, "size": 1})
         self.assertEqual(res.considered, 7)
 
@@ -960,3 +960,180 @@ class IntegrationTests(SimpleTestCase):
         before = [(p.sku, p.price, dict(p.options)) for p in items]
         search(items, R(colors=("red",)))
         self.assertEqual(before, [(p.sku, p.price, dict(p.options)) for p in items])
+
+
+def _wear(sku, title, category, description, tags=""):
+    product = P(sku, title, category=category, tags=tags, description=description)
+    product.image_url = "https://x/%s.jpg" % sku.lower()
+    product.product_url = "https://shop.example.com/p/%s" % sku.lower()
+    return product
+
+
+class OccasionRequestTests(SimpleTestCase):
+    def setUp(self):
+        self.gown = _wear(
+            "GOWN", "فستان سهرة أسود بنقشة زهور", "فساتين سهرة",
+            "فستان سهرة مناسب للأعراس والمناسبات الرسمية.", "أسود,سهرة,زواجات,رسمي",
+        )
+        self.day = _wear(
+            "DAY", "فستان نهاري أزرق مورّد", "فساتين كاجوال",
+            "فستان نهاري للطلعات والجمعات.", "أزرق,نهاري",
+        )
+        self.shirt = _wear(
+            "SHIRT", "قميص كاروهات أزرق وأسود", "قمصان رجالية",
+            "قميص رجالي قطني. يُلبس مفتوحاً فوق تيشيرت أو مغلقاً للطلعات.",
+            "كاروهات,رجالي,كاجوال",
+        )
+        self.office = _wear(
+            "OFFICE", "فستان رمادي محبوك", "فساتين كاجوال",
+            "يناسب الدوام والطلعات الشتوية.", "رمادي,عمل",
+        )
+
+    def test_wedding_word_matches_a_dress_that_says_weddings_and_not_a_shirt(self):
+        self.assertEqual(rec.named_occasion("عرس"), "wedding")
+        self.assertEqual(rec.named_occasion("للعرس"), "wedding")
+        self.assertIsNone(rec.named_occasion("مرحبا"))
+        self.assertTrue(rec.product_matches_occasion(self.gown, "wedding"))
+        self.assertFalse(rec.product_matches_occasion(self.shirt, "wedding"))
+        self.assertFalse(rec.product_matches_occasion(self.day, "wedding"))
+
+    def test_wedding_search_drops_the_old_shirt_and_the_day_dress(self):
+        res = search([self.shirt, self.day, self.gown], R(occasion="wedding", categories=("dress", "set", "abaya", "kaftan")), query="عرس")
+        self.assertEqual(skus(res), ["GOWN"])
+        self.assertEqual(res.note, "")
+
+    def test_the_demo_catalog_wedding_is_an_evening_dress_not_the_check_shirt(self):
+        from .demo_catalog import PRODUCTS
+
+        products = [
+            _wear(item["external_id"], item["title"], item["category"], item["description"], item["tags"])
+            for item in PRODUCTS
+        ]
+        res = search(products, R(occasion="wedding", categories=("dress", "set", "abaya", "kaftan")), query="عرس")
+        self.assertTrue(res.candidates)
+        self.assertTrue(all(rec.product_matches_occasion(c.product, "wedding") for c in res.candidates))
+        self.assertNotIn("demo-83", skus(res))
+        self.assertTrue(any("فستان" in c.product.title or "طقم" in c.product.title for c in res.candidates))
+
+    def test_a_mans_wedding_does_not_borrow_a_womens_dress(self):
+        res = search([self.gown, self.shirt], R(occasion="wedding", categories=("thobe",)), query="عرس")
+        self.assertEqual(res.candidates, [])
+        self.assertEqual(res.note, "nothing_matches")
+
+    def test_work_does_not_return_the_wedding_gown(self):
+        res = search([self.gown, self.shirt, self.office], R(occasion="work"), query="دوام")
+        self.assertIn("OFFICE", skus(res))
+        self.assertNotIn("GOWN", skus(res))
+
+    def test_saying_a_shirt_for_the_wedding_does_not_pretend_the_casual_shirt_fits(self):
+        planned = rec.plan_request("قميص للعرس", (), "female", 2)
+        self.assertEqual(planned["occasion"], "wedding")
+        self.assertEqual(planned["categories"], ("shirt",))
+        res = search([self.gown, self.shirt], R(occasion="wedding", categories=("shirt",)), query="قميص للعرس")
+        self.assertEqual(res.candidates, [])
+
+    def test_current_occasion_replaces_a_saved_shirt_category(self):
+        planned = rec.plan_request("عرس", [F("category", "قميص")], "female", 9)
+        self.assertEqual(planned["occasion"], "wedding")
+        self.assertFalse(planned["needs_gender"])
+        self.assertIn("dress", planned["categories"])
+        self.assertNotIn("shirt", planned["categories"])
+
+    def test_unknown_gender_does_not_guess_a_dress_or_a_shirt(self):
+        planned = rec.plan_request("عرس", (), "", 2)
+        self.assertTrue(planned["needs_gender"])
+        self.assertEqual(planned["categories"], ())
+
+    def test_naming_a_dress_keeps_the_wedding(self):
+        remembered = F("occasion", "wedding")
+        remembered.conversation_id = 2
+        planned = rec.plan_request("بدي فستان", [remembered], "female", 2)
+        self.assertEqual(planned["occasion"], "wedding")
+        self.assertEqual(planned["categories"], ("dress",))
+        self.assertFalse(planned["drop_occasion"])
+
+    def test_a_new_conversation_does_not_keep_the_old_category(self):
+        old = F("category", "قميص")
+        old.conversation_id = 1
+        self.assertIsNone(rec.plan_request("ورجيني", [old], "female", 2)["categories"])
+        self.assertEqual(rec.facts_for_request([old], 2, None), [])
+        self.assertEqual(len(rec.facts_for_request([old], 1, None)), 1)
+
+    def test_an_occasion_stays_for_later_turns_until_they_name_an_item(self):
+        remembered = F("occasion", "wedding")
+        remembered.conversation_id = 2
+        later = rec.plan_request("ورجيني شو عندك", [remembered], "female", 2)
+        self.assertEqual(later["occasion"], "wedding")
+        self.assertIn("dress", later["categories"])
+        switched = rec.plan_request("بدي قميص", [remembered], "female", 2)
+        self.assertEqual(switched["occasion"], "")
+        self.assertEqual(switched["categories"], ("shirt",))
+        self.assertTrue(switched["drop_occasion"])
+
+    def test_a_wrong_card_is_replaced_by_the_matching_product(self):
+        from types import SimpleNamespace
+
+        from .services.contracts import Candidate, SearchResult, Strategy
+        from .services.v2_turn import _enforce_occasion
+
+        out = SimpleNamespace(
+            recommendations=[{"sku": "SHIRT", "title": self.shirt.title}],
+            reply="هالقميص الرجالي تقدرين تلبسينه مغلق للعرس.",
+        )
+        plan = SimpleNamespace(
+            requirements=R(occasion="wedding", categories=("dress",)),
+            strategy=Strategy(),
+            search=SearchResult(candidates=[Candidate(product=self.gown, exact=True)], exact_count=1),
+        )
+        _enforce_occasion(out, plan, [self.gown, self.shirt], SimpleNamespace(currency="SAR"), "ar", "female")
+        self.assertEqual([c["sku"] for c in out.recommendations], ["GOWN"])
+        self.assertIn(self.gown.title, out.reply)
+        self.assertNotIn("قميص", out.reply)
+
+    def test_no_match_asks_instead_of_forcing_a_product(self):
+        from types import SimpleNamespace
+
+        from .services.contracts import SearchResult, Strategy
+        from .services.v2_turn import _enforce_occasion
+
+        out = SimpleNamespace(recommendations=[{"sku": "SHIRT"}], reply="هذا القميص للعرس.")
+        plan = SimpleNamespace(
+            requirements=R(occasion="wedding", categories=("thobe",)),
+            strategy=Strategy(),
+            search=SearchResult(candidates=[], note="nothing_matches"),
+        )
+        _enforce_occasion(out, plan, [self.gown, self.shirt], SimpleNamespace(currency="SAR"), "ar", "male")
+        self.assertEqual(out.recommendations, [])
+        self.assertIn("ما لقيت", out.reply)
+
+
+class OccasionMemoryTests(TestCase):
+    def test_saying_wedding_retracts_the_saved_shirt(self):
+        from datetime import timedelta
+
+        from django.utils import timezone
+
+        from .models import ApiToken, Conversation, CustomerProfile
+        from .services.v2_turn import _apply_request
+
+        merchant = ApiToken.objects.create(
+            label="متجر", token="OCCASIONTOKEN01", image_quota=5, currency="SAR", engine="v2",
+        )
+        profile = CustomerProfile.objects.create(
+            merchant=merchant, gender_signal="female", expires_at=timezone.now() + timedelta(days=30),
+        )
+        conversation = Conversation.objects.create(
+            merchant=merchant, session_id="occasion-1", profile=profile, engine_version=2,
+        )
+        PreferenceFact.objects.create(
+            merchant=merchant, profile=profile, conversation=conversation, key="category", value="قميص",
+            polarity="like", source="explicit", status="active",
+        )
+        facts, constraint = _apply_request(SimpleNamespace(profile=profile, conversation=conversation), "عرس", 2)
+        self.assertEqual(constraint["occasion"], "wedding")
+        self.assertIn("dress", constraint["categories"])
+        self.assertFalse(any(f.key == "category" and f.status == "active" for f in facts))
+        self.assertFalse(PreferenceFact.objects.filter(profile=profile, key="category", status="active").exists())
+        self.assertTrue(PreferenceFact.objects.filter(
+            profile=profile, key="occasion", value="wedding", status="active", conversation=conversation,
+        ).exists())

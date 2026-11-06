@@ -33,6 +33,37 @@ def _worth_analyzing(text):
     return len(text.strip()) >= 2 and any(ch.isalnum() for ch in text)
 
 
+def retrieval_query(text, facts):
+    """نص البحث: كلام الزبون، والصفات الصريحة، واستنتاج القماش/الستايل من المناسبة.
+    الاستنتاج تلميح ترتيب، مو فلتر صلب — القماش اللي مو بالكتالوج ما بيختفي له المنتجات."""
+    bits = [text]
+    for fact in facts or ():
+        if getattr(fact, "status", "active") != "active" or getattr(fact, "polarity", "like") != "like":
+            continue
+        key = getattr(fact, "key", "")
+        source = getattr(fact, "source", "explicit") or "explicit"
+        value = str(getattr(fact, "value", "") or "").strip()
+        if not value:
+            continue
+        if source == "explicit" and key in _QUERY_KEYS:
+            bits.append(value)
+        elif source == "inferred" and key in _INFERRED_QUERY_KEYS:
+            bits.append(value)
+    return " ".join(bits)
+
+
+def note_proactive_opener(conversation, merchant, body, page_url):
+    """يحفظ جملة الفتح الثابتة قبل رسالة الزبون، مرة واحدة، وعلى صفحة منتج فقط."""
+    if body.get("proactive") is not True:
+        return False
+    if Message.objects.filter(conversation=conversation, role="assistant").exists():
+        return False
+    if wv._find_page_product(merchant, page_url) is None:
+        return False
+    memory.add_message(conversation, "assistant", PROACTIVE_OPENER, meta={"proactive": True})
+    return True
+
+
 def run_chat(merchant, body):
     """(payload, None, None) أو (None, (error_code, status), extra). `extra` = توكنات الجلسة
     حتى لو فشل الدور (مثلاً LLM واقع) — بهالشكل إعادة المحاولة بتكمل بنفس الجلسة والرسالة
@@ -64,6 +95,7 @@ def run_chat(merchant, body):
     if not memory.acquire_turn(conversation):
         return None, ("turn_in_progress", 409), memory.issue_tokens(ctx)
     try:
+        note_proactive_opener(conversation, merchant, body, page_url)
         process = _process_legacy if settings.V2_SELLER_MODE == "legacy" else _process_loop
         payload, error = process(ctx, merchant, text, client_msg_id, page_url, started)
         if payload is not None and restart:
@@ -206,6 +238,12 @@ SLOT_KEYS = {"category": "category", "occasion": "occasion", "color": "color", "
 
 ALT_FIRST_WARN_AFTER = 2   # بعد كم محاولة فاشلة لعرض البديل بنسجّل تحذير (مراقبة فقط، ما بيفتح الخصم)
 
+# فتح هادئ من الودجت على صفحة منتج. النص ثابت بالسيرفر؛ العميل ما يقدر يحقن جملة ثانية.
+PROACTIVE_OPENER = "أهلاً بك! إذا احتجت مساعدة بمقاس هذه القطعة أو تفاصيل القماش، أنا موجود."
+
+_QUERY_KEYS = ("occasion", "style", "material", "brand")
+_INFERRED_QUERY_KEYS = ("style", "material")
+
 
 _TRYON_INVITE = re.compile(r"زر التجرب|تجرّ?بين|تقدر(?:ين)? تجر|ودّ?ك تجر|ارفع صور|صورتك|try it on|try-on button", re.I)
 _BUDGET_WORD = re.compile(r"ميزانيت|your budget", re.I)
@@ -247,6 +285,62 @@ def _polish_reply(reply, *, lang, tried=False, budget_known=False, sale=None, of
             fact = f"هو أصلاً نازل من {was_txt} إلى {now_txt}." if lang == "ar" else f"It is already reduced from {was_txt} to {now_txt}."
             text = (text + " " + fact).strip()
     return text
+
+
+def _occasion_line(lang, gender, title):
+    if lang != "ar":
+        return f"This is {title}. Its catalog description matches the occasion."
+    if gender == "female":
+        return f"هذي {title}، ووصفها عندنا يناسب المناسبة."
+    return f"هذا {title}، ووصفه عندنا يناسب المناسبة."
+
+
+def _occasion_ask(lang, gender):
+    if lang != "ar":
+        return "Nothing we have fits that occasion. Tell me what you want."
+    if gender == "female":
+        return "ما لقيت قطعة تناسب هالمناسبة. قولي لي وش تبين بالضبط."
+    return "ما لقيت قطعة تناسب هالمناسبة. قل لي وش تبي بالضبط."
+
+
+def _enforce_occasion(out, plan, products, merchant, lang, gender):
+    """كرت ما يطابق المناسبة ينشال. إذا في قطعة بتطابق، السيرفر يحطها. إذا ما في، يسأل."""
+    from . import recommend
+
+    occasion = getattr(plan.requirements, "occasion", "") or ""
+    if not occasion or getattr(plan.strategy, "hold_cards", False):
+        return
+    if (getattr(plan.strategy, "stay_sku", "") or "").strip():
+        return
+    by_sku = {p.sku: p for p in products}
+
+    def ok(sku):
+        product = by_sku.get(sku)
+        return bool(product) and recommend.product_matches_occasion(product, occasion)
+
+    recs = list(out.recommendations or [])
+    if recs and all(ok(r.get("sku")) for r in recs):
+        return
+    found = []
+    for cand in getattr(plan.search, "candidates", None) or []:
+        product = getattr(cand, "product", None)
+        if product is not None and ok(getattr(product, "sku", "")) and getattr(cand, "exact", True):
+            found.append(product)
+    if not found:
+        if recs:
+            out.recommendations = []
+            out.reply = _occasion_ask(lang, gender)
+        return
+    if not recs:
+        return
+    product = found[0]
+    out.recommendations = [{
+        **wv._product_card(product, merchant.currency),
+        "reason": "",
+        "tryon_supported": product.supports_tryon,
+        "tryon_button_label": wv._tryon_label("", lang, False),
+    }]
+    out.reply = _occasion_line(lang, gender, product.title or "")
 
 
 def _force_requested_card(out, plan, merchant, text, lang, signals):
@@ -339,14 +433,39 @@ def _interested_product(ctx, merchant, signals):
     return merchant.products.filter(sku=sku).first() if sku else None
 
 
+def _apply_request(ctx, text, turn_no):
+    """طلب هالرسالة بيغلب الفئة القديمة. المناسبة بتضل لهالمحادثة، والقطعة البعيدة بتنمسح."""
+    from . import recommend
+
+    gender = ctx.profile.gender_signal or ""
+    facts = memory.active_facts(ctx.profile)
+    preview = recommend.plan_request(text, facts, gender, ctx.conversation.pk)
+    if preview["drop_occasion"]:
+        memory.retract_occasions(ctx.profile)
+    if preview["remember_occasion"]:
+        memory.remember_occasion(ctx.profile, ctx.conversation, turn_no, preview["remember_occasion"], text)
+    if preview["retract_categories_to"] is not None:
+        memory.retract_categories_outside(ctx.profile, preview["retract_categories_to"])
+    facts = memory.active_facts(ctx.profile)
+    constraint = recommend.plan_request(text, facts, gender, ctx.conversation.pk)
+    return facts, constraint
+
+
 def _build_plan(ctx, merchant, *, validated, window, text, page_product, shown, turn_no, products):
     from . import catalog, policy, recommend, stage as stage_mod
 
     conversation = ctx.conversation
-    facts = memory.active_facts(ctx.profile)
+    facts, constraint = _apply_request(ctx, text, turn_no)
     excluded = memory.excluded_skus(ctx.profile)
     exempt = frozenset(r["sku"] for r in validated.reactions if r["type"] in ("asked", "liked")) if validated else frozenset()
-    requirements = recommend.requirements_from_facts(facts, excluded_skus=excluded, exempt_skus=exempt)
+    usable = recommend.facts_for_request(facts, conversation.pk, constraint["categories"])
+    requirements = recommend.requirements_from_facts(usable, excluded_skus=excluded, exempt_skus=exempt)
+    if constraint["categories"] is not None or constraint["occasion"]:
+        requirements = dataclasses.replace(
+            requirements,
+            categories=constraint["categories"] if constraint["categories"] is not None else requirements.categories,
+            occasion=constraint["occasion"],
+        )
 
     reactions = list(ProductReaction.objects.filter(conversation=conversation).values_list("reaction", flat=True))
     events = {r for r in reactions if r in ("tried_on", "buy_click", "add_to_cart", "liked", "asked", "rejected")}
@@ -365,11 +484,7 @@ def _build_plan(ctx, merchant, *, validated, window, text, page_product, shown, 
     )
     readiness = stage_mod.readiness_of(signals, events, [o.type for o in objections])
 
-    query_bits = [text]
-    for fact in facts:
-        if fact.key in ("occasion", "style", "material", "brand") and fact.polarity == "like" and fact.source == "explicit":
-            query_bits.append(fact.value)
-    query = " ".join(query_bits)
+    query = retrieval_query(text, facts)
     search = recommend.search(
         products, requirements, query=query, limit=8, shown_skus=shown,
         query_vector=catalog.embed_query(query, products),
@@ -383,7 +498,13 @@ def _build_plan(ctx, merchant, *, validated, window, text, page_product, shown, 
         or bool(signals.get("wants_alternative"))
     )
     if price_signal and focus is not None:
-        # "فيه أرخص؟": الأرخص من منتجه أولاً (بالأرخص فالأرخص)، مش بالصلة النصية — وإلا البائع ما بيشوف أرخص قطعة.
+        # "فيه أرخص؟": الأرخص من منتجه أولاً. فلتر المناسبة ما يخبّي البديل الأرخص من نفس الفئة.
+        if getattr(requirements, "occasion", ""):
+            requirements = dataclasses.replace(requirements, occasion="")
+            search = recommend.search(
+                products, requirements, query=query, limit=8, shown_skus=shown,
+                query_vector=catalog.embed_query(query, products),
+            )
         base = focus.price
         search.candidates.sort(key=lambda c: (c.product.price >= base, c.product.price, c.product.sku))
 
@@ -399,6 +520,26 @@ def _build_plan(ctx, merchant, *, validated, window, text, page_product, shown, 
     price_now = bool(validated) and any(
         o.get("type") in policy.PRICE_OBJECTIONS and o.get("current", True) for o in validated.objections
     )
+    active = [f for f in facts if getattr(f, "status", "active") == "active"]
+    narrow = (
+        not constraint["occasion"]
+        and assistant_questions < policy.MAX_QUESTIONS
+        and policy.narrow_before_cards(
+            intent=signals.get("intent"),
+            has_category=any(f.key == "category" and f.polarity == "like" for f in active),
+            is_gift=any(f.subject == "gift" or f.key == "recipient" for f in active),
+            page_open=page_product is not None,
+            wants_products=understanding.asks_to_see(text),
+        )
+    )
+    page_sku = page_product.sku if page_product is not None else ""
+    occasion = constraint["occasion"]
+    if (
+        occasion and page_product is not None
+        and not recommend.product_matches_occasion(page_product, occasion)
+        and not recommend.mentions_open_product(text)
+    ):
+        page_sku = ""
     strategy = policy.decide(
         stage=stage, signals=signals, readiness=readiness,
         objections=[(o.type, o.sku) for o in objections],
@@ -408,9 +549,22 @@ def _build_plan(ctx, merchant, *, validated, window, text, page_product, shown, 
         discount_codes=list(merchant.discount_codes.all()), offer_history=memory.offer_history(ctx.profile, conversation),
         search_result=search, conversation_state=state, now=timezone.now(),
         price_now=price_now, shown_skus=frozenset(shown),
-        page_sku=page_product.sku if page_product is not None else "",
-        hold_cards=page_product is None and understanding.should_ask_before_showing(text),
+        page_sku=page_sku,
+        hold_cards=(
+            narrow
+            or constraint.get("needs_gender")
+            or (page_product is None and understanding.should_ask_before_showing(text))
+        ),
+        hold_kind="occasion" if constraint.get("needs_gender") else ("narrow" if narrow else ""),
     )
+    if (
+        occasion and page_sku and page_product is not None
+        and not recommend.product_matches_occasion(page_product, occasion)
+    ):
+        strategy.directives.append(
+            "The open product does not match the occasion they named. Say so honestly. "
+            "Do not describe it as suitable for that occasion."
+        )
     approved = None
     if strategy.discount.allowed and strategy.discount.code is not None:
         approved = {"code": strategy.discount.code.code, "description": strategy.discount.code.description}
@@ -578,12 +732,16 @@ def _process_loop(ctx, merchant, text, client_msg_id, page_url, started):
         return None, ("assistant_unavailable", 502)
     timings.setdefault("seller_ms", timings.get("early_seller_ms", 0))
     _force_requested_card(out, plan, merchant, text, lang, validated.signals if validated else {})
-    if getattr(plan.strategy, "hold_cards", False) and out.recommendations:
+    if getattr(plan.strategy, "hold_kind", "") == "occasion":
+        out.recommendations = []
+        out.reply = "Is it a dress or a thobe?" if lang != "ar" else "تبي فستان سهرة ولا ثوب؟"
+    elif getattr(plan.strategy, "hold_cards", False) and out.recommendations:
         out.recommendations = []
         if ctx.profile.gender_signal == "female":
             out.reply = "يا هلا! قولي لي وش تبين، وأطلع لك الخيار المناسب."
         else:
             out.reply = "يا هلا! قل لي وش تبي، وأطلع لك الخيار المناسب."
+    _enforce_occasion(out, plan, products, merchant, lang, ctx.profile.gender_signal or "")
     focus_skus = set()
     if page_product is not None:
         focus_skus.add(page_product.sku)

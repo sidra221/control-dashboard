@@ -589,6 +589,25 @@ class AlternativeFirstTests(SimpleTestCase):
         self.assertIn("was 399", text)
         self.assertIn("339", text)
         self.assertIn("Do not mention a budget", text)
+        self.assertIn("Do not invent durability", text)
+
+    def test_a_vague_gift_or_browse_asks_one_question_and_shows_no_card(self):
+        s = decide(stage="discovery", signals={"intent": "browse"}, readiness="browsing", objections=[],
+                   hold_cards=True, hold_kind="narrow", search_result=search(cand("SHIRT", "90")))
+        text = " ".join(s.directives)
+        self.assertIn("Do NOT call show_product", text)
+        self.assertIn("clothes or accessories", text)
+        self.assertNotIn("Show exactly ONE card", text)
+        self.assertTrue(s.hold_cards)
+
+    def test_narrow_before_cards_only_when_the_request_has_no_category(self):
+        ask = dict(intent="browse", has_category=False, is_gift=False, page_open=False, wants_products=False)
+        self.assertTrue(policy.narrow_before_cards(**ask))
+        self.assertTrue(policy.narrow_before_cards(**{**ask, "intent": "search", "is_gift": True}))
+        self.assertFalse(policy.narrow_before_cards(**{**ask, "has_category": True}))
+        self.assertFalse(policy.narrow_before_cards(**{**ask, "page_open": True}))
+        self.assertFalse(policy.narrow_before_cards(**{**ask, "wants_products": True}))
+        self.assertFalse(policy.narrow_before_cards(**{**ask, "intent": "search"}))
 
     def test_same_price_or_more_expensive_is_not_an_alternative_and_the_code_comes_directly(self):
         s = decide(signals=HES_PRICE, search_result=search(cand("B", "200"), cand("C", "260")))
@@ -961,7 +980,7 @@ class StageDirectiveTests(SimpleTestCase):
         t = self.text(stage="objection_handling")
         self.assertIn("Acknowledge the concern", t)
         self.assertIn("no apology", t)
-        self.assertIn("Reframe the value", t)
+        self.assertIn("Do not invent durability", t)
         self.assertIn("keep the conversation going", t)
 
     def test_objection_types_get_tailored_lines(self):

@@ -1398,3 +1398,69 @@ class TenantIsolationInTheLoopTests(EngineBase):
         self.assertNotIn("budget up to 100", system)
         self.assertNotIn("فستان أحمر مورّد", system)
         self.assertIn("فستان أحمر عند التاجر الثاني", system)
+
+
+class OccasionAndProactiveTests(EngineBase):
+    def test_inferred_fabric_is_a_search_hint_and_a_guessed_dislike_is_not(self):
+        from types import SimpleNamespace
+
+        from .services.v2_turn import retrieval_query
+
+        facts = [
+            SimpleNamespace(status="active", polarity="like", key="material", source="inferred", value="linen"),
+            SimpleNamespace(status="active", polarity="like", key="style", source="inferred", value="smart casual"),
+            SimpleNamespace(status="active", polarity="avoid", key="style", source="inferred", value="formal suit"),
+            SimpleNamespace(status="active", polarity="like", key="brand", source="inferred", value="Zara"),
+            SimpleNamespace(status="active", polarity="like", key="occasion", source="explicit", value="wedding"),
+        ]
+        query = retrieval_query("عرس بسانتوريني بآب", facts)
+        self.assertIn("linen", query)
+        self.assertIn("smart casual", query)
+        self.assertIn("wedding", query)
+        self.assertNotIn("formal", query)
+        self.assertNotIn("Zara", query)
+
+    def test_a_gift_without_a_category_is_told_not_to_show_a_card(self):
+        self.brain.turn(
+            step("تبين ملابس ولا إكسسوارات؟"),
+            analysis={
+                "preferences": [pref("recipient", "صديقتي", "صديقتي", subject="gift")],
+                "signals": sig(intent="browse", readiness="browsing"),
+            },
+        )
+        data = self.w.say("بدي هدية لصديقتي")
+        self.assertTrue(data["ok"], data)
+        self.assertEqual(data["recommendations"], [])
+        self.assertIn("Do NOT call show_product", self.brain.last_system)
+
+    def test_proactive_opener_is_stored_once_and_only_on_a_product_page(self):
+        from .services.v2_turn import PROACTIVE_OPENER
+
+        self.brain.turn(step("قلي وش تبي."))
+        home = self.w.say("هلا", page_url="https://shop.example.com/")
+        self.assertTrue(home["ok"], home)
+        home_conv = Conversation.objects.get(session_id=home["session_id"])
+        self.assertFalse(Message.objects.filter(conversation=home_conv, meta__proactive=True).exists())
+
+        page = Widget(self.merchant, ip="8.8.8.8")
+        self.brain.turn(step("قلي مقاسك."), analysis={"signals": sig(intent="ask_info")})
+        opened = page.post("/widget/v2/chat/", {
+            "message": "مقاسي L", "client_msg_id": uuid.uuid4().hex, "page_url": self.shirt.product_url,
+            "proactive": True, **page._tok(),
+        }).json()
+        self.assertTrue(opened["ok"], opened)
+        for key in ("session_token", "shopper_token", "session_id"):
+            if opened.get(key):
+                page.storage[key] = opened[key]
+        conv = Conversation.objects.get(session_id=opened["session_id"])
+        first = list(Message.objects.filter(conversation=conv).order_by("seq").values_list("role", "content"))
+        self.assertEqual(first[0], ("assistant", PROACTIVE_OPENER))
+        self.assertEqual(first[1], ("user", "مقاسي L"))
+
+        self.brain.turn(step("تمام."))
+        again = page.post("/widget/v2/chat/", {
+            "message": "شكراً", "client_msg_id": uuid.uuid4().hex, "page_url": self.shirt.product_url,
+            "proactive": True, **page._tok(),
+        }).json()
+        self.assertTrue(again["ok"], again)
+        self.assertEqual(Message.objects.filter(conversation=conv, meta__proactive=True).count(), 1)
