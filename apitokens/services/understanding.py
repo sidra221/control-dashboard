@@ -149,7 +149,10 @@ value = digits only. Fill `currency` only if the customer named one (ريال/ر
 preference as explicit; if it does not simply replace the old one (e.g. colors), also emit a \
 retraction for the old value. "Forget that / ignore my budget" → retractions.
 - Something for someone else (gift, family member) → subject="gift" and a `recipient` preference \
-(value = the relation, e.g. "sister").
+(value = the relation, e.g. "sister"), ONLY when the customer says the item itself is FOR that person \
+("هدية لأختي", "أبي فستان لأختي", "لبنتي", "for my mom"). An occasion that belongs to someone else is NOT a \
+gift: "فستان لعرس أختي", "لحفلة صديقتي", "for my friend's wedding" = the customer will wear it → subject="self", \
+no `recipient`; the occasion is just an occasion (e.g. wedding).
 - `reaction`: only if the latest message reacts to ONE specific product from the products list: \
 liked / rejected (+ reason_type) / asked (a question about it) / neutral. Copy its sku exactly. \
 A price remark is NOT a rejection. "حلو بس غالي", "عجبني بس سعره مرتفع", "حلو بس مو متأكد بسبب السعر", \
@@ -311,6 +314,9 @@ _NEUTRAL_WORDS = frozenset(norm_text(w) for w in (
     "ابي", "ابغى", "ابغا", "ابى", "بدي", "اريد", "ادور", "وريني", "ورني", "هلا", "اهلا", "مرحبا", "السلام", "عليكم",
     "فستان", "فساتين", "عباية", "عبايات", "شنطة", "شنط", "قميص", "بنطلون", "جاكيت", "حذاء", "جزمة", "عرس", "زواج",
     "سهرة", "حفلة", "دوام", "هدية", "لون", "مقاس", "الاسود", "اسود", "ابيض", "احمر", "اخضر", "ازرق", "بيج", "وردي",
+    # أقارب ومعارف: "عرس أختي" بيحكي عن الأخت، مش عن جنس الزبون نفسه
+    "اختي", "امي", "بنتي", "زوجتي", "صديقتي", "صاحبتي", "خالتي", "عمتي", "جدتي", "اخوي", "ابوي", "ولدي",
+    "زوجي", "صديقي", "صاحبي", "خالي", "عمي",
 ))
 
 

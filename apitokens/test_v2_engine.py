@@ -17,6 +17,7 @@ from unittest.mock import patch
 from django.test import Client, TestCase, override_settings
 from django.utils import timezone
 
+from .services import seller_v2
 from .models import (
     ApiToken, Conversation, CustomerProfile, DiscountCode, Message, Objection, PreferenceFact, Product,
     ProductReaction, TurnTrace,
@@ -573,7 +574,9 @@ class SimplifiedDiscountRuleTests(EngineBase):
         if reaction:
             analysis["reaction"] = reaction
         self.brain.turn(step("هذا حلو لك.", *[show(k) for k in shown]), analysis=analysis)
-        w.say("أبي فستان حلو")
+        # اختبارات الخصم هون بتحتاج منتجين معروضين قبل؛ حد الكرت الواحد بالرد مختبر لحاله بـ test_seller_v2
+        with patch.object(seller_v2, "MAX_CARDS", len(shown)):
+            w.say("أبي فستان حلو")
 
     def verdict(self):
         return self.trace().constraints["discount"]

@@ -27,7 +27,15 @@ logger = logging.getLogger(__name__)
 
 MAX_STEPS = 3
 MAX_TOOL_CALLS = 6
-MAX_CARDS = 3
+MAX_CARDS = 1
+
+# "جرّبه عليّ" من منظور البائع غلط: الزر للزبون ← "عليك"
+# (بس آخر كلمة بالزر، حتى ما نلمس "على أختك")
+_SELF_LABEL_RE = re.compile(r"(?<![\u0600-\u06FF])عليّ?(?=[^\u0600-\u06FF]*$)")
+
+
+def _self_label(label):
+    return _SELF_LABEL_RE.sub("عليك", label or "")
 MAX_SEARCH_LIMIT = 5
 MAX_REASON_CHARS = 400
 FULL_DESCRIPTION_CHARS = 800
@@ -96,7 +104,7 @@ SHOW_TOOL = {
         "If you write no separate text, the `reason` of the FIRST card is sent as your complete reply to the "
         "customer (1-3 short sentences in the customer's language, may include the one allowed question), so write it that way. "
         "The system validates it (exists, in stock, not already shown, meets the customer's confirmed "
-        "requirements, max 3 cards per reply) and returns a status: shown, duplicate, violates_requirement, "
+        "requirements, max 1 card per reply) and returns a status: shown, duplicate, violates_requirement, "
         "unknown_sku, out_of_stock or card_limit. Calling it is low-commitment: it only displays a card."
     ),
     "parameters": {
@@ -113,7 +121,11 @@ SHOW_TOOL = {
             },
             "for_someone_else": {
                 "type": "boolean",
-                "description": "True if the product is for another person (gift...). Keep passing true on every later call once established.",
+                "description": (
+                    "True only if the customer said the product is FOR another person (a gift, \"أبيه لأختي\"). "
+                    "Someone else's occasion is not a gift: \"لعرس أختي\" means the customer wears it (false). "
+                    "Keep passing true on every later call once established."
+                ),
             },
             "tryon_button_label": {
                 "type": "string",
@@ -405,7 +417,7 @@ class _Turn:
                 "if they want to buy it, point them to its buy button.",
             )
         if len(self.cards) >= MAX_CARDS:
-            return refused("card_limit", f"Maximum {MAX_CARDS} cards per reply already shown. Do not show more.")
+            return refused("card_limit", "One card per reply already shown. Do not show more.")
         violations = self._unmet(product)
         if violations:
             return refused(
@@ -419,7 +431,9 @@ class _Turn:
             **wv._product_card(product, self.inp.currency),
             "reason": reason,
             "tryon_supported": product.supports_tryon,
-            "tryon_button_label": wv._tryon_label(args.get("tryon_button_label"), self.inp.lang, for_someone_else),
+            "tryon_button_label": _self_label(
+                wv._tryon_label(args.get("tryon_button_label"), self.inp.lang, for_someone_else)
+            ),
         })
         self.shown.add(sku)
         return {"ok": True, "status": "shown", "sku": sku, "cards_shown_this_turn": len(self.cards)}
@@ -654,7 +668,12 @@ def run_seller(inp, *, provider=None):
                 turn.events.append({"name": call.name, "input": call.input, "status": "ignored_final_step"})
             break
         results = [turn.execute(call) for call in calls]
-        all_shown = all(c.name == "show_product" for c in calls) and all(r.get("status") == "shown" for r in results)
+        # كرت زيادة مرفوض بسبب الحد (كرت واحد بالرد) ما بيستاهل جولة جديدة للموديل
+        all_shown = (
+            all(c.name == "show_product" for c in calls)
+            and all(r.get("status") in ("shown", "card_limit") for r in results)
+            and any(r.get("status") == "shown" for r in results)
+        )
         if all_shown and step_text:
             text = step_text   # مختصر: ما في شي نرجّعه للموديل
             break

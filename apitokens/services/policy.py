@@ -80,6 +80,8 @@ SLOT_LABELS = {
 MAX_QUESTIONS = 2
 FIRST_DISCOUNT_TURN = 3   # أول رسالة زبون ممكن يتعرض فيها كود (الأول والتاني ممنوعين)
 ALT_MIN_SAVING = Decimal("0.15")
+# نوايا ما بتطلب منتج جديد: الزبون عم يحكي عن القطعة يلي عجبته (مقاسه، سؤال عنها، "آخذه")
+STAY_INTENTS = frozenset({"accept", "buy", "ask_info", "chitchat", "other"})
 WIDE_SPREAD_RATIO = Decimal("2.5")
 
 
@@ -129,11 +131,16 @@ def _alt_eligible(engaged_product, requirements):
     excluded = set(getattr(requirements, "excluded_skus", frozenset()))
     budget_max = getattr(requirements, "budget_max", None)
     allow_oos = bool(getattr(requirements, "include_out_of_stock", False))
+    # نفس قسم المتجر: بديل فستان سهرة لازم يكون سهرة، مش كاجوال لمجرد إنه أرخص
+    base_category = (getattr(engaged_product, "category", "") or "").strip()
 
     def eligible(cand):
         product = cand.product
         price = _price(product)
         if price is None or price > ceiling or product.sku == engaged_product.sku or product.sku in excluded:
+            return False
+        category = (getattr(product, "category", "") or "").strip()
+        if base_category and category and category != base_category:
             return False
         if budget_max is not None and price > budget_max:
             return False
@@ -250,26 +257,64 @@ _ALWAYS = (
 )
 
 
-def _stage_directives(stage, *, ask_slot, forbid, search_result, objections, readiness):
+def _featured_sku(search_result):
+    """أول مرشّح مطابق، وإلا أول مرشّح. الكود يسمّي القطعة حتى البائع ما يختار لحاله."""
+    candidates = list(getattr(search_result, "candidates", None) or [])
+    exact = [c for c in candidates if getattr(c, "exact", False)]
+    for cand in exact or candidates:
+        sku = getattr(getattr(cand, "product", None), "sku", None)
+        if sku:
+            return sku
+    return None
+
+
+def _one_card_line(search_result, *, ask_slot, forbid):
+    """أمر عرض واحد: كرت واحد، والمنتج مسمّى لما البحث لقيه. السؤال ييجي بعد الكرت، مش بداله."""
+    note = getattr(search_result, "note", "") if search_result else ""
+    questions_forbidden = "ask_question" in forbid
+    if note == "nothing_matches":
+        line = "Nothing matches exactly right now: say so in one short warm line and show no card."
+        if questions_forbidden:
+            return line + " Do not ask any question this turn."
+        return line + " Ask ONE short question about what to adjust."
+    sku = _featured_sku(search_result)
+    if sku:
+        line = (
+            f"Show exactly ONE card this turn: sku {sku}, using show_product. "
+            "In one or two sentences say why it fits THIS customer, using only that product's real facts. "
+            "Do not show a second product."
+        )
+    else:
+        line = (
+            "Show exactly ONE card this turn: the single best candidate listed below, using show_product. "
+            "In one or two sentences say why it fits THIS customer, using only that product's real facts. "
+            "Do not show a second product."
+        )
+    if note == "no_exact_match":
+        line = "The exact match is not available: say so honestly in one short phrase, then show this closest option and what differs. " + line
+    if questions_forbidden:
+        return line + " Do not ask any question this turn."
+    if ask_slot:
+        return line + (
+            f" After the product, you may add ONE short question about {SLOT_LABELS[ask_slot]}, "
+            "and only if that detail would change the choice. Skip the question if this product already fits."
+        )
+    return line
+
+
+def _stay_line(sku):
+    return (f"The customer likes sku {sku}, already on screen: stay on it. Answer what they said about it "
+            "(size, fit, try-on or buying) and show no other product.")
+
+
+def _stage_directives(stage, *, ask_slot, forbid, search_result, objections, readiness, stay_sku=None):
     d = []
-    if stage == "discovery":
-        if "ask_question" in forbid:
-            d.append("Do NOT ask any question this turn: enough questions were asked already. Show 1-2 concrete products "
-                     "from the catalog instead, each with a short reason taken from catalog data.")
-        elif ask_slot:
-            d.append(f"Ask at most ONE short, friendly question about {SLOT_LABELS[ask_slot]}; "
-                     "nothing else this turn, no interrogation.")
-        else:
-            d.append("You know enough about what they want: show 1-2 best matches from the catalog "
-                     "with a short concrete reason each.")
+    if stay_sku and stage in ("discovery", "recommendation"):
+        d.append(_stay_line(stay_sku))
+    elif stage == "discovery":
+        d.append(_one_card_line(search_result, ask_slot=ask_slot, forbid=forbid))
     elif stage == "recommendation":
-        d.append("Show the 1-2 best matches (never more), each with a concrete reason from catalog data "
-                 "(color, size availability, category, a real sale price).")
-        note = getattr(search_result, "note", "") if search_result else ""
-        if note == "no_exact_match":
-            d.append("The exact match is not available: say so honestly, then show the closest option and what differs.")
-        elif note == "nothing_matches":
-            d.append("Nothing matches exactly right now: say so warmly and show the nearest real options.")
+        d.append(_one_card_line(search_result, ask_slot=None, forbid=forbid))
     elif stage == "objection_handling":
         d.append("Acknowledge the concern in a few words, with no apology and no long preamble.")
         types = {t for t, _s in objections}
@@ -292,6 +337,8 @@ def _stage_directives(stage, *, ask_slot, forbid, search_result, objections, rea
     elif stage == "persuasion":
         d.append("Confirm briefly why it fits THEM (use what they told you), give one benefit that matters to them, "
                  "and make the next step easy: try-on, size help or the buy button. One next step only.")
+        if stay_sku:
+            d.append(_stay_line(stay_sku))
     elif stage == "closing":
         d.append("Make buying effortless: point to the buy button, confirm the size if needed, "
                  "keep the message short and warm.")
@@ -353,9 +400,13 @@ def decide(*, stage, signals, readiness, objections, engaged_product, turn_no, s
         elif stage == "closing" and "size" not in known_slots:
             ask_slot = "size"
 
+    # الزبون عجبته قطعة وعم يحكي عنها (مش طالب بديل) ← منضل عليها بدل ما نعرض المرشّح التالي
+    stay_sku = None
+    if engaged_product is not None and not sig["wants_alternative"] and sig["intent"] in STAY_INTENTS:
+        stay_sku = getattr(engaged_product, "sku", None)
     directives = _stage_directives(
         stage, ask_slot=ask_slot, forbid=forbid, search_result=search_result, objections=objections,
-        readiness=readiness,
+        readiness=readiness, stay_sku=stay_sku,
     )
     if stage == "closing" and ask_slot == "size":
         directives.append("If the size is not settled, ask which size they want in the same short message as the buy step.")

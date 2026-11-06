@@ -811,7 +811,7 @@ class DiscoverySlotTests(SimpleTestCase):
     def test_budget_not_asked_by_default(self):
         s = self.d(known_slots={"category", "occasion", "color", "size"})
         self.assertIsNone(s.ask_slot)
-        self.assertIn("show 1-2 best matches", " ".join(s.directives))
+        self.assertIn("exactly ONE card", " ".join(s.directives))
 
     def test_budget_when_catalog_spread_is_wide(self):
         known = {"category", "occasion", "color", "size"}
@@ -832,17 +832,27 @@ class DiscoverySlotTests(SimpleTestCase):
             self.assertIn("ask_question", s.forbid)
             self.assertIsNone(s.ask_slot)
             text = " ".join(s.directives)
-            self.assertIn("Do NOT ask any question", text)
-            self.assertIn("Show 1-2 concrete products", text)
-            self.assertNotIn("Ask at most ONE", text)
+            self.assertIn("Do not ask any question", text)
+            self.assertIn("exactly ONE card", text)
+            self.assertNotIn("you may add ONE short question", text)
         for asked in (0, 1):
             s = self.d(questions_asked_in_conversation=asked)
             self.assertNotIn("ask_question", s.forbid)
             self.assertEqual(s.ask_slot, "category")
-            self.assertIn("Ask at most ONE short", " ".join(s.directives))
+            text = " ".join(s.directives)
+            self.assertIn("exactly ONE card", text)
+            self.assertIn("you may add ONE short question", text)
+            self.assertIn("After the product", text)
 
     def test_directive_names_the_slot(self):
         self.assertIn("occasion", " ".join(self.d(known_slots={"category"}).directives))
+
+    def test_discovery_names_the_best_product_and_shows_it_before_the_question(self):
+        sr = search(cand("NEAR", "80", exact=False), cand("EXACT", "120", exact=True))
+        text = " ".join(self.d(known_slots={"category"}, search_result=sr).directives)
+        self.assertIn("sku EXACT", text)
+        self.assertLess(text.index("sku EXACT"), text.index("After the product"))
+        self.assertNotIn("nothing else this turn", text)
 
     def test_other_stages_ask_nothing(self):
         for st in ("recommendation", "persuasion", "objection_handling"):
@@ -860,14 +870,18 @@ class StageDirectiveTests(SimpleTestCase):
 
     def test_recommendation(self):
         t = self.text(stage="recommendation", objections=[], readiness="browsing")
-        self.assertIn("1-2 best matches", t)
-        self.assertIn("concrete reason", t)
+        self.assertIn("exactly ONE card", t)
+        self.assertIn("why it fits THIS customer", t)
 
     def test_recommendation_search_notes(self):
-        sr = SearchResult(note="no_exact_match")
-        self.assertIn("exact match is not available", self.text(stage="recommendation", objections=[], search_result=sr))
+        sr = SearchResult(note="no_exact_match", candidates=[cand("DRS-1", "100")])
+        t = self.text(stage="recommendation", objections=[], search_result=sr)
+        self.assertIn("exact match is not available", t)
+        self.assertIn("sku DRS-1", t)
         sr = SearchResult(note="nothing_matches")
-        self.assertIn("Nothing matches exactly", self.text(stage="recommendation", objections=[], search_result=sr))
+        t = self.text(stage="recommendation", objections=[], search_result=sr)
+        self.assertIn("Nothing matches exactly", t)
+        self.assertIn("show no card", t)
 
     def test_objection_handling(self):
         t = self.text(stage="objection_handling")
@@ -1131,3 +1145,34 @@ class DiscountI18nKeysTests(SimpleTestCase):
         # التوجيهات إنجليزية: ما في عربي أصلاً ← ما في شي شامي
         for line in decide().directives:
             self.assertEqual(find_non_saudi(line), [])
+
+
+class StayOnLikedProductAndSameCategoryAltTests(SimpleTestCase):
+    """زبون عجبته قطعة وعم يحكي عنها ← منضل عليها؛ والبديل الأرخص من نفس قسم المتجر."""
+
+    LIKED = {"readiness": "interested", "intent": "accept", "hesitation_reason": ""}
+
+    def text(self, strategy):
+        return " ".join(strategy.directives)
+
+    def test_liked_product_stays_on_screen_instead_of_the_next_candidate(self):
+        s = decide(stage="recommendation", signals=self.LIKED, readiness="interested", objections=[],
+                   engaged_product=prod("BLK"), search_result=search(cand("RED", "150")))
+        self.assertIn("sku BLK, already on screen: stay on it", self.text(s))
+        self.assertNotIn("sku RED", self.text(s))
+
+    def test_asking_for_something_else_still_gets_a_new_card(self):
+        for sig in ({**self.LIKED, "wants_alternative": True}, {**self.LIKED, "intent": "search"}):
+            s = decide(stage="recommendation", signals=sig, readiness="interested", objections=[],
+                       engaged_product=prod("BLK"), search_result=search(cand("RED", "150")))
+            self.assertNotIn("stay on it", self.text(s))
+            self.assertIn("sku RED", self.text(s))
+
+    def test_cheaper_alternative_must_share_the_store_category(self):
+        engaged = prod("BLK", "489", category="فساتين سهرة")
+        casual = cand("WHITE", "89", category="فساتين كاجوال")
+        evening = cand("CORSET", "299", category="فساتين سهرة")
+        self.assertIsNone(policy.cheaper_alternative(engaged, search(casual)))
+        self.assertEqual(policy.cheaper_alternative(engaged, search(casual, evening)).product.sku, "CORSET")
+        # منتج بلا قسم: ما منقيّد
+        self.assertEqual(policy.cheaper_alternative(prod("X", "489"), search(casual)).product.sku, "WHITE")

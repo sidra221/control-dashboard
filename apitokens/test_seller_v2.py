@@ -303,14 +303,16 @@ class LoopTests(SellerBase):
         out = self.run_seller(script, shown_skus=["GREEN"])
         self.assertEqual(out.reply, GOOD_REPLY_2)
 
-    def test_card_cap_is_three(self):
+    def test_card_cap_is_one(self):
         script = Script(
-            S(GOOD_REPLY, show("GREEN"), show("RED"), show("GOWN"), show("SHIRT")),
+            S(GOOD_REPLY, show("GREEN"), show("RED")),
             S(GOOD_REPLY_2),
         )
         out = self.run_seller(script)
-        self.assertEqual([c["sku"] for c in out.recommendations], ["GREEN", "RED", "GOWN"])
-        self.assertEqual([r["status"] for r in script.tool_results(1)], ["shown", "shown", "shown", "card_limit"])
+        self.assertEqual([c["sku"] for c in out.recommendations], ["GREEN"])
+        # الكرت التاني مرفوض بالحد بس هاد ما بيستاهل جولة تانية للموديل: نص الخطوة الأولى هو الرد
+        self.assertEqual(len(script.calls), 1)
+        self.assertEqual(out.reply, GOOD_REPLY)
 
     def test_max_three_steps_and_forced_final_step_ignores_tools(self):
         script = Script(
@@ -893,3 +895,11 @@ class SearchToolVisibilityTests(SellerBase):
         shown = [c.product.sku for c in self.make_input().prefetched.candidates]
         self.assertIn("search_products", self.tools_sent(shown_skus=shown))
         self.assertIn("search_products", self.tools_sent(prefetched=SearchResult()))
+
+
+class SelfLabelTests(TestCase):
+    def test_first_person_try_on_label_becomes_second_person(self):
+        from .services.seller_v2 import _self_label
+        self.assertEqual(_self_label("جرّبه عليّ"), "جرّبه عليك")
+        self.assertEqual(_self_label("جرّبه علي 📸"), "جرّبه عليك 📸")
+        self.assertEqual(_self_label("جرّبه على أختك 📸"), "جرّبه على أختك 📸")
