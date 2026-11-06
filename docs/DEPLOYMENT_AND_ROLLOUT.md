@@ -294,6 +294,7 @@ python manage.py kieai_live_check --person /path/to/person.jpg \
 - **Rate limits** (per IP unless noted, defaults): chat 20/min and 200/hour per IP, 1000/min per
   store key; try-on 6/min per IP; events 60/min; memory/forget 30/min; consume 600/min per IP, 300/min
   per merchant. Many shoppers behind one corporate or mobile-carrier NAT share an IP.
+- **Discount policy (demo phase): no cooldown between conversations.** A code is offered at most once per conversation, only for merchant-configured, active, in-date codes, never in the first two customer turns, only to an engaged and hesitant customer, after a cheaper alternative was suggested, and never to a customer who decided to buy without an objection. The same returning customer can receive an eligible code again in a NEW conversation. A cross-conversation cooldown was removed on purpose for the demo and can be reconsidered after launch.
 - **Memory is only as good as the analyzer.** Inferred facts are never used as hard filters;
   customers can correct them only through the API today (no widget UI yet).
 - **Try-on** depends on kie.ai latency and credits; photos are not stored by us.

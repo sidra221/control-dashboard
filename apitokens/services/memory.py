@@ -25,7 +25,6 @@ logger = logging.getLogger(__name__)
 HISTORY_WINDOW = 24            # رسائل بتوصل للموديل (الأقدم بيمثّله ملف الزبون)
 BOOTSTRAP_MESSAGES = 30        # رسائل بتنعاد رسمها بالودجت بعد تنقل/ريفرش
 REJECTION_MEMORY_DAYS = 30
-OFFER_COOLDOWN_DAYS = 7
 TURN_LOCK_SECONDS = 90
 VIEW_DEDUPE_MINUTES = 10
 NON_PREFERENCE_REACTIONS = ("shown", "viewed")
@@ -593,14 +592,9 @@ def build_memory_section(ctx, constraints, merchant_currency):
 # ------------------------------------------------------------------ عروض وقت/تكرار
 
 def offer_history(profile, conversation):
-    already = bool(conversation.discount_code)
-    if not already:
-        cutoff = timezone.now() - timedelta(days=OFFER_COOLDOWN_DAYS)
-        already = (
-            Conversation.objects.filter(profile=profile, started_at__gte=cutoff)
-            .exclude(discount_code="").exists()
-        )
-    return already
+    """هل انعرض كود بهالمحادثة؟ (مرة وحدة لكل محادثة.) ما في فترة تبريد بين المحادثات: مرحلة
+    الديمو — الزبون ممكن ياخذ كود بمحادثة جديدة لو شروط السياسة كلها تحققت. (`profile` للتوافق.)"""
+    return bool(conversation.discount_code)
 
 
 # ------------------------------------------------------------------ تتبّع

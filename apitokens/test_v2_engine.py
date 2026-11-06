@@ -503,18 +503,41 @@ class DiscountPolicyTests(EngineBase):
         self.assertEqual(data["recommendations"][0]["sku"], "PNK_M")
         self.assertIsNone(data["discount_offer"])
 
-    def test_cross_session_cooldown(self):
+    def test_no_cooldown_a_new_conversation_can_receive_an_eligible_code_again(self):
         self.converse_to_price_objection()
-        self.brain.turn(step("فاهمك، هالفستان يستاهل كل ريال."), analysis=self.objection())
+        self.brain.turn(step("فاهمك، هذا أخف.", show("PNK_M", "بديل أخف")), analysis=self.objection())
         self.w.say("غالي")
-        Conversation.objects.update(discount_code="SAVE10")
+        self.brain.turn(step("وعشان نسهّلها خذ الكود."), analysis=self.objection())
+        first = self.w.say("لسا غالي")
+        self.assertEqual(first["discount_offer"]["code"], "SAVE10")
+        first_conv = Conversation.objects.get()
+        # زيارة جديدة بعد يومين: محادثة جديدة، ما في تبريد — نفس شروط السياسة بتنطبق من جديد
         later = time.time() + 2 * 86400
         with patch("django.core.signing.time", SimpleNamespace(time=lambda: later)):
             page = self.w.new_page()
-            for text, reply in (("هلا", step("يا هلا!")), ("أبي فستان", step("حلو.", show("RED_M"))), ("غالي", step("فاهمك."))):
-                self.brain.turn(reply, analysis=self.objection() if text == "غالي" else {})
-                page.say(text)
+            self.brain.turn(step("يا هلا من جديد! وش تدور عليه؟"), analysis={"signals": sig("browsing", "chitchat")})
+            t1 = page.say("هلا")
+            self.brain.turn(step("هذا حلو لك.", show("BLK_M")),
+                            analysis={"preferences": [pref("category", "فستان", "أبي فستان")], "signals": sig("interested", "search")})
+            t2 = page.say("أبي فستان")
+            self.assertIsNone(t1["discount_offer"] or t2["discount_offer"])           # أول دورين: لا خصم
             self.assertNotIn("SAVE10", self.brain.last_system)
+            self.brain.turn(step("معك حق، هذا أخف.", show("PNK_M", "بديل أخف")), analysis=self.objection())
+            t3 = page.say("غالي")
+            self.assertIsNone(t3["discount_offer"])                                    # بديل أرخص أولاً
+            self.assertEqual(TurnTrace.objects.order_by("-id").first().constraints["discount"]["reason"], "alternative_first")
+            self.brain.turn(step("وعشان نسهّلها خذ الكود."), analysis=self.objection())
+            t4 = page.say("لسا غالي علي")
+            self.assertEqual(t4["discount_offer"]["code"], "SAVE10")                   # كود حقيقي بمحادثة جديدة
+            self.assertEqual(TurnTrace.objects.order_by("-id").first().constraints["discount"]["reason"], "ok")
+        second_conv = Conversation.objects.exclude(pk=first_conv.pk).get()
+        self.assertEqual(second_conv.discount_code, "SAVE10")
+        self.assertNotEqual(second_conv.pk, first_conv.pk)
+        # ومرة وحدة بس لكل محادثة
+        with patch("django.core.signing.time", SimpleNamespace(time=lambda: later)):
+            self.brain.turn(step("تمام، أي شي ثاني؟"), analysis=self.objection())
+            t5 = page.say("بعد غالي")
+            self.assertIsNone(t5["discount_offer"])
 
 
 # ======================================================================

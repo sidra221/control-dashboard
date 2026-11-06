@@ -53,7 +53,7 @@ def basic_offer_gate(*, user_turns, engaged, already_offered):
 #   G1 في كود صالح (valid_codes)               ← no_codes | expired
 #   G2 في منتج الزبون مركّز عليه               ← not_engaged
 #   G3 turn_no >= 2                             ← too_early
-#   G4 ما انعرض كود بالمحادثة/ضمن فترة التبريد  ← already_offered
+#   G4 ما انعرض كود بهالمحادثة (ما في تبريد بين المحادثات) ← already_offered
 #   G5 المرحلة مش discovery                     ← not_engaged (ما في منتج انعرض فعلياً)
 # بعدها المحفّزات (واحد يكفي): price_objection | hesitation | asked، وإلا:
 #   ready_no_price_concern (جاهز بدون اعتراض/تردد: منحمي هامش التاجر) أو no_trigger.

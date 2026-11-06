@@ -623,7 +623,7 @@ class Phase0InsideV2Tests(V2Base):
         super().setUp()
         DiscountCode.objects.create(merchant=self.merchant, code="SAVE10", description="خصم 10% على كل المنتجات")
 
-    def test_discount_timing_uses_server_state_and_never_repeats_across_sessions(self):
+    def test_discount_timing_uses_server_state_once_per_conversation_no_cross_session_cooldown(self):
         self.brain.turn(res("أهلين! وش تدور عليه؟"))
         t1 = self.w.say("هلا")
         self.brain.turn(res("", [rec("GREEN", "فستان حلو")]))
@@ -639,14 +639,19 @@ class Phase0InsideV2Tests(V2Base):
         self.brain.turn(res("تمام، أي شي ثاني؟"))
         self.w.say("طيب")
         self.assertNotIn("SAVE10", self.brain.seller_calls[-1]["system"])
-        # زيارة جديدة خلال 7 أيام (جلسة جديدة، نفس الزبون): برضو لا
+        # زيارة جديدة (محادثة جديدة، نفس الزبون): ما في تبريد، فنفس قواعد التوقيت بتنطبق من جديد
         later = time.time() + 2 * 86400
         with patch("django.core.signing.time", SimpleNamespace(time=lambda: later)):
             page = self.w.new_page()
-            for text, reply in (("هلا", res("يا هلا!")), ("أبي فستان", res("", [rec("RED")])), ("غالي", res("فاهمك."))):
-                self.brain.turn(reply)
-                page.say(text)
-            self.assertTrue(all("SAVE10" not in c["system"] for c in self.brain.seller_calls[-3:]))
+            turns = []
+            for text, reply in (("هلا", res("يا هلا!")), ("أبي فستان", res("", [rec("RED")])),
+                                ("غالي", res("", [offer("SAVE10", "معك حق، القماش يعيش سنين")]))):
+                self.brain.turn(reply, analysis={"objections": [{"type": "price", "evidence": "غالي"}]} if text == "غالي" else {})
+                turns.append(page.say(text))
+            codes_visible = ["SAVE10" in c["system"] for c in self.brain.seller_calls[-3:]]
+            self.assertEqual(codes_visible, [False, False, True])        # لا خصم بأول دورين
+            self.assertIsNone(turns[0]["discount_offer"] or turns[1]["discount_offer"])
+            self.assertEqual(turns[2]["discount_offer"]["code"], "SAVE10")
 
     def test_output_guard_applies_to_v2_replies(self):
         self.brain.turn(res("عندنا خصم 25% بكود VIP99 لك!"), res("قماشه ممتاز وسعره حلو."))
