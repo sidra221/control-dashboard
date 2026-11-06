@@ -844,6 +844,31 @@ class DiscoverySlotTests(SimpleTestCase):
             self.assertIn("you may add ONE short question", text)
             self.assertIn("After the product", text)
 
+    def test_liking_the_current_product_locks_the_seller_to_it(self):
+        s = decide(
+            stage="persuasion", readiness="interested", objections=[],
+            signals={"intent": "accept", "readiness": "interested"},
+            engaged_product=prod("BLACK", "489"),
+        )
+        self.assertEqual(s.stay_sku, "BLACK")
+        self.assertIn("show no other product", " ".join(s.directives))
+
+    def test_a_cheaper_alternative_is_not_locked_to_the_current_product(self):
+        s = decide(
+            signals={"readiness": "ready", "intent": "accept"}, price_now=True,
+            search_result=search(cand("B", "100")),
+        )
+        self.assertTrue(s.alternative_first)
+        self.assertEqual(s.stay_sku, "")
+
+    def test_asking_for_something_else_does_not_lock_the_product(self):
+        s = decide(
+            stage="recommendation", readiness="browsing", objections=[],
+            signals={"intent": "accept", "readiness": "interested", "wants_alternative": True},
+            engaged_product=prod("BLACK", "489"),
+        )
+        self.assertEqual(s.stay_sku, "")
+
     def test_directive_names_the_slot(self):
         self.assertIn("occasion", " ".join(self.d(known_slots={"category"}).directives))
 

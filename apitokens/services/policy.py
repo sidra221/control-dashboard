@@ -400,10 +400,13 @@ def decide(*, stage, signals, readiness, objections, engaged_product, turn_no, s
         elif stage == "closing" and "size" not in known_slots:
             ask_slot = "size"
 
-    # الزبون عجبته قطعة وعم يحكي عنها (مش طالب بديل) ← منضل عليها بدل ما نعرض المرشّح التالي
-    stay_sku = None
-    if engaged_product is not None and not sig["wants_alternative"] and sig["intent"] in STAY_INTENTS:
-        stay_sku = getattr(engaged_product, "sku", None)
+    # الزبون عجبته قطعة وعم يحكي عنها (مش طالب بديل ولا بديل أرخص) ← منضل عليها
+    stay_sku = ""
+    if (
+        engaged_product is not None and not alternative_first and not sig["wants_alternative"]
+        and sig["intent"] in STAY_INTENTS
+    ):
+        stay_sku = getattr(engaged_product, "sku", None) or ""
     directives = _stage_directives(
         stage, ask_slot=ask_slot, forbid=forbid, search_result=search_result, objections=objections,
         readiness=readiness, stay_sku=stay_sku,
@@ -452,6 +455,6 @@ def decide(*, stage, signals, readiness, objections, engaged_product, turn_no, s
 
     return contracts.Strategy(
         stage=stage, readiness=readiness, directives=directives, ask_slot=ask_slot, forbid=forbid,
-        alternative_first=alternative_first, discount=verdict,
+        alternative_first=alternative_first, stay_sku=stay_sku, discount=verdict,
         state_updates={"sales": {"alt_first_attempts": attempts + 1}} if alternative_first else {},
     )

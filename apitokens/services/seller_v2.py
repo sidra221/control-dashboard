@@ -409,6 +409,13 @@ class _Turn:
         product, error = self._lookup(sku)
         if error:
             return refused(error, self._ERROR_MESSAGES[error])
+        stay = (getattr(self.inp.strategy, "stay_sku", "") or "").strip()
+        if stay and sku != stay:
+            return refused(
+                "stay_on_product",
+                f"The customer is staying on sku {stay}. Do not show {sku}. Answer about {stay}. "
+                "If their size is not available on it, say so honestly and do not switch products.",
+            )
         if sku in self.shown:
             self.blocked_reason = self.blocked_reason or reason
             return refused(
@@ -420,12 +427,14 @@ class _Turn:
             return refused("card_limit", "One card per reply already shown. Do not show more.")
         violations = self._unmet(product)
         if violations:
-            return refused(
-                "violates_requirement",
-                "This product breaks what the customer confirmed (" + ", ".join(violations) + "). Choose another "
-                "candidate or tell the customer honestly; do not describe this product as a fit.",
-                violations=violations,
-            )
+            detail = "This product breaks what the customer confirmed (" + ", ".join(violations) + "). "
+            if stay:
+                message = detail + "Tell the customer honestly and do not show a different product."
+            else:
+                message = detail + (
+                    "Choose another candidate or tell the customer honestly; do not describe this product as a fit."
+                )
+            return refused("violates_requirement", message, violations=violations)
         for_someone_else = _truthy(args.get("for_someone_else"))
         self.cards.append({
             **wv._product_card(product, self.inp.currency),

@@ -79,6 +79,7 @@ class Strategy:
     ask_slot: str = None            # سؤال توضيحي واحد كحد أقصى: category|occasion|color|size|budget|None
     forbid: list = field(default_factory=list)       # ["ask_question", "push_discount", "upsell"]
     alternative_first: bool = False
+    stay_sku: str = ""              # إذا تعبّى: البائع يرفض أي كرت غير هالقطعة
     discount: DiscountVerdict = field(default_factory=DiscountVerdict)
     state_updates: dict = field(default_factory=dict)  # بتنحفظ بـ Conversation.state
 

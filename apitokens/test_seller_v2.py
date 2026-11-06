@@ -498,6 +498,16 @@ class ToolTests(SellerBase):
         self.assertEqual(results[1]["violations"], ["budget"])
         self.assertEqual(out.recommendations, [])
 
+    def test_stay_sku_refuses_a_different_product_and_allows_the_same_one(self):
+        locked = Strategy(stay_sku="GREEN")
+        script = Script(S(GOOD_REPLY, show("RED")), S(GOOD_REPLY_2, show("GREEN")))
+        out = self.run_seller(script, self.make_input(strategy=locked))
+        refused = script.tool_results(1)[0]
+        self.assertEqual(refused["status"], "stay_on_product")
+        self.assertIn("do not switch", refused["message"].lower())
+        self.assertNotIn("choose another", refused["message"].lower())
+        self.assertEqual([c["sku"] for c in out.recommendations], ["GREEN"])
+
     def test_show_product_allows_explicitly_requested_rejected_product(self):
         req = Requirements(excluded_skus=frozenset({"ABAYA"}), exempt_skus=frozenset({"ABAYA"}))
         out = self.run_seller(Script(S(GOOD_REPLY, show("ABAYA"))), self.make_input(requirements=req))
