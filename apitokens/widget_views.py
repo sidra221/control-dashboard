@@ -13,7 +13,7 @@ from django.views.decorators.http import require_http_methods
 
 from .models import ApiToken, Conversation, Product, SallaConnection, SizeChart, ZidConnection
 from .services import catalog as catalog_service
-from .services import kieai, llm, sizing
+from .services import discounts, kieai, llm, saudi, sizing
 
 logger = logging.getLogger(__name__)
 
@@ -36,7 +36,16 @@ BUDGET_PATTERN = re.compile(
 
 # علامات لغوية ضيّقة ومحدّدة لكلام الخصم — نطاق صغير ومقصود (خصم/كود/%)
 # حتى ما نحجب رسائل طبيعية ما إلها علاقة بالخصومات أبداً.
-DISCOUNT_FABRICATION_MARKERS = ("خصم", "كود", "%", "discount", "coupon", "promo code")
+DISCOUNT_FABRICATION_MARKERS = ("خصم", "كود", "%", "٪", "discount", "coupon", "promo code")
+
+# اعتراض على السعر (بأي لهجة/لغة شائعة) — بيفتح الكود فوراً. غير هيك الكود بيستنى
+# تاني ردة فعل للزبون، فلغة ناقصة هون بتأخّر الكود دور واحد بس، ما بتمنعه.
+PRICE_SIGNAL_MARKERS = (
+    "غالي", "غاليه", "غالية", "سعر", "ميزاني", "ارخص", "أرخص", "رخيص", "خصم", "تخفيض", "تنزيل",
+    "كود", "كوبون", "فلوس", "مصاري", "مكلف", "كثير علي", "كتير علي", "بكم", "بكام", "قديش",
+    "expensive", "pricey", "price", "cheaper", "cheap", "budget", "discount", "deal", "afford",
+    "cost", "too much", "coupon", "promo", "cher", "prix", "caro", "teuer",
+)
 
 # الزبون بدو يشتري منتج سبق وانعرض — هون بس منسمح بإعادة عرض نفس الكرت
 # (لأنه هو اللي فيه زر/رابط الشراء).
@@ -63,11 +72,19 @@ DISCOUNT_APPENDIX = {
     "ar": "وعشان نسهّلها عليك: استخدم كود {code} ({description}) 🎁",
     "en": "And to make it easier: use code {code} ({description}) 🎁",
 }
+DISCOUNT_PRICE_LINE = {
+    "ar": "وبالكود يصير سعره {new_price} {currency} بدل {price} {currency} 🎁",
+    "en": "With the code it's {new_price} {currency} instead of {price} {currency} 🎁",
+}
 # طلب شراء بكرت بلا نص: الموديل بيكتب الـ reason أحياناً بلغة عشوائية (إسباني،
 # عربي لزبون إنجليزي...). علامات نية الشراء أصلاً عربي/إنجليزي بس، فجملة ثابتة أضمن.
 PURCHASE_REPLY = {
     "ar": "تقدر تطلبه الحين من زر الشراء تحت 👇 اختيار موفّق!",
     "en": "You can order it right now with the buy button below 👇 Great pick!",
+}
+CARD_FALLBACK_REPLY = {
+    "ar": "شوف هذا، أتوقع يعجبك 👌",
+    "en": "Have a look at this one, I think you'll love it 👌",
 }
 FALLBACK_REPHRASE_REPLY = {
     "ar": "ممكن تعيد سؤالك بطريقة ثانية؟",
@@ -228,13 +245,17 @@ DISCOUNT_TOOL = {
                 "type": "string",
                 "description": "The exact discount code, copied exactly from the active codes list.",
             },
+            "sku": {
+                "type": "string",
+                "description": "Exact sku of the product the customer is hesitating about (the code is for it).",
+            },
             "pitch": {
                 "type": "string",
                 "description": (
                     "Your full closing message that goes with the code, strictly in the language of the "
                     "customer's latest message (Saudi dialect only if it's Arabic), plain text: acknowledge their hesitation in a few words, one "
-                    "concrete sentence on the product's real value, then present the code as the reason "
-                    "to go ahead now. Never just the code alone."
+                    "concrete sentence on the product's real value, then present the code and the exact "
+                    "price with it (from the codes list) as the reason to go ahead now. Never just the code alone."
                 ),
             },
         },
@@ -258,7 +279,7 @@ or any other language unless the customer does so themselves.
 EVERYTHING (chat reply and every `reason`, label and pitch) in everyday Saudi dialect, like a friendly \
 salesperson in a Saudi store: e.g. "abi/tabi", "wesh", "al-7een", "zain", "marra" (very), "7eil", \
 "wddak", "gabl la", "3shan", "tara", "kitha", "abshir", "7ayyak", "yjannin", "3ala tool", "yabi lah". \
-Say "hatha/tha" (this), not the Levantine "hal-" prefix. Never write Levantine, Egyptian or other dialects ("baddi", "shu", \
+Say "hatha/hathi" (this), never the Levantine "hal-" prefix ("hal-fustan"). Never write Levantine, Egyptian or other dialects ("baddi", "shu", \
 "halla2", "ktir", "3ayez") and never drift into Modern Standard Arabic, even if the customer writes that way. \
 Every Arabic reply should sound unmistakably Saudi: use at least two everyday Saudi words in it, written \
 in Arabic letters.
@@ -275,10 +296,12 @@ about themselves in their own words (e.g. a feminine vs. masculine form of "I'd 
 and keep addressing them that way. Never guess a gender with no signal; until one appears, use the \
 gender-neutral wording (phrasing that avoids gendered verb forms, or polite plural/impersonal forms); \
 if that's impossible in their language, use the standard generic masculine. What they're shopping for \
-is NOT a signal (a man can buy a dress as a gift) — only how they refer to themselves counts. In Saudi \
-Arabic that default is the masculine form, in the reply AND in every `reason` and button label: \
-"irfa3 sortak", "jarrebh", "tegdar", "3ajabak" — never the feminine "irfa3i", "jarrebih", "tegdreen", \
-"3ajabich" unless the customer used a feminine form about herself (e.g. "3ayza", "mitta2kda", "abghaha la-nafsi").
+is NOT a signal (a man can buy a dress or an abaya as a gift, and you can't see who's typing) — only how \
+they refer to themselves counts. In Saudi Arabic that default is the masculine form, in the reply AND in \
+every `reason` and button label: "irfa3 sortak", "jarrebh", "tegdar", "tshoof", "3ajabak" — never the \
+feminine "irfa3i", "jarrebih", "tegdreen", "tshoofeen" unless the customer used a feminine form about \
+herself (e.g. "mit2akda", "3ayza", "abghaha la-nafsi"). Once she does, use the feminine for the rest of \
+the conversation.
 
 HOW YOU SELL
 1. Discover fast. Have a short, natural conversation to learn what they want: type of item, style, \
@@ -347,12 +370,25 @@ to see it?" (a question). RIGHT is calling `recommend_product` for the sage-gree
 with a reason like "We don't have pure green right now, but this sage-green one is gorgeous and would \
 look stunning for your occasion — have a look!" Only skip an alternative if nothing in the catalog is \
 even loosely related.
-8. Handle objections with value. On price, doubt or comparison with another store, your reply must: \
-acknowledge it in a few words (empathy, not apology), then reframe the value in one concrete sentence \
-that's about THEM (what they get that the cheaper option won't give them, how many occasions it covers, \
-a real sale) rather than repeating specs, then the closer — a discount code if rule 10 allows one, framed \
-as making the decision easy right now, otherwise a genuinely cheaper real alternative. Never answer an \
-objection with only a code. An objection is never a reason to end the conversation or give up.
+8. Objections and hesitation. When they liked a product but hold back, stay on THAT product and win \
+them over — don't jump to other products unless they reject it. An objection is never a reason to give up.
+   a) Price ("expensive", "too much", over their budget, cheaper elsewhere, "any better price?") about a \
+product they've seen: acknowledge it in a few words (empathy, not apology); reframe the value in ONE \
+concrete sentence about THEM (what they get that a cheaper option won't give them, how many occasions it \
+covers, a real sale) instead of repeating specs; then close with the discount code if one is listed below \
+(rule 10), stating the exact price with the code as what makes it an easy yes right now. If no code is \
+listed, use a real sale or a genuinely cheaper real alternative from the same category — never an invented deal.
+   b) Non-price doubt ("not sure", "hmm", "I'll think about it"): find the real blocker and remove it. Fit \
+or size → the size check (11a) or the photo try-on; quality or fabric → one real detail from the \
+description, plus the store's return policy as a safety net if the store information has one; "will it \
+suit me" → the photo try-on. Do NOT use the discount code on a first non-price doubt — it's the \
+merchant's margin. If they're STILL unsure about the same product after you've answered that, the code \
+(if listed) becomes your closing move.
+   c) "I'll think about it" / "maybe later": this is NOT a rejection — never show a different product \
+here. Make one confident, friendly closing attempt on the SAME product: one line on why it fits exactly \
+what they told you, and remove the last friction (try-on, size, returns, or the code if b allows it). \
+Never pressure, guilt or invent urgency.
+   d) Never answer an objection with only a code, and keep moving toward a yes after giving it.
 8b. If they ask about discounts or offers before choosing anything, don't reveal a code yet: tell them \
 warmly you'll get them the best deal once they find the right piece, mention any real sale items \
 (`was_price`), and ask what they're looking for.
@@ -367,21 +403,24 @@ on sale and you may use that real saving as a selling point. Use the `descriptio
 (fabric, fit, features). Never claim an item is a bestseller, popular, trending, low in stock or ending \
 soon — the store gives you no such data. Build urgency and desire only from real benefits and real \
 sales, never from invented scarcity.
-10. Discount codes. If the store has active discount codes listed below, reveal one deliberately as a \
-closing move — not to every browsing customer. Use it only where a discount actually helps: a price \
-objection ("too expensive"), lukewarm hesitation about a specific product already shown ("it's okay", \
-"not sure"), a comparison with a competitor's price, or a customer who's close to buying but asks for a \
-better price. A customer who has already decided to buy with no price concern ("I'll take it", "I want \
-to order it now") does NOT need a discount — don't give away margin there; just help them complete the \
-purchase (point them to the product's buy button). In the hesitation or \
-objection case, use the code AS your argument to win them over on that same item rather than pivoting \
-away. If several codes are active, offer only the one whose own description genuinely applies to this \
-product or customer. Call `offer_discount_code` with the exact code, at most once per conversation, \
-and never before the customer has engaged with a specific product (a generic "do you have discounts?" \
-with nothing shown yet doesn't count). Never invent a code, percentage, promotion, expiry date or \
-eligibility condition that isn't in the active codes list. If no code applies — including when none are \
-listed at all — never call this tool or mention a discount; keep selling with value or a real \
-alternative instead.
+10. Discount codes. The system only lists codes below once the customer has looked at a specific \
+product and is pushing back on price or still hesitating, and only until one has been given — if no "Discount codes you can offer" list appears below, you \
+have NO code to give: never mention a code, a percentage or a "special offer" (a real `was_price` sale is \
+fine). When codes are listed:
+   - Use one as a deliberate closing move on the product they're hesitating about (rule 8): a price \
+objection, a competitor's lower price, a price above their stated budget, a request for a better price, \
+or doubt that's still there after you answered it. Never to a browsing customer, and never to someone \
+who has already decided to buy with no price concern ("I'll take it") — just point them to the buy button.
+   - Call `offer_discount_code` with the exact code AND the sku of that product. If several codes are \
+listed, pick only one whose own description genuinely fits that product.
+   - The list shows each product's exact price with the code. Quote that figure; never calculate a price \
+or a percentage yourself. If the code brings it within the budget they gave, say so — that's your \
+strongest argument.
+   - If the instructions below say a code was already given in this conversation: never offer another \
+code, a bigger discount or a new percentage, even if they ask. Say honestly that it's the best price \
+you can do, remind them of that code and the price with it, and if it's still too much, show a \
+genuinely cheaper real alternative from the same category.
+   - Never invent a code, percentage, promotion, expiry date or eligibility condition.
 11. Shipping, delivery times, returns/exchanges, payment methods and size guidance: answer ONLY from \
 the "Store information" section below (and each product's `available_options`). Summarize what it says \
 briefly in the customer's language, then steer back to the product. If the answer isn't there (or there \
@@ -501,9 +540,127 @@ def _process_tool_calls(
             code_value = call_input.get("code", "")
             code_obj = next((d for d in discount_codes if d.code == code_value), None)
             if code_obj is not None:
-                discount_offer = {"code": code_obj.code, "description": code_obj.description}
+                discount_offer = {
+                    "code": code_obj.code, "description": code_obj.description,
+                    "_sku": str(call_input.get("sku") or ""),
+                }
                 blocked_reason = blocked_reason or (call_input.get("pitch") or "").strip()
     return recommendations[:MAX_RECOMMENDATIONS_PER_TURN], discount_offer, blocked_reason
+
+
+def _text_for_silent_card(provider, system_prompt, messages, tools, card, lang):
+    try:
+        result = llm.chat_with_retry(
+            provider,
+            system_prompt + (
+                "\n\nCORRECTION — your previous reply showed the product " + card["sku"] + " (" + card["title"]
+                + ") with no text at all. Write ONLY the chat message that goes with it: plain text, in the "
+                "language of the customer's latest message (Saudi dialect if it's Arabic), following HOW YOU SELL."
+            ),
+            messages,
+            tools,
+        )
+        text = (result.reply_text or "").strip()
+    except llm.LLMError:
+        text = ""
+    return text or CARD_FALLBACK_REPLY[lang]
+
+
+def _saudize(reply_text, recommendations, female):
+    fixed = []
+    for rec in recommendations:
+        rec = dict(rec)
+        rec["reason"] = saudi.fix(rec["reason"], female)
+        rec["tryon_button_label"] = saudi.fix(rec["tryon_button_label"], female)
+        fixed.append(rec)
+    return saudi.fix(reply_text, female), fixed
+
+
+def _dialect_problems(reply_text, recommendations, female):
+    texts = [reply_text] + [r["reason"] for r in recommendations] + [r["tryon_button_label"] for r in recommendations]
+    found = []
+    for text in texts:
+        found.extend(w for w in saudi.issues(text, female) if w not in found)
+    return found
+
+
+def _price_signal(text):
+    """الزبون حكى عن السعر: غالي، ميزانية، أرخص بمحل تاني، بدو سعر أحسن..."""
+    lowered = discounts.normalize_digits(text).lower()
+    return bool(BUDGET_PATTERN.search(lowered)) or any(m in lowered for m in PRICE_SIGNAL_MARKERS)
+
+
+def _reactions(messages, page_product):
+    """كم رسالة بعتها الزبون بعد ما شاف أول منتج (أول رد من المساعد، أو صفحة المنتج)."""
+    if page_product is not None:
+        return sum(1 for m in messages if m["role"] == "user")
+    first_reply = next((i for i, m in enumerate(messages) if m["role"] == "assistant"), None)
+    if first_reply is None:
+        return 0
+    return sum(1 for m in messages[first_reply:] if m["role"] == "user")
+
+
+def _code_for_prompt(code, priced_products):
+    """الكود ووصفه، وسعر كل منتج شافه الزبون بعد الكود (محسوب هون، مش بالموديل)."""
+    entry = {"code": code.code, "description": code.description}
+    percent = discounts.code_percent(code.description)
+    if percent is not None and priced_products:
+        entry["price_with_code"] = {
+            p.sku: f"{discounts.fmt_money(discounts.price_after(p.price, percent))} instead of "
+                   f"{discounts.fmt_money(p.price)}"
+            for p in priced_products
+        }
+    return entry
+
+
+def _price_the_offer(offer, products, engaged_skus, recommendations, currency):
+    """بيربط العرض بالمنتج اللي الزبون متردد عليه وبيحسب سعره بعد الكود.
+    المنتج: الـ sku اللي اختاره الموديل إذا حقيقي، وإلا آخر منتج شافه الزبون."""
+    offer = dict(offer)
+    hint = offer.pop("_sku", "")
+    by_sku = {p.sku: p for p in products}
+    candidates = [hint] + list(reversed(engaged_skus)) + [r["sku"] for r in recommendations]
+    product = next((by_sku[s] for s in candidates if s in by_sku), None)
+    percent = discounts.code_percent(offer["description"])
+    if product is None or percent is None:
+        return offer
+    offer.update({
+        "sku": product.sku,
+        "title": product.title,
+        "price": discounts.fmt_money(product.price),
+        "new_price": discounts.fmt_money(discounts.price_after(product.price, percent)),
+        "currency": currency or "",
+    })
+    return offer
+
+
+def _discount_claim_is_invented(
+    reply_text, discount_offer, given_codes, recommendations, products, engaged_skus, all_codes=(),
+):
+    """الرد بيحكي عن خصم ما إله أصل: لا كود معطى هلق أو قبل، ولا تخفيض فعلي —
+    أو فيه نسبة مئوية مو نسبة كود حقيقي ولا نسبة تخفيض حقيقي — أو بيكشف كود
+    حقيقي بوقت مو مسموح (قبل ما الزبون يشوف منتج)."""
+    lowered = reply_text.lower()
+    legit_names = {c.code.lower() for c in given_codes}
+    if discount_offer:
+        legit_names.add(discount_offer["code"].lower())
+    if any(c.code.lower() in lowered and c.code.lower() not in legit_names for c in all_codes):
+        return True
+    if not any(marker in lowered for marker in DISCOUNT_FABRICATION_MARKERS):
+        return False
+    legit_codes = list(given_codes)
+    if discount_offer:
+        legit_codes.append(discount_offer)
+    sale_skus = {r["sku"] for r in recommendations if r["compare_at_price"]} | set(engaged_skus)
+    sale_percents = [discounts.sale_percent(p) for p in products if p.sku in sale_skus]
+    has_real_sale = any(sale_percents)
+    allowed = [
+        discounts.code_percent(c["description"] if isinstance(c, dict) else c.description)
+        for c in legit_codes
+    ] + sale_percents
+    if discounts.invented_percent(reply_text, allowed) is not None:
+        return True
+    return not legit_codes and not has_real_sale
 
 
 def _apply_budget(recommendations, budget_ceiling):
@@ -618,18 +775,33 @@ def chat(request):
     page_product = _find_page_product(merchant, str(body.get("page_url") or "")[:2000])
     pinned_skus = shown_skus + ([page_product.sku] if page_product else [])
     products = catalog_service.select_products(merchant, clean_messages, pinned_skus)
-    discount_codes = list(merchant.discount_codes.filter(is_active=True))
+    all_codes = list(merchant.discount_codes.filter(is_active=True))
+    # الكود بيتحكّم بالخصم مش الموديل: ما في كود قبل ما الزبون يشوف منتج محدد،
+    # ومرة وحدة بس بالمحادثة. والسعر بعد الكود محسوب هون، مش بالموديل.
+    given_codes = discounts.codes_already_offered(clean_messages, all_codes)
+    engaged_skus = [s for s in shown_skus if s] + ([page_product.sku] if page_product else [])
+    # توقيت الكود: اعتراض على السعر بآخر رسالة، أو تاني ردة فعل للزبون على المنتج
+    # (أول تردد مو عن السعر منعالجه بالقيمة، مش بهامش التاجر).
+    code_moment = _price_signal(clean_messages[-1]["content"]) or _reactions(clean_messages, page_product) >= 2
+    discount_codes = all_codes if engaged_skus and not given_codes and code_moment else []
+    priced_products = [p for p in products if p.sku in engaged_skus]
     discount_codes_section = ""
     tools = [RECOMMEND_TOOL, SIZE_TOOL]
     if discount_codes:
-        codes_json = json.dumps(
-            [{"code": d.code, "description": d.description} for d in discount_codes],
-            ensure_ascii=False,
-        )
         discount_codes_section = (
-            "\nActive discount codes (see rule 10 for when to offer one):\n" + codes_json + "\n"
+            "\nDiscount codes you can offer (rule 10 says when), with each product's exact price "
+            "with the code:\n"
+            + json.dumps([_code_for_prompt(d, priced_products) for d in discount_codes], ensure_ascii=False)
+            + "\n"
         )
         tools.append(DISCOUNT_TOOL)
+    elif given_codes:
+        discount_codes_section = (
+            "\nA discount code was ALREADY given in this conversation — you can't offer another one "
+            "or a bigger discount (rule 10). Remind them of it if price comes up again:\n"
+            + json.dumps([_code_for_prompt(d, priced_products) for d in given_codes], ensure_ascii=False)
+            + "\n"
+        )
 
     store_info_section = ""
     if merchant.store_info.strip():
@@ -743,17 +915,14 @@ def chat(request):
     # فوق بـ force_tool). منعيد الطلب مرة وحدة مع تصحيح صريح إنه ما في خصم
     # فعلي، ومنستخدم نتيجة هالمحاولة كاملة بدل الرد الأصلي المختلق.
     # استثناء: تخفيض حقيقي على منتج (was_price) مش اختلاق.
-    has_real_sale = any(r["compare_at_price"] for r in recommendations)
-    if (
-        discount_offer is None
-        and not has_real_sale
-        and any(marker in reply_text.lower() for marker in DISCOUNT_FABRICATION_MARKERS)
+    if _discount_claim_is_invented(
+        reply_text, discount_offer, given_codes, recommendations, products, engaged_skus, all_codes,
     ):
         corrected_system_prompt = system_prompt + (
             "\n\nCORRECTION — read before replying: your previous reply mentioned a discount, "
-            "code, or percentage-off, but no such offer actually applies to this customer right "
-            "now. Rewrite your reply to their last message WITHOUT mentioning any discount, code, "
-            "or percentage — address what they actually asked using the product's real value, or "
+            "code, or percentage-off that doesn't actually apply to this customer right now. Rewrite "
+            "your reply to their last message WITHOUT any discount, code or percentage that isn't "
+            "listed above — address what they actually asked using the product's real value, or "
             "a genuine alternative, instead."
         )
         try:
@@ -777,8 +946,12 @@ def chat(request):
         if recommendations and purchase_intent:
             reply_text = PURCHASE_REPLY[lang]
             recommendations[0]["reason"] = reply_text
+        elif any(r["reason"].strip() for r in recommendations):
+            reply_text = next(r["reason"] for r in recommendations if r["reason"].strip())
         elif recommendations:
-            reply_text = recommendations[0]["reason"]
+            # كرت بلا نص ولا سبب: منطلب من الموديل نص الرد مرة وحدة، وإلا جملة ثابتة.
+            reply_text = _text_for_silent_card(provider, system_prompt, clean_messages, tools, recommendations[0], lang)
+            recommendations[0]["reason"] = reply_text
         elif blocked_reason:
             reply_text = blocked_reason
         elif discount_offer:
@@ -814,12 +987,60 @@ def chat(request):
         except llm.LLMError:
             pass
 
+    # اللهجة والمخاطبة بالعربي: «هال» والأفعال المؤنثة الشائعة بتتصلّح بالكود، وأي كلمة
+    # شامية/مصرية أو فعل مؤنث ضل بالرد → إعادة صياغة وحدة، ومنآخد الأنظف.
+    if lang == "ar" and reply_text:
+        female = saudi.female_revealed(clean_messages)
+        reply_text, recommendations = _saudize(reply_text, recommendations, female)
+        problems = _dialect_problems(reply_text, recommendations, female)
+        if problems:
+            corrected_system_prompt = system_prompt + (
+                "\n\nCORRECTION — your previous reply used words that aren't everyday Saudi dialect or "
+                "addressed the customer in the feminine without any sign she's a woman: "
+                + "، ".join(problems) + ". Rewrite your reply (and every tool `reason`) in everyday "
+                "Saudi dialect, addressing the customer in the masculine/neutral form."
+            )
+            try:
+                corrected = llm.chat_with_retry(provider, corrected_system_prompt, clean_messages, tools)
+                new_recs, new_offer, new_blocked_reason = _process_tool_calls(
+                    corrected.tool_calls, products, discount_codes, lang, blocked_skus, merchant.currency
+                )
+                new_reply = corrected.reply_text or (new_recs[0]["reason"] if new_recs else new_blocked_reason)
+                if new_reply and not _script_mismatch(last_user_text, new_reply):
+                    new_reply, new_recs = _saudize(new_reply, _apply_budget(new_recs, budget_ceiling), female)
+                    if len(_dialect_problems(new_reply, new_recs, female)) < len(problems):
+                        reply_text = new_reply
+                        recommendations = new_recs or recommendations
+                        discount_offer = new_offer or discount_offer
+            except llm.LLMError:
+                pass
+
     # الرد النصي لازم يطابق العرض المنظّم: لو في discount_offer حقيقي بس
     # الموديل ما ذكره بالنص، منضيف جملة مبنية من بيانات الكود الفعلية بس.
     # بعد الـ fallback: لما الموديل يرجّع أدوات بلا نص، الرد بيتعبّى من reason
     # البطاقة وما فيه الكود.
+    if discount_offer:
+        discount_offer = _price_the_offer(
+            discount_offer, products, engaged_skus, recommendations, merchant.currency
+        )
+    elif given_codes and reply_text:
+        # تذكير بكود انعطى قبل: إذا الرد ذكره، منحط سعره الصحيح جنبه.
+        reminded = next((c for c in given_codes if c.code.lower() in reply_text.lower()), None)
+        if reminded is not None:
+            reminder = _price_the_offer(
+                {"code": reminded.code, "description": reminded.description},
+                products, engaged_skus, recommendations, merchant.currency,
+            )
+            if reminder.get("new_price") and not discounts.mentions_amount(reply_text, reminder["new_price"]):
+                reply_text = reply_text + " " + " ".join(DISCOUNT_PRICE_LINE[lang].format(**reminder).split())
     if discount_offer and reply_text and discount_offer["code"] not in reply_text:
         reply_text = reply_text + "\n\n" + DISCOUNT_APPENDIX[lang].format(**discount_offer)
+    # السعر بعد الكود محسوب بالكود — لو الموديل ما ذكره صح، منضيفه نحنا.
+    if (
+        discount_offer and reply_text and discount_offer.get("new_price")
+        and not discounts.mentions_amount(reply_text, discount_offer["new_price"])
+    ):
+        reply_text = reply_text + " " + " ".join(DISCOUNT_PRICE_LINE[lang].format(**discount_offer).split())
     # المقاس من الحساب بالكود — الموديل ممنوع يذكره بنفسه، فمنضيفه للرد.
     if size_advice and size_advice["text"] not in reply_text:
         reply_text = reply_text + "\n\n" + size_advice["text"]

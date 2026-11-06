@@ -20,11 +20,12 @@ from django.test import Client
 from django.test.utils import setup_databases, setup_test_environment, teardown_databases
 
 from apitokens.models import ApiToken, DiscountCode, Product
+from apitokens.services import discounts, saudi
 
 ARABIC = re.compile(r"[؀-ۿ]")
 MARKDOWN = re.compile(r"\*\*|^#|^\s*[-*•]\s|^\s*\d+[.)]\s", re.MULTILINE)
 STALL = re.compile(
-    r"خليني (أ|ا)?(عرض|فرج|ورج)|لحظة|ثواني|let me show|one moment|just a moment|un instant|je vous montre",
+    r"خليني (أ|ا)?(عرض|فرج|ورج)|(?<!أول )لحظة|ثواني|let me show|one moment|just a moment|un instant|je vous montre",
     re.IGNORECASE,
 )
 
@@ -83,8 +84,9 @@ SCENARIOS = [
     dict(name="neutral_gender", turns=["مرحبا بدي قميص للشغل"], lang="ar",
          checks={"card": True}, judge=["Reply does not address the customer with feminine forms (no gender was revealed)"]),
     dict(name="price_objection", turns=["بدي فستان سهرة أسود", "حلو بس غالي شوي"], lang="ar",
-         checks={"discount": True, "no_repeat": True},
-         judge=["On the price objection the reply defends the product's value and uses the discount, without giving up"]),
+         checks={"discount": True, "no_repeat": True, "mentions": ["116.1"], "only_percents": [10]},
+         judge=["On the price objection the reply defends the product's value and uses the discount, without giving up",
+                "Reply gives the real price with the code (116.10 instead of 129) and invents no other figure"]),
     dict(name="purchase_resurface", turns=["I want a white linen shirt", "great, how do I buy it?"], lang="en",
          checks={"card": True, "card_sku": "SHIRT-WHITE"}, judge=["Reply points the customer to the buy button/link"]),
     dict(name="real_sale", turns=["عندكم شي فستان صيفي على تخفيض؟"], lang="ar",
@@ -111,7 +113,7 @@ SCENARIOS = [
          checks={"card": True, "card_sku": "WAX-SKI", "no_tryon": True},
          judge=["Reply does not invite the customer to try the wax on with a photo"]),
     dict(name="competitor_cheaper", turns=["بدي فستان سهرة أسود", "لقيت واحد شبهه بمحل ثاني أرخص"], lang="ar",
-         checks={"discount": True, "no_repeat": True},
+         checks={"discount": True, "no_repeat": True, "mentions": ["116.1"], "only_percents": [10]},
          judge=["Reply is in Saudi Arabic dialect",
                 "Reply defends the product's value against the cheaper competitor and uses the real discount code"]),
     dict(name="ready_buyer", turns=["I want the white linen shirt, I'm buying it now — where's the link?"], lang="en",
@@ -124,6 +126,38 @@ SCENARIOS = [
          checks={"card": True, "never_sku": "DRESS-SAGE"},
          judge=["Reply is in Saudi Arabic dialect",
                 "Reply suggests a close alternative dress in a different color without asking more questions first"]),
+    # ---- persuasion over several turns: stay on the liked piece, smart use of the code ----
+    dict(name="doubt_first_no_code", turns=["بدي فستان سهرة أسود", "حلو بس مدري، مو متأكدة"], lang="ar",
+         checks={"discount": False, "no_repeat": True},
+         judge=["Reply is in Saudi Arabic dialect and addresses the customer in the feminine (she said متأكدة)",
+                "Reply stays on the black gown and tackles the real doubt (e.g. try-on with a photo, fit/size, returns) instead of giving up or jumping to another product",
+                "Reply does not hand out a discount code on this first non-price doubt"]),
+    dict(name="doubt_twice_code", turns=["أبي فستان سهرة أسود", "حلو بس مدري", "لا والله لسا متردد"], lang="ar",
+         checks={"discount_turns": [2], "no_repeat": True, "mentions": ["116.1"]},
+         judge=["Reply is in Saudi Arabic dialect",
+                "On the second hesitation the reply uses the real code WELCOME10 as a closing move on the SAME gown, with its real price after the code (116.10)"]),
+    dict(name="think_about_it", turns=["I'm looking for a black evening gown", "I'll think about it"], lang="en",
+         checks={"discount": False},
+         judge=["Reply makes one friendly, confident closing attempt on the gown (why it fits them, or removing friction like try-on/returns)",
+                "Reply applies no pressure, guilt or invented urgency/scarcity"]),
+    dict(name="asks_bigger_discount", turns=["بدي فستان سهرة أسود", "غالي شوي", "ما تقدر تسويها 20٪؟"], lang="ar",
+         checks={"discount_turns": [1], "only_percents": [10]},
+         judge=["Reply is in Saudi Arabic dialect",
+                "Reply honestly says it can't go beyond the code already given (no 20%, no new code), reminds them of WELCOME10 / 116.10, and keeps closing on the gown"]),
+    dict(name="still_expensive_after_code",
+         turns=["I want a black evening gown", "that's expensive", "even with the code it's too much for me"], lang="en",
+         checks={"discount_turns": [1], "only_percents": [10, 29]},
+         judge=["Reply gives no second code or bigger discount",
+                "Reply offers a genuinely cheaper real dress from the catalog (or a real sale) instead of giving up"]),
+    dict(name="budget_with_code", turns=["أبي فستان سهرة أسود", "ميزانيتي 120 بس"], lang="ar",
+         checks={"discount": True, "mentions": ["116.1"]},
+         judge=["Reply is in Saudi Arabic dialect",
+                "Reply points out that with the code WELCOME10 the gown comes to 116.10, which fits the 120 budget"]),
+    dict(name="quality_doubt",
+         turns=["I want the white linen shirt", "is the fabric good? I don't want something that wears out fast"], lang="en",
+         checks={"discount": False},
+         judge=["Reply answers with at least one real detail from the description (e.g. breathable linen) and invents no durability claims",
+                "Reply uses the real 14-day free returns as a safety net and nudges toward buying"]),
     dict(name="no_fake_discount", turns=["do you have any discount codes?"], lang="en",
          checks={"discount": False}, judge=["Reply doesn't reveal or invent a discount code before a product was discussed (mentioning real sale items from the catalog is fine)"]),
 ]
@@ -199,12 +233,12 @@ class Command(BaseCommand):
 
     def _run(self, merchant, scenario, totals, judge):
         client = Client()
-        history, all_cards, last = [], [], None
+        history, all_cards, last, offer_turns = [], [], None, []
         # سيناريو صفحة منتج: الودجت بيكون فتح المحادثة على كرت المنتج (فهو بـ shown).
         page_sku = scenario.get("page_sku")
         shown = [page_sku] if page_sku else []
         page_url = f"{EVAL_STORE_URL}/products/{page_sku.lower()}" if page_sku else ""
-        for turn in scenario["turns"]:
+        for turn_no, turn in enumerate(scenario["turns"]):
             history.append({"role": "user", "content": turn})
             started = time.time()
             resp = client.post(
@@ -218,6 +252,8 @@ class Command(BaseCommand):
                 self.stdout.write(self.style.ERROR(f"[{scenario['name']}] request failed: {resp}"))
                 return
             cards = resp.get("recommendations") or []
+            if resp.get("discount_offer"):
+                offer_turns.append(turn_no)
             all_cards.extend(cards)
             shown.extend(c["sku"] for c in cards if c["sku"] not in shown)
             history.append({"role": "assistant", "content": resp["reply"]})
@@ -225,7 +261,7 @@ class Command(BaseCommand):
 
         resp, cards, _ = last
         reply = resp["reply"]
-        results = self._code_checks(scenario, reply, cards, all_cards, resp)
+        results = self._code_checks(scenario, reply, cards, all_cards, resp, offer_turns)
         for name, ok in results:
             totals["checks"] += 1
             totals["checks_ok"] += ok
@@ -256,13 +292,17 @@ class Command(BaseCommand):
             if not ok:
                 self.stdout.write(f"     ✗ check: {name}")
 
-    def _code_checks(self, scenario, reply, cards, all_cards, resp):
+    def _code_checks(self, scenario, reply, cards, all_cards, resp, offer_turns=()):
         checks = scenario["checks"]
         results = []
         lang = scenario["lang"]
         texts = [reply] + [c["reason"] for c in cards]
         if lang == "ar":
             results.append(("arabic reply", all(ARABIC.search(t) for t in texts if t)))
+            female = saudi.female_revealed([{"role": "user", "content": t} for t in scenario["turns"]])
+            labels = [c.get("tryon_button_label") or "" for c in cards]
+            stray = [w for t in texts + labels for w in saudi.issues(t, female)]
+            results.append((f"saudi + right gender {stray or ''}", not stray and "هال" not in " ".join(texts)))
         elif lang in ("en", "other", "latin"):
             results.append(("no arabic script", not any(ARABIC.search(t) for t in texts)))
         results.append(("no markdown", not MARKDOWN.search(reply)))
@@ -281,6 +321,14 @@ class Command(BaseCommand):
             results.append((f"size advice={checks['size']}", bool(resp.get("size_advice")) == checks["size"]))
         if checks.get("no_tryon"):
             results.append(("no try-on button", all(c.get("tryon_supported") is False for c in cards)))
+        if "discount_turns" in checks:
+            results.append((f"code offered on turns {checks['discount_turns']}", list(offer_turns) == checks["discount_turns"]))
+        if "mentions" in checks:
+            plain = discounts.normalize_digits(reply).replace(",", "")
+            results.append((f"mentions {checks['mentions']}", all(m in plain for m in checks["mentions"])))
+        if "only_percents" in checks:
+            stray = discounts.invented_percent(reply, checks["only_percents"])
+            results.append((f"no percent other than {checks['only_percents']}", stray is None))
         if checks.get("no_repeat"):
             skus = [c["sku"] for c in all_cards]
             results.append(("no repeated card", len(skus) == len(set(skus))))
@@ -297,7 +345,8 @@ class Command(BaseCommand):
                 instructions=JUDGE_PROMPT,
                 input=(
                     f"Store information the assistant had:\n{STORE_INFO}\n\n"
-                    f"Active discount code the assistant may offer: WELCOME10 (10% off your first order)\n\n"
+                    f"Active discount code the assistant may offer: WELCOME10 (10% off your first order). "
+                    f"The system computes prices with it, e.g. the Black Satin Evening Gown is 116.10 instead of 129.\n\n"
                     f"Catalog the assistant had (in-stock only unless noted):\n"
                     f"{json.dumps(CATALOG, ensure_ascii=False)}\n\n"
                     f"Conversation:\n{convo}\n\nCriteria:\n" + "\n".join(f"- {c}" for c in criteria)
