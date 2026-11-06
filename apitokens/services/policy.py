@@ -341,6 +341,12 @@ def _stage_directives(stage, *, ask_slot, forbid, search_result, objections, rea
                 "Ask exactly ONE short gentle question that offers two kinds of options, for example clothes or accessories. "
                 "Do not name a specific product from the catalog."
             )
+        elif hold_kind == "consult":
+            d.append(
+                "Not enough is known to choose a product. Do NOT call show_product. "
+                "Ask exactly ONE short question about the most useful missing fact: who it is for, the occasion, or the color. "
+                "Do not name a specific product and do not invent one."
+            )
         elif hold_kind == "occasion":
             d.append(
                 "They named an occasion but not which piece, and you do not know who it is for. "

@@ -559,9 +559,18 @@ def _ensure_discount_answer(text, inp, offer, lang):
         # في كود صالح والزبون مش مؤهل بعد: ممنوع الإيحاء إنه ما في أكواد ("ما عندي كود خصم"): نشيل هالجمل ونحط الصيغة الصحيحة
         text = " ".join(filter(None, (_drop_denials(x) for x in sentences)))
         sentences = guard.sentences(text)
-    if any(guard.is_truthful_no_discount(guard.normalize(sentence)) for sentence in sentences):
+    if _already_answered_discount(sentences):
         return text
     return f"{answer} {text}".strip()
+
+
+def _already_answered_discount(sentences):
+    """الجواب موجود إذا جملة الخصم نفسها منفية، حتى لو باقي الرد فيه سعر."""
+    for sentence in sentences:
+        for clause in guard._CLAUSE_SPLIT.split(guard.normalize(sentence)):
+            if guard.is_truthful_no_discount(clause):
+                return True
+    return False
 
 
 def _allowed_latin(inp, turn, codes):

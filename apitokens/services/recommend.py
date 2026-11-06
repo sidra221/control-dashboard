@@ -184,6 +184,38 @@ def named_occasion(text):
     return None
 
 
+_MALE_RECIPIENTS = (
+    "شب", "شاب", "رجل", "رجال", "اخ", "اخوي", "زوج", "ابن", "ولد", "اب", "ابوي",
+    "عم", "خال", "صديق", "عريس", "guy", "man", "male", "husband", "brother", "son", "father", "boyfriend",
+)
+_FEMALE_RECIPIENTS = (
+    "بنت", "مره", "اخت", "اختي", "زوجه", "ام", "امي", "صديقه", "عروس",
+    "woman", "girl", "wife", "sister", "daughter", "mom", "mother",
+)
+WOMEN_ONLY = frozenset({"dress", "abaya", "hijab", "skirt", "blouse", "kaftan"})
+
+
+def recipient_gender(value):
+    """جنس الشخص المهدى له، من وصف القرابة. فاضي إذا ما انعرف."""
+    tokens = set(_content_tokens(value or ""))
+    male = {_bare_token(norm_text(w)) for w in _MALE_RECIPIENTS}
+    female = {_bare_token(norm_text(w)) for w in _FEMALE_RECIPIENTS}
+    known = male | female
+    tokens |= {token[len(prefix):] for token in tokens for prefix in ("ال", "ل") if token[len(prefix):] in known}
+    if tokens & male and not (tokens & female):
+        return "male"
+    if tokens & female and not (tokens & male):
+        return "female"
+    return ""
+
+
+def is_womens_product(product):
+    for raw in (getattr(product, "category", "") or "", getattr(product, "title", "") or ""):
+        if canonical_category(raw) in WOMEN_ONLY:
+            return True
+    return False
+
+
 def categories_in_text(text):
     """فئات سمّاها الزبون بهالرسالة، بالترتيب."""
     return _scan(text or "", "category")

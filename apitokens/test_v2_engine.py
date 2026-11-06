@@ -311,7 +311,7 @@ class QualityFixesFromLiveEvalTests(EngineBase):
 
     def test_tryon_invitation_is_not_repeated_once_given(self):
         self.brain.turn(step("هذا يناسبك، ارفع صورتك وجرّبه عليك.", show("RED_M", "فستان أحمر حلو، جرّبه بصورتك")), analysis={})
-        self.w.say("أبي فستان")
+        self.w.say("أبي فستان أحمر")
         self.brain.turn(step("تمام."), analysis={})
         self.w.say("وش رايك")
         self.assertIn("do NOT invite again", self.brain.last_system)
@@ -383,7 +383,8 @@ class SalesStageTests(EngineBase):
         script = [
             ("هلا", step("يا هلا والله! وش تدور عليه؟"), {"signals": sig("browsing", "chitchat")}, "discovery"),
             ("أبي فستان لعرس", step("هذا يناسب العرس.", show("RED_M")),
-             {"preferences": [pref("category", "فستان", "أبي فستان")], "signals": sig("interested", "search")},
+             {"preferences": [pref("category", "فستان", "أبي فستان"), pref("style", "ناعم", "فستان")],
+              "signals": sig("interested", "search")},
              "recommendation"),
             ("حلو بس غالي شوي", step("معك حق، خلّني أوريك أخف."),
              {"objections": [{"type": "price", "evidence": "غالي شوي"}],
@@ -435,8 +436,9 @@ class DiscountPolicyTests(EngineBase):
         self.brain.turn(step("يا هلا! وش تدور عليه؟"), analysis={"signals": sig("browsing", "chitchat")})
         self.w.say("هلا")
         self.brain.turn(step("هذا حلو لك.", show("BLK_M")),
-                        analysis={"preferences": [pref("category", "فستان", "أبي فستان")], "signals": sig("interested", "search")})
-        self.w.say("أبي فستان")
+                        analysis={"preferences": [pref("category", "فستان", "أبي فستان"), pref("style", "ناعم", "حلو")],
+                                  "signals": sig("interested", "search")})
+        self.w.say("أبي فستان حلو")
 
     def objection(self, sku="BLK_M"):
         # "حلو بس غالي": اهتمام حقيقي بمنتج محدد (liked) + اعتراض سعر + تردد
@@ -570,7 +572,8 @@ class SimplifiedDiscountRuleTests(EngineBase):
         """رسالتا العميل 1 و2: تحية ثم طلب فستان انعرض عليه (بدون أي ردّ فعل إلا إذا طُلب)."""
         self.brain.turn(step("يا هلا! وش تدور عليه؟"), analysis={"signals": sig("browsing", "chitchat")})
         w.say("هلا")
-        analysis = {"preferences": [pref("category", "فستان", "أبي فستان")], "signals": sig("interested", "search")}
+        analysis = {"preferences": [pref("category", "فستان", "أبي فستان"), pref("style", "ناعم", "حلو")],
+                    "signals": sig("interested", "search")}
         if reaction:
             analysis["reaction"] = reaction
         self.brain.turn(step("هذا حلو لك.", *[show(k) for k in shown]), analysis=analysis)
@@ -752,11 +755,11 @@ class SimplifiedDiscountRuleTests(EngineBase):
         self.assertEqual(self.verdict()["reason"], "alternative_first")
         self.assertTrue(self.trace().constraints["alt_first"]["repeated_failure"])
         self.assertNotIn("alt_first_done", self.alt_first_state())
-        # 3) انعرض كرت فعلاً بس مش أرخص (400 مقابل 280) ← ما بيعدّ بديل
+        # 3) كرت أغلى (400 مقابل 280) ما يوصل، وما بيعدّ بديل
         self.brain.turn(step("شوف هذا.", show("GRN_M")), analysis={
             "reaction": LIKED, "objections": objection, "signals": sig("hesitant", "object", "price")})
         c = w.say("لسا غالي علي")
-        self.assertEqual([x["sku"] for x in c["recommendations"]], ["GRN_M"])
+        self.assertEqual([x["sku"] for x in c["recommendations"]], [])
         self.assertIsNone(c["discount_offer"])
         self.assertNotIn("alt_first_done", self.alt_first_state())
         # 4) انعرض كرت أرخص فعلاً ← بيتسجّل، وما في كود هالدور
@@ -1074,7 +1077,7 @@ class ReviewFixesEngineTests(EngineBase):
         w = self.fresh_widget()
         self.brain.turn(step("هذا.", ("show_product", {"sku": "RED_M", "reason": "تقدر تجرّبه وتختاره", "tryon_button_label": "جرّبه"})),
                         analysis={"gender": "female", "gender_evidence": "مترددة", "signals": sig("interested", "search")})
-        data = w.say("أبي فستان وأنا مترددة")
+        data = w.say("أبي فستان أحمر وأنا مترددة")
         card = data["recommendations"][0]
         self.assertEqual(card["reason"], "تقدرين تجربينه وتختارينه")
         self.assertEqual(card["tryon_button_label"], "جربيه")
@@ -1132,7 +1135,7 @@ class FinalRoundEngineTests(EngineBase):
         w = self.fresh_widget()
         self.brain.turn(step('هذا فستان حلو show_product(sku="RED_M")', ("show_product", {"sku": "RED_M", "reason": "خفيف ومريح.оставка"})),
                         analysis={"signals": sig("interested", "search")})
-        data = w.say("أبي فستان")
+        data = w.say("أبي فستان أحمر")
         self.assertEqual(data["reply"], "هذا فستان حلو")
         self.assertEqual(data["recommendations"][0]["reason"], "خفيف ومريح.")
 
@@ -1244,7 +1247,7 @@ class TryOnAndDialectTests(EngineBase):
         from django.core.files.uploadedfile import SimpleUploadedFile
 
         self.brain.turn(step("هذا يجنّن عليك.", show("RED_M")), analysis={})
-        self.w.say("أبي فستان")
+        self.w.say("أبي فستان أحمر")
         photo = SimpleUploadedFile("me.jpg", b"\xff\xd8 fake", content_type="image/jpeg")
         with patch("apitokens.widget_views.kieai.generate_tryon", return_value="https://img/out.png"):
             ok = Client().post("/widget/tryon/", {"sku": "RED_M", "photo": photo}, HTTP_X_API_TOKEN=self.merchant.token,
@@ -1322,7 +1325,7 @@ class SpeculativeExecutionTests(EngineBase):
                 with patch("apitokens.services.llm.chat_with_retry", side_effect=brain.analyzer), \
                      patch("apitokens.services.llm.chat_step_with_retry", side_effect=brain.seller):
                     w = Widget(self.merchant, ip=f"9.9.9.{int(spec)}")
-                    a = w.say("أبي فستان")
+                    a = w.say("أبي فستان أحمر")
                     b = w.say("طيب")
                 outs.append((a["reply"], [c["sku"] for c in a["recommendations"]], b["reply"]))
         self.assertEqual(outs[0], outs[1])
@@ -1464,3 +1467,72 @@ class OccasionAndProactiveTests(EngineBase):
         }).json()
         self.assertTrue(again["ok"], again)
         self.assertEqual(Message.objects.filter(conversation=conv, meta__proactive=True).count(), 1)
+
+
+class AskThenMatchTests(EngineBase):
+    def test_a_category_alone_asks_before_any_card(self):
+        self.brain.turn(
+            step("هذا الفستان.", show("BLK_M")),
+            step("لأي مناسبة تبيه؟"),
+            analysis={"preferences": [pref("category", "فستان", "فستان")], "signals": sig("interested", "search")},
+        )
+        data = self.w.say("عم دور على فستان")
+        self.assertEqual(data["recommendations"], [])
+        self.assertIn("لأي مناسبة", data["reply"])
+
+    def test_a_gift_for_a_man_never_shows_a_dress(self):
+        self.brain.turn(step("تبي قميص ولا ثوب؟"), analysis={
+            "preferences": [pref("recipient", "لشب", "لشب", subject="gift")],
+            "signals": sig("interested", "search"),
+        })
+        data = self.w.say("هدية لشب")
+        self.assertEqual(data["recommendations"], [])
+        self.assertNotIn("BLK_M", self.skus_in_candidates(self.brain.last_system))
+        self.assertIn("SHIRT", self.skus_in_candidates(self.brain.last_system))
+
+    def test_a_named_shirt_for_him_shows_the_shirt(self):
+        self.brain.turn(step("هذا القميص.", show("SHIRT")), analysis={
+            "preferences": [
+                pref("recipient", "شب", "لشب", subject="gift"),
+                pref("category", "قميص", "قميص", subject="gift"),
+            ],
+            "signals": sig("interested", "search"),
+        })
+        data = self.w.say("قميص لشب")
+        self.assertEqual([c["sku"] for c in data["recommendations"]], ["SHIRT"])
+
+    def test_tryon_is_dropped_after_they_already_tried_it_and_like_it(self):
+        self.brain.turn(step("هذا.", show("RED_M")), analysis={
+            "preferences": [pref("color", "أحمر", "أحمر")],
+            "signals": sig("interested", "search"),
+        })
+        self.w.say("أبي فستان أحمر")
+        ProductReaction.objects.create(
+            merchant=self.merchant, profile=CustomerProfile.objects.get(), sku="RED_M",
+            title=self.red.title, reaction="tried_on", product=self.red,
+        )
+        self.brain.turn(step("عجبك؟ جربو عليك."), analysis={
+            "reaction": {"sku": "RED_M", "type": "liked", "evidence": "عاجبني"},
+            "signals": sig("interested", "accept"),
+        })
+        data = self.w.say("عاجبني")
+        self.assertNotIn("جرب", data["reply"])
+        self.assertIn("شراء", data["reply"])
+
+    def test_a_more_expensive_card_is_not_the_answer_to_a_price_objection(self):
+        self.brain.turn(step("هذا.", show("BLK_M")), analysis={
+            "preferences": [pref("category", "فستان", "فستان"), pref("style", "ناعم", "حلو")],
+            "signals": sig("interested", "search"),
+        })
+        self.w.say("أبي فستان حلو")
+        objection = {
+            "reaction": {"sku": "BLK_M", "type": "liked", "evidence": "حلو"},
+            "objections": [{"type": "price", "evidence": "غالي"}],
+            "signals": sig("hesitant", "object", "price"),
+        }
+        self.brain.turn(step("شوف هذا.", show("GRN_M")), analysis=objection)
+        pricey = self.w.say("حلو بس غالي")
+        self.assertEqual(pricey["recommendations"], [])
+        self.brain.turn(step("هذا أخف.", show("PNK_M")), analysis=objection)
+        cheaper = self.w.say("لسا غالي")
+        self.assertEqual([c["sku"] for c in cheaper["recommendations"]], ["PNK_M"])

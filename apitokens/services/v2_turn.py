@@ -245,7 +245,10 @@ _QUERY_KEYS = ("occasion", "style", "material", "brand")
 _INFERRED_QUERY_KEYS = ("style", "material")
 
 
-_TRYON_INVITE = re.compile(r"زر التجرب|تجرّ?بين|تقدر(?:ين)? تجر|ودّ?ك تجر|ارفع صور|صورتك|try it on|try-on button", re.I)
+_TRYON_INVITE = re.compile(
+    r"جر[ّ]?ب|تجرب|صورتك|ارفع صور|try[\s-]?on|try it on",
+    re.I,
+)
 _BUDGET_WORD = re.compile(r"ميزانيت|your budget", re.I)
 
 
@@ -341,6 +344,31 @@ def _enforce_occasion(out, plan, products, merchant, lang, gender):
         "tryon_button_label": wv._tryon_label("", lang, False),
     }]
     out.reply = _occasion_line(lang, gender, product.title or "")
+
+
+def _enforce_subject(out, plan):
+    """الكرت يضل على القطعة يلي الزبون لسا عليها. إذا طلب غيرها بسبب السعر، الكرت الجديد لازم يكون أرخص."""
+    from decimal import Decimal, InvalidOperation
+
+    cards = list(out.recommendations or [])
+    stay = (getattr(plan.strategy, "stay_sku", "") or "").strip()
+    if stay:
+        out.recommendations = [c for c in cards if c.get("sku") == stay]
+        return
+    if not getattr(plan.strategy, "alternative_first", False):
+        return
+    base = getattr(getattr(plan, "engaged", None), "price", None)
+    if base is None:
+        return
+    kept = []
+    for card in cards:
+        try:
+            price = Decimal(str(card.get("price")))
+        except (InvalidOperation, TypeError, ValueError):
+            continue
+        if price < base:
+            kept.append(card)
+    out.recommendations = kept
 
 
 def _force_requested_card(out, plan, merchant, text, lang, signals):
@@ -484,6 +512,13 @@ def _build_plan(ctx, merchant, *, validated, window, text, page_product, shown, 
     )
     readiness = stage_mod.readiness_of(signals, events, [o.type for o in objections])
 
+    prefs = list(getattr(validated, "preferences", None) or [])
+    explicit = [p for p in prefs if isinstance(p, dict) and p.get("source") == "explicit"]
+    gift_pivot = any(p.get("subject") == "gift" or p.get("key") == "recipient" for p in explicit)
+    named_category = any(p.get("key") == "category" for p in explicit)
+    # الطلب صار لشخص ثاني بدون قطعة جديدة: فئة الزبون السابقة ما بتضل هي البحث.
+    if gift_pivot and not named_category:
+        requirements = dataclasses.replace(requirements, categories=())
     query = retrieval_query(text, facts)
     search = recommend.search(
         products, requirements, query=query, limit=8, shown_skus=shown,
@@ -521,15 +556,50 @@ def _build_plan(ctx, merchant, *, validated, window, text, page_product, shown, 
         o.get("type") in policy.PRICE_OBJECTIONS and o.get("current", True) for o in validated.objections
     )
     active = [f for f in facts if getattr(f, "status", "active") == "active"]
+    recipient_value = next(
+        (f.value for f in active if f.key == "recipient" and f.polarity == "like"), ""
+    )
+    for_man = recommend.recipient_gender(recipient_value) == "male"
+    if for_man:
+        kept = tuple(c for c in (requirements.categories or ()) if c not in recommend.WOMEN_ONLY)
+        requirements = dataclasses.replace(requirements, categories=kept)
+        search.candidates = [c for c in search.candidates if not recommend.is_womens_product(c.product)]
+        if not search.candidates:
+            search.note = "nothing_matches"
+    narrowing = {"color", "occasion", "size", "budget_max", "budget_min", "style", "material", "recipient", "brand"}
+    has_detail = any(f.key in narrowing and f.polarity == "like" for f in active) or bool(
+        recommend.canonical_color(text) or recommend.named_occasion(text) or recommend.canonical_size(text)
+    )
+    reacting = (
+        price_now
+        or signals.get("hesitation_reason") in ("price", "style", "fit", "trust", "timing", "other")
+        or signals.get("intent") in ("object", "ask_discount", "buy", "accept", "reject", "ask_info", "compare")
+        or bool(signals.get("wants_alternative"))
+    )
+    consult = (
+        assistant_questions < policy.MAX_QUESTIONS
+        and page_product is None
+        and not understanding.asks_to_see(text)
+        and not reacting
+        and not has_detail
+        and not for_man
+    )
+    male_gift_needs_piece = for_man and not requirements.categories
+    gift_without_piece = (
+        (gift_pivot and not named_category) or male_gift_needs_piece
+    ) and assistant_questions < policy.MAX_QUESTIONS
     narrow = (
         not constraint["occasion"]
         and assistant_questions < policy.MAX_QUESTIONS
-        and policy.narrow_before_cards(
+        and (
+            gift_without_piece
+            or policy.narrow_before_cards(
             intent=signals.get("intent"),
             has_category=any(f.key == "category" and f.polarity == "like" for f in active),
             is_gift=any(f.subject == "gift" or f.key == "recipient" for f in active),
             page_open=page_product is not None,
             wants_products=understanding.asks_to_see(text),
+            )
         )
     )
     page_sku = page_product.sku if page_product is not None else ""
@@ -552,10 +622,17 @@ def _build_plan(ctx, merchant, *, validated, window, text, page_product, shown, 
         page_sku=page_sku,
         hold_cards=(
             narrow
+            or consult
+            or male_gift_needs_piece
             or constraint.get("needs_gender")
             or (page_product is None and understanding.should_ask_before_showing(text))
         ),
-        hold_kind="occasion" if constraint.get("needs_gender") else ("narrow" if narrow else ""),
+        hold_kind=(
+            "occasion" if constraint.get("needs_gender")
+            else "consult" if consult
+            else "narrow" if narrow
+            else ""
+        ),
     )
     if (
         occasion and page_sku and page_product is not None
@@ -737,10 +814,12 @@ def _process_loop(ctx, merchant, text, client_msg_id, page_url, started):
         out.reply = "Is it a dress or a thobe?" if lang != "ar" else "تبي فستان سهرة ولا ثوب؟"
     elif getattr(plan.strategy, "hold_cards", False) and out.recommendations:
         out.recommendations = []
-        if ctx.profile.gender_signal == "female":
-            out.reply = "يا هلا! قولي لي وش تبين، وأطلع لك الخيار المناسب."
-        else:
-            out.reply = "يا هلا! قل لي وش تبي، وأطلع لك الخيار المناسب."
+        if not (out.reply or "").strip():
+            if ctx.profile.gender_signal == "female":
+                out.reply = "يا هلا! قولي لي وش تبين، وأطلع لك الخيار المناسب."
+            else:
+                out.reply = "يا هلا! قل لي وش تبي، وأطلع لك الخيار المناسب."
+    _enforce_subject(out, plan)
     _enforce_occasion(out, plan, products, merchant, lang, ctx.profile.gender_signal or "")
     focus_skus = set()
     if page_product is not None:
@@ -763,6 +842,12 @@ def _process_loop(ctx, merchant, text, client_msg_id, page_url, started):
         sale=policy_mod._sale_prices(sale_product) if price_now else None,
         offer_alternative=bool(plan.strategy.alternative_first),
     )
+    if tried:
+        from . import guard
+        for card in out.recommendations or []:
+            card["reason"] = " ".join(
+                s for s in guard.sentences(card.get("reason") or "") if not _TRYON_INVITE.search(s)
+            ).strip()
 
     cards = out.recommendations
     product_map = {p.sku: p for p in products if p.sku in {c["sku"] for c in cards}}
