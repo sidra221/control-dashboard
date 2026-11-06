@@ -162,6 +162,21 @@ def _text_hash(text):
     return hashlib.sha1(text.encode("utf-8")).hexdigest()
 
 
+def embed_query(text, products=None):
+    """متجه الاستعلام لـ recommend.search. None لما ما في مفتاح، أو نص، أو متجهات
+    محفوظة على المنتجات، أو فشل الطلب. الترتيب اللفظي بيضل شغّال بهالحالة."""
+    text = " ".join(str(text or "").split())[:2000]
+    if not text or not settings.OPENAI_API_KEY:
+        return None
+    if products is not None and not any(getattr(product, "embedding", None) for product in products):
+        return None
+    try:
+        return _embed([text])[0]
+    except Exception:
+        logger.exception("query_embedding_failed")
+        return None
+
+
 def _embed(texts):
     import openai
 

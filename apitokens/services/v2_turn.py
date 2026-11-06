@@ -51,6 +51,10 @@ def run_chat(merchant, body):
         return None, ("assistant_not_configured", 503), None
 
     ctx = memory.resolve_session(merchant, body.get("session_token"), body.get("shopper_token"), create=True)
+    restart = understanding.wants_fresh_start(text)
+    if restart:
+        memory.drop_inferred_facts(ctx.profile)
+        ctx = memory.rotate_conversation(ctx)
     conversation = ctx.conversation
 
     cached = memory.stored_reply(conversation, client_msg_id)
@@ -62,6 +66,8 @@ def run_chat(merchant, body):
     try:
         process = _process_legacy if settings.V2_SELLER_MODE == "legacy" else _process_loop
         payload, error = process(ctx, merchant, text, client_msg_id, page_url, started)
+        if payload is not None and restart:
+            payload = {**payload, "restart": True}
         return payload, error, (memory.issue_tokens(ctx) if error else None)
     finally:
         memory.release_turn(conversation)
@@ -135,13 +141,7 @@ def _process_legacy(ctx, merchant, text, client_msg_id, page_url, started):
             conversation=conversation, reaction__in=("asked", "liked", "tried_on", "viewed")
         ).exists()
     )
-    page_note = None
-    if page_product is not None and not ctx.new_conversation and turn_no > 1:
-        page_note = (
-            f"\nThe customer is now viewing the product page of {page_product.sku} ({page_product.title}). "
-            "It may not be the item you were discussing: treat \"it\"/\"this\" as this product only when their "
-            f"message points to it. Don't recommend {page_product.sku} again unless they want to buy it.\n"
-        )
+    page_note = _open_page_note(page_product) if page_product is not None and turn_no > 1 else None
 
     turn = wv.TurnInput(
         merchant=merchant, window=window, full_messages=window, session_id=conversation.session_id,
@@ -207,6 +207,44 @@ SLOT_KEYS = {"category": "category", "occasion": "occasion", "color": "color", "
 ALT_FIRST_WARN_AFTER = 2   # بعد كم محاولة فاشلة لعرض البديل بنسجّل تحذير (مراقبة فقط، ما بيفتح الخصم)
 
 
+def _force_requested_card(out, plan, merchant, text, lang, signals):
+    """الزبون طلب يشوف الموجود والرد طلع بدون كرت، وفي مرشّح فعلي: السيرفر يحط الكرت.
+    وإذا النص قال «ما عندي» وهو في منتج، بنبدّل الجملة الكاذبة."""
+    if out.recommendations or understanding.wants_fresh_start(text):
+        return
+    if (getattr(plan.strategy, "stay_sku", "") or "").strip():
+        return
+    search = plan.search
+    candidates = list(getattr(search, "candidates", None) or [])
+    if not candidates or getattr(search, "note", "") == "nothing_matches":
+        return
+    intent = (signals or {}).get("intent")
+    if intent not in ("search", "browse", "compare") and not understanding.asks_to_see(text):
+        return
+    chosen = next((c for c in candidates if getattr(c, "exact", False)), candidates[0])
+    product = chosen.product
+    out.recommendations = [{
+        **wv._product_card(product, merchant.currency),
+        "reason": "",
+        "tryon_supported": product.supports_tryon,
+        "tryon_button_label": wv._tryon_label("", lang, False),
+    }]
+    if not (out.reply or "").strip() or understanding.denies_availability(out.reply):
+        out.reply = (
+            "هذا خيار موجود عندنا يناسب طلبك."
+            if lang == "ar" else "This is a real option we have for what you asked."
+        )
+
+
+def _open_page_note(page_product):
+    """الزبون فاتح صفحة منتج: هالمنتج هو موضوع الحكي، مش مرشّح بنتجنّبه."""
+    return (
+        f"\nThe customer is viewing the product page of {page_product.sku} ({page_product.title}). "
+        "Talk about this product. Do not pitch a different product unless they ask for something else "
+        "or a cheaper option.\n"
+    )
+
+
 @dataclasses.dataclass
 class Plan:
     """كل شي بيعتمد عليه الرد. بنبنيه قبل التحليل (speculative) وبعده؛ لو تطابقوا بنستخدم
@@ -260,7 +298,7 @@ def _interested_product(ctx, merchant, signals):
 
 
 def _build_plan(ctx, merchant, *, validated, window, text, page_product, shown, turn_no, products):
-    from . import policy, recommend, stage as stage_mod
+    from . import catalog, policy, recommend, stage as stage_mod
 
     conversation = ctx.conversation
     facts = memory.active_facts(ctx.profile)
@@ -289,7 +327,11 @@ def _build_plan(ctx, merchant, *, validated, window, text, page_product, shown, 
     for fact in facts:
         if fact.key in ("occasion", "style", "material", "brand") and fact.polarity == "like" and fact.source == "explicit":
             query_bits.append(fact.value)
-    search = recommend.search(products, requirements, query=" ".join(query_bits), limit=8, shown_skus=shown)
+    query = " ".join(query_bits)
+    search = recommend.search(
+        products, requirements, query=query, limit=8, shown_skus=shown,
+        query_vector=catalog.embed_query(query, products),
+    )
     engaged = _engaged_product(ctx, page_product, merchant)
     interested = _interested_product(ctx, merchant, signals)
     focus = interested or engaged
@@ -324,6 +366,7 @@ def _build_plan(ctx, merchant, *, validated, window, text, page_product, shown, 
         discount_codes=list(merchant.discount_codes.all()), offer_history=memory.offer_history(ctx.profile, conversation),
         search_result=search, conversation_state=state, now=timezone.now(),
         price_now=price_now, shown_skus=frozenset(shown),
+        page_sku=page_product.sku if page_product is not None else "",
     )
     approved = None
     if strategy.discount.allowed and strategy.discount.code is not None:
@@ -415,13 +458,7 @@ def _process_loop(ctx, merchant, text, client_msg_id, page_url, started):
     customer_texts = [m["content"] for m in window if m["role"] == "user"]
     shown = memory.shown_skus(conversation)
     products = list(merchant.products.filter(in_stock=True))
-    page_note = None
-    if page_product is not None and not ctx.new_conversation and turn_no > 1:
-        page_note = (
-            f"\nThe customer is now viewing the product page of {page_product.sku} ({page_product.title}). "
-            "It may not be the item you were discussing: treat \"it\"/\"this\" as this product only when their "
-            f"message points to it. Don't recommend {page_product.sku} again unless they want to buy it.\n"
-        )
+    page_note = _open_page_note(page_product) if page_product is not None and turn_no > 1 else None
     kw = dict(window=window, lang=lang, shown=shown, page_product=page_product, page_note=page_note,
               customer_texts=customer_texts)
 
@@ -497,6 +534,7 @@ def _process_loop(ctx, merchant, text, client_msg_id, page_url, started):
         logger.warning("v2_seller_unavailable merchant=%s", merchant.pk, exc_info=True)
         return None, ("assistant_unavailable", 502)
     timings.setdefault("seller_ms", timings.get("early_seller_ms", 0))
+    _force_requested_card(out, plan, merchant, text, lang, validated.signals if validated else {})
 
     cards = out.recommendations
     product_map = {p.sku: p for p in products if p.sku in {c["sku"] for c in cards}}

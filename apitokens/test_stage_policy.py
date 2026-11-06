@@ -869,6 +869,39 @@ class DiscoverySlotTests(SimpleTestCase):
         )
         self.assertEqual(s.stay_sku, "")
 
+    def test_an_open_product_page_locks_the_reply_before_they_like_it(self):
+        s = decide(
+            stage="discovery", readiness="browsing", objections=[],
+            signals={"intent": "chitchat"},
+            engaged_product=None, page_sku="FLORAL", turn_no=1, shown_count=0,
+        )
+        self.assertEqual(s.stay_sku, "FLORAL")
+        self.assertIn("show no other product", " ".join(s.directives))
+
+    def test_the_open_page_wins_over_an_older_liked_product(self):
+        s = decide(
+            stage="discovery", readiness="browsing", objections=[],
+            signals={"intent": "chitchat"},
+            engaged_product=prod("BLACK", "489"), page_sku="FLORAL",
+        )
+        self.assertEqual(s.stay_sku, "FLORAL")
+
+    def test_asking_for_something_else_does_not_lock_the_open_page(self):
+        s = decide(
+            stage="recommendation", readiness="browsing", objections=[],
+            signals={"intent": "search", "wants_alternative": True},
+            engaged_product=None, page_sku="FLORAL",
+        )
+        self.assertEqual(s.stay_sku, "")
+
+    def test_a_cheaper_alternative_is_not_locked_to_the_open_page(self):
+        s = decide(
+            signals={"readiness": "ready", "intent": "accept"}, price_now=True,
+            search_result=search(cand("B", "100")), page_sku="A1",
+        )
+        self.assertTrue(s.alternative_first)
+        self.assertEqual(s.stay_sku, "")
+
     def test_directive_names_the_slot(self):
         self.assertIn("occasion", " ".join(self.d(known_slots={"category"}).directives))
 
@@ -1183,14 +1216,15 @@ class StayOnLikedProductAndSameCategoryAltTests(SimpleTestCase):
     def test_liked_product_stays_on_screen_instead_of_the_next_candidate(self):
         s = decide(stage="recommendation", signals=self.LIKED, readiness="interested", objections=[],
                    engaged_product=prod("BLK"), search_result=search(cand("RED", "150")))
-        self.assertIn("sku BLK, already on screen: stay on it", self.text(s))
+        self.assertIn("Stay on sku BLK", self.text(s))
+        self.assertIn("show no other product", self.text(s))
         self.assertNotIn("sku RED", self.text(s))
 
     def test_asking_for_something_else_still_gets_a_new_card(self):
         for sig in ({**self.LIKED, "wants_alternative": True}, {**self.LIKED, "intent": "search"}):
             s = decide(stage="recommendation", signals=sig, readiness="interested", objections=[],
                        engaged_product=prod("BLK"), search_result=search(cand("RED", "150")))
-            self.assertNotIn("stay on it", self.text(s))
+            self.assertNotIn("Stay on sku", self.text(s))
             self.assertIn("sku RED", self.text(s))
 
     def test_cheaper_alternative_must_share_the_store_category(self):

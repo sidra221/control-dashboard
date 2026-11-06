@@ -239,6 +239,25 @@ def active_facts(profile):
     return list(PreferenceFact.objects.filter(profile=profile, status="active").order_by("created_at", "id"))
 
 
+def drop_inferred_facts(profile):
+    """بداية جديدة: التخمينات (ومنها ذوق ما انحكى) بتنمسح. اللي قاله الزبون صراحة بيضل."""
+    return PreferenceFact.objects.filter(
+        profile=profile, status="active", source="inferred",
+    ).update(status="retracted")
+
+
+def rotate_conversation(ctx):
+    """نفس الزبون، محادثة فاضية. المقاس والميزانية الصريحين بيضلوا على الملف."""
+    now = timezone.now()
+    conversation = Conversation.objects.create(
+        merchant=ctx.merchant, session_id=uuid.uuid4().hex, profile=ctx.profile, engine_version=2,
+        last_activity_at=now,
+    )
+    ctx.conversation = conversation
+    ctx.new_conversation = True
+    return ctx
+
+
 # ------------------------------------------------------------------ منتجات
 
 def record_reaction(ctx, product_or_sku, kind, turn, reason_type="", reason_text="", title="", price=None):
@@ -321,6 +340,15 @@ def last_shown_sku(conversation, profile=None):
         if sku not in rejected:
             return sku
     return None
+
+
+def conversation_focus_sku(conversation, profile=None):
+    """المنتج يلي المحادثة المفتوحة عم تحكي عنه: آخر كرت، وإلا آخر اهتمام. صفحة جديدة بمنتج تاني بتبلّش محادثة جديدة."""
+    sku = last_shown_sku(conversation, profile)
+    if sku:
+        return sku
+    liked = interest_skus(conversation, profile)
+    return liked[0] if liked else None
 
 
 def last_assistant_time(conversation):

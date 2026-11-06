@@ -195,12 +195,23 @@ class RequirementsTests(SimpleTestCase):
         self.assertEqual(req.budget_max, Decimal("300"))
         self.assertEqual(req.budget_min, Decimal("100"))
 
-    def test_inferred_never_hard(self):
+    def test_inferred_constraints_filter(self):
         req = requirements_from_facts([
             F("color", "black", source="inferred"), F("category", "dress", source="inferred"),
             F("size", "M", source="inferred"), F("budget_max", "200", source="inferred"),
         ])
-        self.assertEqual(req, Requirements())
+        self.assertEqual(req.colors, ("black",))
+        self.assertEqual(req.categories, ("dress",))
+        self.assertEqual(req.sizes, ("M",))
+        self.assertEqual(req.budget_max, Decimal("200"))
+
+    def test_explicit_constraint_beats_inferred(self):
+        req = requirements_from_facts([
+            F("budget_max", "200", source="inferred"), F("budget_max", "400", source="explicit", minutes=1),
+            F("color", "red", source="explicit"), F("color", "black", source="inferred"),
+        ])
+        self.assertEqual(req.budget_max, Decimal("400"))
+        self.assertEqual(set(req.colors), {"red", "black"})
 
     def test_inactive_ignored(self):
         req = requirements_from_facts([F("color", "black", status="superseded"), F("size", "L", status="retracted")])
@@ -554,6 +565,11 @@ class RankingTests(SimpleTestCase):
                  P("c", "Gamma Three")]
         self.assertEqual(skus(search(items, R(), query_vector=[0.0, 1.0]))[0], "b")
         self.assertEqual(skus(search(items, R(), query_vector=[1.0, 0.0]))[0], "a")
+
+    def test_weak_semantic_match_is_a_close_alternative(self):
+        items = [P("a", "Alpha One", embedding=[1.0, 0.0])]
+        res = search(items, R(), query="evening gown", query_vector=[0.2, 0.98])
+        self.assertIn("close alternative", " ".join(res.candidates[0].warnings))
 
     def test_embedding_ignored_without_vector(self):
         items = [P("a", "Alpha One", embedding=[1.0, 0.0]), P("b", "Beta Two", embedding=[0.0, 1.0])]
@@ -919,10 +935,11 @@ class IntegrationTests(SimpleTestCase):
         self.assertEqual(rows[0]["sku"], "ok")
         self.assertTrue(rows[0]["why"])
 
-    def test_inferred_facts_do_not_filter(self):
+    def test_inferred_constraints_filter_search(self):
         facts = [F("color", "black", source="inferred"), F("budget_max", "50", source="inferred")]
         res = search([dress("a", "Navy", price="500")], requirements_from_facts(facts))
-        self.assertEqual(skus(res), ["a"])
+        self.assertEqual(skus(res), [])
+        self.assertEqual(res.note, "nothing_matches")
 
     def test_large_catalog_performance(self):
         colors, cats = ["Black", "Navy", "Red", "Green", "Beige"], ["Dresses", "Abayas", "Shirts", "Pants"]

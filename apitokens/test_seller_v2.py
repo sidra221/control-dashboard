@@ -855,7 +855,7 @@ class PromptTests(SellerBase):
 
     def test_static_prompt_is_lean(self):
         words = len(prompts_v2.static_prompt("en").split())
-        self.assertLess(words, 900)
+        self.assertLess(words, 950)
         self.assertGreater(words, 300)
 
     def test_honesty_rules_are_in_the_prompt(self):
@@ -864,9 +864,36 @@ class PromptTests(SellerBase):
                        "recommend_size", "show_product", "ONE short, confident nudge", "ONE question per reply"):
             self.assertIn(needle, prompt)
 
+    def test_a_search_without_a_card_still_shows_the_real_product(self):
+        from .services.v2_turn import _force_requested_card
+
+        denied = contracts.SellerOutput(reply="عشان كذا ما عندي خيار بدونها يناسب طلبك.")
+        plan = SimpleNamespace(
+            strategy=Strategy(),
+            search=SearchResult(candidates=[Candidate(product=self.green, exact=True)], exact_count=1),
+        )
+        _force_requested_card(denied, plan, self.merchant, "بدي قميص رجالي", "ar", {"intent": "search"})
+        self.assertEqual(denied.recommendations[0]["sku"], "GREEN")
+        self.assertIn("خيار موجود", denied.reply)
+
+        kept = contracts.SellerOutput(reply="عندي قميص رجالي يناسبك.")
+        _force_requested_card(kept, plan, self.merchant, "اي ورجيني شو عندك", "ar", {"intent": "other"})
+        self.assertEqual(kept.recommendations[0]["sku"], "GREEN")
+        self.assertEqual(kept.reply, "عندي قميص رجالي يناسبك.")
+
+        chat = contracts.SellerOutput(reply="يا هلا")
+        _force_requested_card(chat, plan, self.merchant, "مرحبا", "ar", {"intent": "chitchat"})
+        self.assertEqual(chat.recommendations, [])
+
     def test_page_product_default_text(self):
         prompt = self.prompt(page_product=self.gown)
         self.assertIn("GOWN (Black Evening Gown)", prompt)
+        self.assertIn("do not pitch a different product", prompt)
+
+    def test_stay_does_not_tell_the_seller_to_pick_another_card(self):
+        prompt = self.prompt(shown_skus=["RED"], strategy=Strategy(stay_sku="RED", directives=["Stay on sku RED"]))
+        self.assertIn("Do not choose a different product", prompt)
+        self.assertNotIn("choose among the others", prompt)
 
     def test_run_seller_sends_the_built_prompt_and_all_tools(self):
         script = Script(S(GOOD_REPLY))

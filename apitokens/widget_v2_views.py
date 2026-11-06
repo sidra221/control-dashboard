@@ -77,9 +77,15 @@ def bootstrap(request):
         "messages": [], "returning": False,
         "page_product": _page_product_card(merchant, page_product) if page_product else None,
     }
+    # محادثة قديمة عن منتج، والزبون فاتح منتج تاني: ما منرجّع الحكي القديم. الودجت بيسقط توكن الجلسة
+    # وبيبلّش محادثة عن الصفحة الحالية. ذاكرة المقاس والميزانية بتضل على توكن الزبون.
+    restart = False
+    if ctx is not None and ctx.conversation is not None and page_product is not None:
+        focus = memory.conversation_focus_sku(ctx.conversation, ctx.profile)
+        restart = bool(focus and focus != page_product.sku)
     if ctx is not None:
         payload["returning"] = True
-        if ctx.conversation is not None:
+        if ctx.conversation is not None and not restart:
             payload.update(memory.issue_tokens(ctx))
             payload["messages"] = memory.history_payload(ctx.conversation)
             if page_product is not None:
@@ -88,6 +94,8 @@ def bootstrap(request):
             from .services import session_token
 
             payload["shopper_token"] = session_token.issue_shopper(merchant, ctx.profile.public_id)
+            if restart:
+                payload["restart"] = True
     return wv._cors_response(payload)
 
 

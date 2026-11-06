@@ -1,9 +1,11 @@
 """فهم رسالة الزبون (v2): استدعاء "محلّل" صغير بيطلّع معلومات منظّمة (تفضيلات، ميزانية،
 ردّ فعل على منتج، اعتراضات...) + تحقق صارم بالكود قبل ما أي شي يدخل الذاكرة.
 
-مبدأ: الموديل بيقترح، الكود بيقرر. أي معلومة "صريحة" لازم يجي معها اقتباس حرفي من كلام
-الزبون وبنتحقق منه — وإلا بتنزل لـ inferred (أو بتنرفض). الميزانية والمقاس والمستلم
-ما بيدخلوا أبداً كاستنتاج. الرفض بيتطلب اقتباس (لأنه بيخفي المنتج عن الزبون).
+مبدأ: الموديل بيقترح، الكود بيقرر. الاقتباس ما لازم يكون حرفياً: إعادة صياغة بنفس
+الكلمات (بترتيب مختلف) بتضل صريحة. الميزانية والمقاس وقيود المنتج (لون، فئة، ستايل...)
+مسموح تنحفظ inferred لما الزبون عبّر عنها وما قدرنا نقتبسها حرفياً، بشرط إن القيمة
+نفسها (الرقم أو المقاس) ظاهرة بكلامه — رقم مخترع بينرفض. المستلم والرفض الصريح
+لسا بدهم اقتباس، لأن الرفض بيخفي المنتج.
 """
 
 import logging
@@ -22,8 +24,12 @@ PREF_KEYS = (
 BUDGET_KEYS = frozenset({"budget_max", "budget_min"})
 # قيمة وحدة فعّالة لكل (subject, key): القيمة الجديدة بتحل محل القديمة
 SINGLE_VALUED = frozenset({"budget_max", "budget_min", "occasion", "recipient", "size", "fit"})
-# بس هدول بيجوز استنتاجهم — الباقي (ميزانية، مقاس، مستلم) لازم الزبون يقوله
-INFERABLE = frozenset({"color", "style", "occasion", "category", "material", "brand", "fit"})
+# قيود البحث يجوز استنتاجها لما الزبون عبّر عنها بصياغة ثانية. المستلم لأ: ما بيتحزر.
+INFERABLE = frozenset({
+    "budget_max", "budget_min", "size", "color", "style", "occasion", "category", "material", "brand", "fit",
+})
+# هدول بالذات لازم قيمتهم (الرقم أو المقاس) تكون بكلام الزبون، مش بس تخمين الموديل.
+GROUNDED_INFERRED = frozenset({"budget_max", "budget_min", "size"})
 REACTIONS = ("liked", "rejected", "asked", "neutral")
 REASONS = ("price", "style", "color", "fit", "quality", "material", "other", "unknown")
 OBJECTIONS = ("price", "competitor_price", "trust", "quality", "fit", "shipping", "timing", "other")
@@ -139,10 +145,14 @@ to the customer. You read the conversation and record ONLY what the customer's o
 Rules
 - Only the customer's words count — never the assistant's suggestions. Earlier messages are only for \
 resolving references like "it", "this one", "the second one".
-- source="explicit" when the customer said it. You MUST copy the exact words into `evidence` \
-(verbatim, in the customer's original script and spelling). If you cannot quote it, use \
-source="inferred" — allowed only for color, style, occasion, category, material, brand, fit. NEVER \
-infer a budget, a size or a recipient.
+- source="explicit" when the customer's words establish it. Copy those words into `evidence`. \
+Word order and light paraphrasing are fine; it does not have to be a character-for-character quote. \
+If you cannot point at their words, use source="inferred". Inferred IS allowed for a budget, a size, \
+and a product constraint (color, category, style, occasion, material, brand, fit) when the customer \
+expressed it and you are only normalizing it (digits for a budget, a standard size or color name). \
+NEVER invent a number, size, color or other constraint they did not express. NEVER infer a recipient. \
+polarity="avoid" is allowed ONLY as explicit, with their words refusing that thing ("ما أبي كاروهات"). \
+Never infer a dislike, a banned pattern or a taste.
 - Budget: budget_max for "up to / under / max / not more than / around N", budget_min for "at least N". \
 value = digits only. Fill `currency` only if the customer named one (ريال/ريال سعودي → SAR, دولار → USD ...).
 - Corrections ("actually", "no I meant", "change it to", "بدّلت رأيي", "لا قصدي") → emit the new \
@@ -220,11 +230,69 @@ def norm_text(text):
     return re.sub(r"\s+", " ", text).strip()
 
 
+_FRESH_START = (
+    "نبلش من جديد", "نبدا من جديد", "ابدا من جديد", "ابدي من جديد",
+    "خلينا نبلش", "خلينا نبدا", "نبلش من الصفر", "نبدا من الصفر", "ابدا من الصفر",
+    "انسى كل شي", "انسى اللي فات", "انسى اللي صار", "انسى الحكي",
+    "start over", "start again", "new chat",
+)
+_ASKS_TO_SEE = (
+    "ورجيني", "وريني", "شوفني", "شو عندك", "شو عندكم", "ايش عندك", "ايش عندكم",
+    "وش عندك", "وش عندكم", "ابي اشوف", "بدي اشوف", "ابغى اشوف", "ابغا اشوف",
+    "show me", "what do you have",
+)
+_DENIES_STOCK = re.compile(
+    r"ما عندي|ما فيه خيار|ما في خيار|لا يوجد|nothing available|don't have|do not have|no match",
+    re.IGNORECASE,
+)
+
+
+def wants_fresh_start(text):
+    """الزبون طلب يمسح الحكي ويبلّش من جديد. مطابقة حرفية بعد تطبيع، مش استنتاج الموديل."""
+    hay = norm_text(text)
+    return any(phrase in hay for phrase in _FRESH_START)
+
+
+def asks_to_see(text):
+    """طلب يشوف المنتجات الموجودة، حتى لو المحلّل ما سمّى النية بحث."""
+    hay = norm_text(text)
+    return any(phrase in hay for phrase in _ASKS_TO_SEE)
+
+
+def denies_availability(text):
+    return bool(_DENIES_STOCK.search(text or ""))
+
+
+_PARAPHRASE_COVERAGE = 0.6
+
+
 def quote_in(evidence, texts):
+    """اقتباس حرفي بعد التطبيع، أو إعادة صياغة: أغلب كلمات الدليل موجودة برسالة الزبون."""
     needle = norm_text(evidence)
     if len(needle) < 2:
         return False
-    return any(needle in norm_text(t) for t in texts)
+    haystacks = [norm_text(t) for t in texts if t]
+    if any(needle in hay for hay in haystacks):
+        return True
+    tokens = [t for t in needle.split() if len(t) >= 2]
+    if len(tokens) < 2:
+        return False
+    for hay in haystacks:
+        words = set(hay.split())
+        hits = sum(1 for token in tokens if token in words)
+        if hits / len(tokens) >= _PARAPHRASE_COVERAGE:
+            return True
+    return False
+
+
+def value_grounded(key, value, user_texts):
+    """رقم الميزانية أو رمز المقاس ظاهر بكلام الزبون، حتى لو الدليل معاد صياغته بلغة ثانية."""
+    blob = " ".join(norm_text(t) for t in user_texts if t)
+    if key in BUDGET_KEYS:
+        digits = re.sub(r"\D", "", guard.normalize(str(value or "")))
+        return bool(digits) and digits in re.sub(r"\D", "", blob)
+    token = norm_text(value)
+    return bool(token) and token in blob.split()
 
 
 def clean_value(value, limit=MAX_VALUE_CHARS):
@@ -423,8 +491,14 @@ def validate(raw, *, user_texts, products_by_sku, merchant_currency, current_tex
         if source == "explicit" and not quote_in(evidence, user_texts):
             out.dropped.append(f"pref:{key}:explicit_without_quote->inferred")
             source = "inferred"
+        if polarity == "avoid" and source != "explicit":
+            out.dropped.append(f"pref:{key}:avoid_must_be_quoted")
+            continue
         if source == "inferred" and key not in INFERABLE:
             out.dropped.append(f"pref:{key}:not_inferable")
+            continue
+        if source == "inferred" and key in GROUNDED_INFERRED and not value_grounded(key, value, user_texts):
+            out.dropped.append(f"pref:{key}:ungrounded")
             continue
 
         if key in BUDGET_KEYS:

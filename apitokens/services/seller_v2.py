@@ -21,7 +21,7 @@ from decimal import Decimal, InvalidOperation
 
 from .. import prompts_v2
 from .. import widget_views as wv
-from . import contracts, guard, llm, saudi
+from . import catalog, contracts, guard, llm, saudi
 
 logger = logging.getLogger(__name__)
 
@@ -318,9 +318,11 @@ class _Turn:
     def _search(self, args):
         req, ignored = self._tighten(args)
         limit = _clamp_int(args.get("limit"), 1, MAX_SEARCH_LIMIT, MAX_SEARCH_LIMIT)
+        query = _text(args.get("query"))[:200]
         result = self.rec.search(
-            self.products, req, query=_text(args.get("query"))[:200], limit=limit,
+            self.products, req, query=query, limit=limit,
             shown_skus=tuple(self.shown), relax=True,
+            query_vector=catalog.embed_query(query, self.products),
         )
         self._note_relaxed(result.candidates)
         out = {

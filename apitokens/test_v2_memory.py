@@ -216,6 +216,48 @@ class SessionAndNavigationTests(V2Base):
         self.assertIn("already shown", seller["system"])
         self.assertIn("GREEN", seller["system"])
 
+    def test_a_different_product_page_drops_the_old_chat_and_keeps_the_shopper(self):
+        self.brain.turn(res("هذا الأخضر", [rec("GREEN")]))
+        first = self.w.say("أبي الأخضر", page_url="https://shop.example.com/products/green")
+        page = self.w.new_page()
+        boot = page.bootstrap("https://shop.example.com/products/gown")
+        self.assertTrue(boot["restart"])
+        self.assertEqual(boot["messages"], [])
+        self.assertIsNone(boot["session_token"])
+        self.assertEqual(boot["page_product"]["sku"], "GOWN")
+        self.assertTrue(boot["shopper_token"])
+        page.storage.pop("session_token", None)
+        page.storage.pop("session_id", None)
+        self.brain.turn(res("هلا، هذا فستان السهرة"))
+        second = page.say("مرحبا", page_url="https://shop.example.com/products/gown")
+        self.assertNotEqual(first["session_id"], second["session_id"])
+        self.assertEqual([m["content"] for m in self.brain.seller_calls[-1]["messages"]], ["مرحبا"])
+        self.assertEqual(CustomerProfile.objects.count(), 1)
+
+    def test_asking_to_start_over_drops_the_old_chat_and_the_guessed_taste(self):
+        self.brain.turn(res("تمام، ميزانيتك واضحة."), analysis=analysis_budget(200, "ميزانيتي 200 ريال"))
+        first = self.w.say("ميزانيتي 200 ريال")
+        profile = CustomerProfile.objects.get()
+        PreferenceFact.objects.create(
+            merchant=self.merchant, profile=profile, conversation_id=Conversation.objects.get().pk,
+            key="style", value="مربعات", polarity="avoid", source="inferred", evidence="",
+        )
+        self.brain.turn(res("تمام، نبدأ من جديد. وش تبي؟"))
+        second = self.w.say("طيب انسى خلينا نبلش من جديد")
+        self.assertTrue(second["restart"])
+        self.assertNotEqual(first["session_id"], second["session_id"])
+        self.assertEqual([m["content"] for m in self.brain.seller_calls[-1]["messages"]], ["طيب انسى خلينا نبلش من جديد"])
+        self.assertFalse(PreferenceFact.objects.filter(profile=profile, status="active", source="inferred").exists())
+        self.assertTrue(PreferenceFact.objects.filter(profile=profile, status="active", key="budget_max").exists())
+
+    def test_the_same_product_page_keeps_the_open_chat(self):
+        self.brain.turn(res("هذا الأخضر", [rec("GREEN")]))
+        self.w.say("أبي الأخضر", page_url="https://shop.example.com/products/green")
+        boot = self.w.new_page().bootstrap("https://shop.example.com/products/green")
+        self.assertFalse(boot.get("restart"))
+        self.assertTrue(boot["messages"])
+        self.assertTrue(boot["session_token"])
+
     def test_refresh_with_cleared_storage_is_a_fresh_stranger(self):
         self.brain.turn(res("أهلين!"))
         self.w.say("هلا")
@@ -815,6 +857,7 @@ class UnderstandingValidatorTests(TestCase):
         for evidence in ("فستان احمر", "ابغي فستان", "للعرس", "أبغى فستان أحمر"):
             self.assertTrue(understanding.quote_in(evidence, texts), evidence)
         self.assertTrue(understanding.quote_in("ميزانيتي ٢٠٠", ["ميزانيتي 200 ريال"]))
+        self.assertTrue(understanding.quote_in("ريال ميزانيتي 200", ["ميزانيتي 200 ريال"]))
         self.assertFalse(understanding.quote_in("فستان أخضر", texts))
         self.assertFalse(understanding.quote_in("", texts))
         self.assertFalse(understanding.quote_in("ا", ["ا"]))  # قصير جداً ما بيصلح دليل
@@ -826,12 +869,44 @@ class UnderstandingValidatorTests(TestCase):
             out = self.validate({"preferences": [{"key": "budget_max", "value": bad, "source": "explicit", "evidence": "ميزانيتي 200"}]})
             self.assertEqual(out.preferences, [], bad)
 
-    def test_inferred_budget_size_and_recipient_are_never_accepted(self):
-        for key in ("budget_max", "budget_min", "size", "recipient"):
+    def test_inferred_budget_and_size_survive_a_paraphrase_but_not_an_invention(self):
+        # "200" is in the default customer text, so a normalized budget is kept even without a verbatim quote.
+        for key in ("budget_max", "budget_min"):
             out = self.validate({"preferences": [{"key": key, "value": "200", "source": "inferred"}]})
-            self.assertEqual(out.preferences, [], key)
+            self.assertEqual((out.preferences[0]["key"], out.preferences[0]["source"]), (key, "inferred"))
+        sized = self.validate(
+            {"preferences": [{"key": "size", "value": "M", "source": "inferred"}]}, texts=("مقاسي M",),
+        )
+        self.assertEqual(sized.preferences[0]["value"], "M")
+        invented = self.validate(
+            {"preferences": [{"key": "budget_max", "value": "50", "source": "inferred"}]}, texts=("هلا أبي فستان",),
+        )
+        self.assertEqual(invented.preferences, [])
+        self.assertIn("pref:budget_max:ungrounded", invented.dropped)
+        recipient = self.validate({"preferences": [{"key": "recipient", "value": "sister", "source": "inferred"}]})
+        self.assertEqual(recipient.preferences, [])
+        self.assertIn("pref:recipient:not_inferable", recipient.dropped)
         out = self.validate({"preferences": [{"key": "color", "value": "أسود", "source": "inferred"}]})
         self.assertEqual((out.preferences[0]["source"], out.preferences[0]["confidence"]), ("inferred", 0.6))
+
+    def test_an_inferred_dislike_is_dropped_until_the_customer_says_it(self):
+        guessed = self.validate({"preferences": [{"key": "style", "value": "مربعات", "polarity": "avoid", "source": "inferred"}]})
+        self.assertEqual(guessed.preferences, [])
+        self.assertIn("pref:style:avoid_must_be_quoted", guessed.dropped)
+        said = self.validate(
+            {"preferences": [{"key": "style", "value": "مربعات", "polarity": "avoid", "source": "explicit",
+                              "evidence": "ما أبي مربعات"}]},
+            texts=("ما أبي مربعات",),
+        )
+        self.assertEqual(said.preferences[0]["polarity"], "avoid")
+
+    def test_fresh_start_and_show_me_are_matched_from_the_customers_words(self):
+        self.assertTrue(understanding.wants_fresh_start("طيب انسى خلينا نبلش من جديد"))
+        self.assertTrue(understanding.wants_fresh_start("نبدأ من الصفر"))
+        self.assertFalse(understanding.wants_fresh_start("بدي قميص رجالي"))
+        self.assertTrue(understanding.asks_to_see("اي ورجيني شو عندك طيب"))
+        self.assertTrue(understanding.denies_availability("عشان كذا ما عندي خيار بدونها"))
+        self.assertFalse(understanding.denies_availability("هذا قميص رجالي موجود"))
 
     def test_currency_handling(self):
         def run(currency, store="SAR"):

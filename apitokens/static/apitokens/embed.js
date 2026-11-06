@@ -175,9 +175,14 @@
       if (data && data.ok && data.engine === "v2") {
         V2 = true;
         returningVisitor = !!data.returning;
+        if (data.restart) {
+          v2state.session_token = null;
+          v2state.session_id = null;
+          saveV2State();
+        }
         applyTokens(data);
         if (data.page_product) pageProduct = data.page_product;
-        restoreConversation(data.messages || []);
+        if (!data.restart) restoreConversation(data.messages || []);
         return;
       }
       return v1PageProduct();
@@ -298,9 +303,13 @@
     "  padding: 14px 16px; font-weight: 700; font-size: 14px;",
     "  display: flex; align-items: center; justify-content: space-between;",
     "}",
+    ".head .actions { display: flex; align-items: center; gap: 6px; }",
     ".head button {",
     "  background: rgba(255,255,255,.2); border: none; color: #fff; border-radius: 8px;",
     "  width: 26px; height: 26px; cursor: pointer; font-size: 14px; line-height: 1;",
+    "}",
+    ".head button.fresh {",
+    "  width: auto; padding: 0 10px; font-family: inherit; font-size: 12px; font-weight: 700;",
     "}",
     ".msgs { flex: 1; overflow-y: auto; padding: 14px; display: flex; flex-direction: column; gap: 10px; background: #f8f9fc; }",
     ".msg { max-width: 82%; padding: 9px 13px; border-radius: 14px; font-size: 13.5px; line-height: 1.45; white-space: pre-wrap; }",
@@ -385,7 +394,9 @@
   var panel = document.createElement("div");
   panel.className = "panel";
   panel.innerHTML =
-    '<div class="head"><span>مساعد التسوق</span><button class="close">✕</button></div>' +
+    '<div class="head"><span>مساعد التسوق</span><span class="actions">' +
+    '<button class="fresh" type="button" title="محادثة جديدة">جديد</button>' +
+    '<button class="close" type="button">✕</button></span></div>' +
     '<div class="msgs"></div>' +
     '<div class="inputrow">' +
     '<input type="text" placeholder="اكتب رسالتك..." />' +
@@ -466,6 +477,18 @@
     panel.classList.remove("open");
     setPanelFlag(false);
   });
+
+  function startFresh() {
+    v2state.session_token = null;
+    v2state.session_id = null;
+    saveV2State();
+    cartTagged = false;
+    msgsEl.innerHTML = "";
+    history = [];
+    hasEngaged = false;
+    openPanel();
+  }
+  panel.querySelector(".fresh").addEventListener("click", startFresh);
 
   // المحادثة المفتوحة بتضل مفتوحة لما الزبون ينتقل لصفحة تانية بنفس التبويب.
   function setPanelFlag(open) {
@@ -882,6 +905,12 @@
           sendBtn.disabled = false;
           addErrorMessage(friendlyError(data.error));
           return;
+        }
+        if (data.restart) {
+          msgsEl.innerHTML = "";
+          history = [];
+          addUserMessage(text);
+          history.push({ role: "user", content: text });
         }
         // الكروت والخصم بيطلعوا بعد ما يخلص البوت كتابة الرد، متل محادثة حقيقية.
         function showExtras() {

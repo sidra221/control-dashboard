@@ -303,7 +303,7 @@ def _one_card_line(search_result, *, ask_slot, forbid):
 
 
 def _stay_line(sku):
-    return (f"The customer likes sku {sku}, already on screen: stay on it. Answer what they said about it "
+    return (f"Stay on sku {sku}: it is the product in front of the customer. Answer what they said about it "
             "(size, fit, try-on or buying) and show no other product.")
 
 
@@ -350,7 +350,7 @@ def _stage_directives(stage, *, ask_slot, forbid, search_result, objections, rea
 
 def decide(*, stage, signals, readiness, objections, engaged_product, turn_no, shown_count, known_slots,
            questions_asked_in_conversation, requirements, discount_codes, offer_history, search_result=None,
-           conversation_state=None, now=None, price_now=False, shown_skus=frozenset()):
+           conversation_state=None, now=None, price_now=False, shown_skus=frozenset(), page_sku=""):
     """استراتيجية الدور. دالة نقية: نفس المدخلات ← نفس المخرجات، بدون DB (كل شي بيجي جاهز).
     engaged_product = المنتج يلي عليه اهتمام حقيقي (None إذا ما في). price_now = اعتراض سعري انذكر بهالدور."""
     stage = stage if stage in contracts.STAGES else "discovery"
@@ -400,12 +400,14 @@ def decide(*, stage, signals, readiness, objections, engaged_product, turn_no, s
         elif stage == "closing" and "size" not in known_slots:
             ask_slot = "size"
 
-    # الزبون عجبته قطعة وعم يحكي عنها (مش طالب بديل ولا بديل أرخص) ← منضل عليها
+    # صفحة منتج مفتوحة، أو قطعة عجبت الزبون، وهو مش طالب غيرها ولا بديل أرخص ← منضل عليها.
+    # الصفحة بتغلب القطعة القديمة: اللي فاتح قدامه هو موضوع الحكي. مشاهدة الصفحة ما بتعدّ اهتمام للخصم.
     stay_sku = ""
-    if (
-        engaged_product is not None and not alternative_first and not sig["wants_alternative"]
-        and sig["intent"] in STAY_INTENTS
-    ):
+    page_sku = (page_sku or "").strip()
+    holding = not alternative_first and not sig["wants_alternative"] and sig["intent"] in STAY_INTENTS
+    if holding and page_sku:
+        stay_sku = page_sku
+    elif holding and engaged_product is not None:
         stay_sku = getattr(engaged_product, "sku", None) or ""
     directives = _stage_directives(
         stage, ask_slot=ask_slot, forbid=forbid, search_result=search_result, objections=objections,

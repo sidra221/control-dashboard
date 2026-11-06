@@ -381,51 +381,93 @@ def _fact_order(indexed):
     return (ts, pk, index)
 
 
+# inferred بهالمفاتيح بيصير فلتر، لأن الزبون قاله بصياغة ما طابقت الاقتباس الحرفي.
+# الستايل والمناسبة والنوع خامات بتضل بالذاكرة للبائع بدون ما تضيّق البحث.
+_INFERRED_FILTER_KEYS = frozenset({"budget_max", "budget_min", "size", "color", "category"})
+
+
+def _fact_source(fact):
+    return getattr(fact, "source", "explicit") or "explicit"
+
+
 def requirements_from_facts(facts, excluded_skus=(), exempt_skus=(), include_out_of_stock=False):
-    """حقائق الذاكرة ← Requirements. فقط الفعّالة + الصريحة (explicit) بتصير فلاتر
-    صلبة؛ المستنتجة (inferred) بتتجاهل كلياً. الأحدث بيغلب (updated_at ثم الترتيب)."""
+    """حقائق الذاكرة ← Requirements. الصريح فلتر. الميزانية والمقاس واللون والفئة
+    المستنتجة كمان فلاتر (إعادة صياغة). لو في صريح ومُستنتج لنفس المفتاح، الصريح بيغلب.
+    الأحدث بيغلب (updated_at ثم الترتيب)."""
     active = []
     for index, fact in enumerate(facts or ()):
-        if getattr(fact, "status", "active") != "active" or getattr(fact, "source", "explicit") != "explicit":
+        if getattr(fact, "status", "active") != "active":
+            continue
+        source = _fact_source(fact)
+        if source == "inferred" and getattr(fact, "key", "") not in _INFERRED_FILTER_KEYS:
+            continue
+        if source not in ("explicit", "inferred"):
             continue
         active.append((index, fact))
     ordered = [f for _, f in sorted(active, key=_fact_order)]   # الأقدم أولاً
 
     def newest_amount(key):
+        inferred_amount = None
         for fact in reversed(ordered):
-            if fact.key == key:
-                amount = _parse_amount(fact.value)
-                if amount is not None:
-                    return amount
-        return None
+            if fact.key != key:
+                continue
+            amount = _parse_amount(fact.value)
+            if amount is None:
+                continue
+            if _fact_source(fact) == "explicit":
+                return amount
+            if inferred_amount is None:
+                inferred_amount = amount
+        return inferred_amount
 
-    color_state = {}   # لون ← (موضع الحقيقة الفائزة، polarity)
-    for pos, fact in enumerate(ordered):
-        if fact.key != "color":
-            continue
-        canon = canonical_color(fact.value)
-        polarity = getattr(fact, "polarity", "like")
-        if canon and polarity in ("like", "avoid"):
-            color_state[canon] = (pos, polarity)
+    def _take(kind):
+        rows = [f for f in ordered if _fact_source(f) == kind]
+        return rows
+
+    explicit_rows, inferred_rows = _take("explicit"), _take("inferred")
+
+    color_state = {}   # لون ← (موضع، polarity). ضمن نفس المصدر الأحدث بيغلب؛ المستنتج ما بيغلب صريح.
+
+    def _paint_colors(rows, into, only_missing):
+        for pos, fact in enumerate(rows):
+            if fact.key != "color":
+                continue
+            canon = canonical_color(fact.value)
+            polarity = getattr(fact, "polarity", "like")
+            if not canon or polarity not in ("like", "avoid"):
+                continue
+            if only_missing and canon in into:
+                continue
+            into[canon] = (pos, polarity)
+
+    _paint_colors(explicit_rows, color_state, only_missing=False)
+    _paint_colors(inferred_rows, color_state, only_missing=True)
     colors = tuple(c for c, (_, pol) in sorted(color_state.items(), key=lambda kv: kv[1][0]) if pol == "like")
     avoid = tuple(c for c, (_, pol) in sorted(color_state.items(), key=lambda kv: kv[1][0]) if pol == "avoid")
 
-    self_sizes, gift_sizes, has_recipient = [], [], False
-    categories = []
-    for fact in ordered:
-        value = str(fact.value or "").strip()
-        polarity = getattr(fact, "polarity", "like")
-        if fact.key == "recipient" and value:
-            has_recipient = True
-        elif fact.key == "size" and polarity == "like":
-            canon = canonical_size(value)
-            bucket = gift_sizes if getattr(fact, "subject", "self") == "gift" else self_sizes
-            if canon and canon not in bucket:
-                bucket.append(canon)
-        elif fact.key == "category" and polarity == "like":
-            canon = canonical_category(value)
-            if canon and canon not in categories:
-                categories.append(canon)
+    def _sizes_and_categories(rows):
+        self_sizes, gift_sizes, categories = [], [], []
+        for fact in rows:
+            value = str(fact.value or "").strip()
+            polarity = getattr(fact, "polarity", "like")
+            if fact.key == "size" and polarity == "like":
+                canon = canonical_size(value)
+                bucket = gift_sizes if getattr(fact, "subject", "self") == "gift" else self_sizes
+                if canon and canon not in bucket:
+                    bucket.append(canon)
+            elif fact.key == "category" and polarity == "like":
+                canon = canonical_category(value)
+                if canon and canon not in categories:
+                    categories.append(canon)
+        return self_sizes, gift_sizes, categories
+
+    self_sizes, gift_sizes, categories = _sizes_and_categories(explicit_rows)
+    inf_self, inf_gift, inf_categories = _sizes_and_categories(inferred_rows)
+    if not self_sizes and not gift_sizes:
+        self_sizes, gift_sizes = inf_self, inf_gift
+    if not categories:
+        categories = inf_categories
+    has_recipient = any(f.key == "recipient" and str(f.value or "").strip() for f in explicit_rows)
     sizes = gift_sizes if (gift_sizes and has_recipient) else self_sizes
 
     return Requirements(
@@ -507,6 +549,13 @@ def _query_tokens(query):
     return out
 
 
+# مع متجه استعلام، التشابه الدلالي هو إشارة الترتيب الأساسية (الوزن أعلى من تطابق الجذوع).
+SEMANTIC_WEIGHT = 10.0
+# تحت هالعتبة المرشّح قريب مش مطابق: البرومبت بيطلب من البائع يقول هالشي بصراحة.
+CLOSE_SIMILARITY = 0.35
+CLOSE_WARNING = "close alternative: weak semantic match to the request"
+
+
 def _cosine(a, b):
     try:
         dot = sum(x * y for x, y in zip(a, b))
@@ -515,6 +564,13 @@ def _cosine(a, b):
     except TypeError:
         return 0.0
     return dot / (na * nb) if na and nb else 0.0
+
+
+def _similarity(product, query_vector):
+    embedding = getattr(product, "embedding", None)
+    if not query_vector or not embedding:
+        return None
+    return max(_cosine(query_vector, embedding), 0.0)
 
 
 def _score(product, prof, req, qtokens, qcolors, qcats, shown, query_vector):
@@ -542,9 +598,9 @@ def _score(product, prof, req, qtokens, qcolors, qcats, shown, query_vector):
         score += 0.3
     if str(getattr(product, "sku", "")) not in shown:
         score += 0.6
-    embedding = getattr(product, "embedding", None)
-    if query_vector and embedding:
-        score += 3.0 * max(_cosine(query_vector, embedding), 0.0)
+    similarity = _similarity(product, query_vector)
+    if similarity is not None:
+        score += SEMANTIC_WEIGHT * similarity
     return round(score, 6)
 
 
@@ -582,11 +638,15 @@ def _rank(rows, req, qtokens, qcolors, qcats, shown, query_vector, limit, *, exa
         score = _score(product, prof, req, qtokens, qcolors, qcats, shown, query_vector)
         scored.append((score, str(getattr(product, "sku", "")), product, prof))
     scored.sort(key=lambda t: (-t[0], t[1]))
-    ranked = [
-        Candidate(product=product, score=score, exact=exact, relaxed=relaxed,
-                  warnings=list(warn(product, prof)) + _size_warnings(product, prof, req))
-        for score, _, product, prof in scored
-    ]
+    ranked = []
+    for score, _, product, prof in scored:
+        warnings = list(warn(product, prof)) + _size_warnings(product, prof, req)
+        similarity = _similarity(product, query_vector)
+        if similarity is not None and similarity < CLOSE_SIMILARITY:
+            warnings.append(CLOSE_WARNING)
+        ranked.append(Candidate(
+            product=product, score=score, exact=exact, relaxed=relaxed, warnings=warnings,
+        ))
     return _diversify(ranked, limit)
 
 
