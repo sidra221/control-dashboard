@@ -76,6 +76,18 @@ DISCOUNT_PRICE_LINE = {
     "ar": "وبالكود يصير سعره {new_price} {currency} بدل {price} {currency} 🎁",
     "en": "With the code it's {new_price} {currency} instead of {price} {currency} 🎁",
 }
+WHO_IS_IT_FOR_REPLY = {
+    "ar": "أبشر! بس قبل، تبيها رجالية ولا نسائية؟ ولك ولا هدية؟ 😊",
+    "en": "Happy to help! Is it men's or women's — and for you or a gift? 😊",
+}
+GIFT_REPLY = {
+    "ar": "اختيار حلو كهدية 🎁 تقدر تطلبه من زر الشراء تحت.",
+    "en": "A lovely pick as a gift 🎁 You can order it with the buy button below.",
+}
+DISCOUNT_REMINDER_LINE = {
+    "ar": "وكود {code} اللي معك يخليه بـ{new_price} {currency} بدل {price} {currency} 🎁",
+    "en": "And your code {code} still brings it to {new_price} {currency} instead of {price} {currency} 🎁",
+}
 # طلب شراء بكرت بلا نص: الموديل بيكتب الـ reason أحياناً بلغة عشوائية (إسباني،
 # عربي لزبون إنجليزي...). علامات نية الشراء أصلاً عربي/إنجليزي بس، فجملة ثابتة أضمن.
 PURCHASE_REPLY = {
@@ -310,11 +322,23 @@ more, and never several questions in one message. Prioritize whichever you don't
 color, occasion. If they've already given you enough — or the catalog has one item that clearly fits \
 what they said — recommend it right away and ask any follow-up AFTER showing it. Showing a good \
 product beats asking a question.
+   Who will wear it comes first: if the catalog has both men's and women's clothing and nothing yet \
+tells you who it's for (they never said, and no gendered item or "for my husband/sister" came up), \
+your FIRST question is that, in one short line — e.g. men's or women's, for you or a gift. Never guess \
+it: showing a dress to a man (or a men's shirt to a woman) loses the sale at once.
 2. Gifts and other people. If they say it's for someone else (a gift, a family member, anyone other \
 than themselves), remember it for the REST of the conversation: every mention of trying it on or how \
 it will look must refer to that person (by name or relation if given), never to the customer, until \
 they say otherwise. Attending someone else's event (a friend's wedding, a colleague's party) does \
 NOT make it a gift — the item is still for the customer to wear unless they say otherwise.
+2b. Once you know who wears it (the customer said "I'm a man", "for my wife", etc.), every product you \
+show must be for that person's gender. If a man asks for women's items (or a woman for men's), it's for \
+someone else: treat it as a gift (`for_someone_else` true) — never tell him to upload his own photo for \
+it; the try-on, if any, is with a photo of the person it's for. If they correct you about who they are, \
+start with a short apology, then switch. Every product you show must match — including when they later mention just a color or "the red one". \
+Pick that color from the right gender's items; if the only match is for the other gender, say so in a \
+few words and either offer the closest right-gender item or ask if it's a gift. If they correct you \
+("but I'm a man"), apologize in a few words and switch for good.
 3. Show, don't just talk. As soon as you're reasonably confident about ONE product from the catalog \
 below — or the moment the customer agrees to see, or asks about, a product you already named — call \
 `recommend_product` in that same reply. The tool call is what actually shows the product card and the \
@@ -357,6 +381,10 @@ sku — this is how the system surfaces their purchase link/button. In the `reas
 to the button/link below instead of re-describing the product. Outside this case, never recommend the \
 same sku twice in one conversation.
    - Keep offering strong alternatives until they're happy or the catalog genuinely has nothing close.
+   - Torn or confused ("I don't know", "I can't decide", "I'm lost") after seeing a few products: do \
+NOT add another product. Narrow it down for them: pick the ONE already-shown product that best fits \
+what they told you, say in one line why it wins, and offer a simple either/or (that one or the other \
+one they saw). Decisiveness is what a confused customer needs.
 6. Close like a pro. When they show interest, make the next step obvious and easy — use an assumptive, \
 friendly close (point them to the buy button, or to trying it on now) rather than asking whether \
 they're interested. Once they've decided on an item, you may suggest ONE real complementary product \
@@ -375,9 +403,12 @@ them over — don't jump to other products unless they reject it. An objection i
    a) Price ("expensive", "too much", over their budget, cheaper elsewhere, "any better price?") about a \
 product they've seen: acknowledge it in a few words (empathy, not apology); reframe the value in ONE \
 concrete sentence about THEM (what they get that a cheaper option won't give them, how many occasions it \
-covers, a real sale) instead of repeating specs; then close with the discount code if one is listed below \
-(rule 10), stating the exact price with the code as what makes it an easy yes right now. If no code is \
-listed, use a real sale or a genuinely cheaper real alternative from the same category — never an invented deal.
+covers, its real `was_price` sale if it has one) instead of repeating specs; then close with the discount \
+code if one is listed below (rule 10) ON THAT SAME PRODUCT, stating the exact price with the code as what \
+makes it an easy yes right now. Do NOT switch to a cheaper product as your first answer to "expensive" — \
+that throws away the product they chose. A cheaper real alternative from the same category comes only \
+when no code is listed, when they're still unhappy after the code, or when the price is far above a \
+budget they stated. Never an invented deal.
    b) Non-price doubt ("not sure", "hmm", "I'll think about it"): find the real blocker and remove it. Fit \
 or size → the size check (11a) or the photo try-on; quality or fabric → one real detail from the \
 description, plus the store's return policy as a safety net if the store information has one; "will it \
@@ -412,15 +443,22 @@ objection, a competitor's lower price, a price above their stated budget, a requ
 or doubt that's still there after you answered it. Never to a browsing customer, and never to someone \
 who has already decided to buy with no price concern ("I'll take it") — just point them to the buy button.
    - Call `offer_discount_code` with the exact code AND the sku of that product. If several codes are \
-listed, pick only one whose own description genuinely fits that product.
+listed, pick one whose own description genuinely fits that product — and among those, the SMALLEST \
+discount: it's usually enough, and it protects the merchant's margin.
    - The list shows each product's exact price with the code. Quote that figure; never calculate a price \
 or a percentage yourself. If the code brings it within the budget they gave, say so — that's your \
 strongest argument.
    - If the instructions below say a code was already given in this conversation: never offer another \
 code, a bigger discount or a new percentage, even if they ask. Say honestly that it's the best price \
 you can do, remind them of that code and the price with it, and if it's still too much, show a \
-genuinely cheaper real alternative from the same category.
+genuinely cheaper real alternative from the same category. If they ask whether ANOTHER product has a \
+discount, tell them its real `was_price` sale if any AND that the code they already have works on it \
+too (if its description allows), quoting that product's price with the code from the list.
    - Never invent a code, percentage, promotion, expiry date or eligibility condition.
+   - Once a code and its price are on the table, don't repeat them in every reply. A "nice", "great" \
+or "thanks" gets a short, warm close (the buy button, their size) in fresh words — restate the price \
+only if they bring up price again. Asked for a bigger discount, your FIRST sentence says plainly that \
+the code they have is the best you can do.
 11. Shipping, delivery times, returns/exchanges, payment methods and size guidance: answer ONLY from \
 the "Store information" section below (and each product's `available_options`). Summarize what it says \
 briefly in the customer's language, then steer back to the product. If the answer isn't there (or there \
@@ -566,6 +604,172 @@ def _text_for_silent_card(provider, system_prompt, messages, tools, card, lang):
     return text or CARD_FALLBACK_REPLY[lang]
 
 
+# كلام بيدل إن الموديل عم يحكي عن التعليمات أو الزبون بصيغة الغايب — مو رد للزبون.
+NOTES_PATTERN = re.compile(
+    r"\b(?:the customer|customer's|the user|rule \d+|tool call|recommend_product|offer_discount_code|"
+    r"recommend_size|system prompt|my instructions|avoid english|could ask|should ask|maybe ask|let's ask|"
+    r"saudi words?|saudi dialect|i should|i need to|i'll ask)\b",
+    re.IGNORECASE,
+)
+_LATIN_WORD = re.compile(r"[A-Za-z][A-Za-z'-]*")
+
+
+def _allowed_latin_words(products, codes, currency):
+    """كلمات لاتينية طبيعية بالرد العربي: أكواد الخصم، أسماء المنتجات، العملة، المقاسات."""
+    words = {"sar", "usd", "aed", "kwd", "qar", "omr", "bhd", "eur", "xs", "s", "m", "l", "xl", "xxl", "xxxl", "cm", "kg"}
+    words.add((currency or "").lower())
+    for code in codes:
+        words.update(w.lower() for w in _LATIN_WORD.findall(code.code))
+    for product in products:
+        words.update(w.lower() for w in _LATIN_WORD.findall(f"{product.title} {product.sku}"))
+    return words
+
+
+def _leaked_notes(text, lang, allowed):
+    if NOTES_PATTERN.search(text or ""):
+        return True
+    if lang != "ar":
+        return False
+    stray = [w for w in _LATIN_WORD.findall(text or "") if w.lower() not in allowed]
+    return len(stray) >= 2
+
+
+def _cut_notes(text, lang, allowed):
+    """بيقص الرد عند أول جملة فيها ملاحظات الموديل، ومنحتفظ باللي قبلها."""
+    if not text or not _leaked_notes(text, lang, allowed):
+        return text
+    kept = []
+    for sentence in re.split(r"(?<=[.!؟?。])\s+", text):
+        if _leaked_notes(sentence, lang, allowed) or (
+            lang == "ar" and any(w.lower() not in allowed for w in _LATIN_WORD.findall(sentence))
+        ):
+            break
+        kept.append(sentence)
+    return " ".join(kept).strip()
+
+
+_WOMENS_WORDS = (
+    "dress", "abaya", "skirt", "blouse", "gown", "kaftan", "corset", "women", "womens", "ladies", "bra",
+    "فستان", "فساتين", "عباية", "عبايه", "تنورة", "تنوره", "بلوزة", "بلوزه", "قفطان", "كورسيه", "نسائي", "نسائية",
+    "حريمي", "بناتي",
+)
+_MENS_WORDS = ("men", "mens", "male", "رجالي", "رجاليه", "رجالية", "ثوب", "شماغ", "غترة")
+
+
+def _is_womens_product(product):
+    words = set(re.findall(r"[\w']+", " ".join(
+        (product.title or "", product.category or "", product.tags or "")
+    ).lower().replace("'", "")))
+    if words & set(_MENS_WORDS):
+        return False
+    return bool(words & set(_WOMENS_WORDS))
+
+
+_GIFT_REQUEST_WORDS = (
+    "بناتي", "نسائي", "نسائيه", "حريمي", "بنت", "لبنت", "لاختي", "لأختي", "لزوجتي", "لمرتي", "لامي", "لأمي",
+    "لخطيبتي", "لصاحبتي", "لبنتي", "هديه", "هدية", "gift", "women", "womens", "her", "wife", "girlfriend",
+    "sister", "mom", "mother", "daughter",
+)
+
+
+def _asks_for_womens_item(text):
+    words = set(re.findall(r"[\w']+", (text or "").lower()))
+    return bool(words & (set(_WOMENS_WORDS) | set(_GIFT_REQUEST_WORDS)))
+
+
+# "ارفع صورتك وجربه عليك" / "Upload your photo..." — دعوة الزبون يجرّب على حاله
+TRYON_INVITE = re.compile(
+    r"(?:ارفع|ارفعي|نزّل|نزل|حمّل|حمل|ارسل)\s+صورت|جر+ّ?ب(?:ه|ها|يه|يها)?\s+(?:عليك|بصورتك|على صورتك)|"
+    r"\b(?:upload|add|send)\s+(?:a|your)\s+(?:photo|picture|selfie)|\btry (?:it|them) on\b",
+    re.IGNORECASE,
+)
+
+
+def _strip_tryon_invites(text):
+    """بيشيل الجمل/المقاطع اللي فيها دعوة يجرّب على صورته، وبيرجّع الباقي (أو "" إذا ما ضل شي)."""
+    parts = re.split(r"([.!؟?؛;،,]\s*)", text or "")
+    kept = []
+    for i in range(0, len(parts), 2):
+        chunk, sep = parts[i], parts[i + 1] if i + 1 < len(parts) else ""
+        if TRYON_INVITE.search(chunk):
+            continue
+        kept.append(chunk + sep)
+    out = "".join(kept).strip()
+    out = re.sub(r"[،,؛;]\s*$", "", out).strip()
+    if out and out[-1] not in ".!؟?😊👌🎁":
+        out += "."
+    return out if re.search(r"\w", out) else ""
+
+
+def _product_gender(product):
+    """"women" / "men" / "" لمنتج لبس، من عنوانه وفئته ووسومه."""
+    if product is None:
+        return ""
+    words = set(re.findall(r"[\w']+", " ".join(
+        (product.title or "", product.category or "", product.tags or "")
+    ).lower().replace("'", "")))
+    if words & set(_MENS_WORDS):
+        return "men"
+    if words & set(_WOMENS_WORDS):
+        return "women"
+    return ""
+
+
+# أسماء أنواع لبس بأكتر من لغة — إذا الزبون سمّى نوع، هو طالب شي محدد وما منوقفه بسؤال.
+_ITEM_TYPES = {
+    "فستان", "فساتين", "قميص", "قمصان", "عبايه", "عبايات", "بلوزه", "تنوره", "ثوب", "ثياب", "بنطلون",
+    "بنطال", "جاكيت", "جاكيت", "حذاء", "جزمه", "شنطه", "شنط", "تيشيرت", "تيشرت", "هودي", "جينز", "بدله",
+    "قفطان", "جلابيه", "شماغ", "كعب", "صندل", "سنيكرز", "طقم", "بيجاما",
+    "dress", "dresses", "gown", "robe", "vestido", "kleid", "abaya", "shirt", "shirts", "chemise", "camisa",
+    "hemd", "blouse", "skirt", "jupe", "thobe", "pants", "trousers", "jeans", "jacket", "shoes", "heels",
+    "sneakers", "bag", "clutch", "tshirt", "t-shirt", "hoodie", "suit", "kaftan", "polo", "top",
+    "fostan", "fustan", "fsatin", "abaya", "3abaya", "qamees", "kamees", "2amees", "amees", "thob", "jalabiya",
+}
+
+
+def _norm_word(word):
+    word = word.lower().replace("ة", "ه").replace("أ", "ا").replace("إ", "ا").replace("آ", "ا")
+    for prefix in ("وال", "بال", "فال", "لل", "ال"):
+        if word.startswith(prefix) and len(word) - len(prefix) >= 3:
+            return word[len(prefix):]
+    return word
+
+
+def _wearer_unknown(messages, products):
+    """الطلب عام (ما سمّى نوع لبس ولا مين رح يلبس)، والكتالوج فيه رجالي ونسائي — لازم نسأل أول."""
+    genders = {_product_gender(p) for p in products}
+    if not {"men", "women"} <= genders:
+        return False
+    if saudi.male_revealed(messages) or saudi.female_revealed(messages):
+        return False
+    known = {_norm_word(w) for w in _ITEM_TYPES | set(_WOMENS_WORDS) | set(_MENS_WORDS) | set(_GIFT_REQUEST_WORDS)}
+    known |= {"رجال", "شب", "شباب", "نسوان", "ستات", "بنات", "ولادي"}
+    known |= {_norm_word(p.category) for p in products if p.category}
+    for m in messages:
+        if m["role"] != "user":
+            continue
+        if {_norm_word(w) for w in re.findall(r"[\w'-]+", m["content"])} & known:
+            return False
+    return True
+
+
+def _customer_mentioned_gift(messages):
+    return any(m["role"] == "user" and _asks_for_womens_item(m["content"]) for m in messages)
+
+
+def _womens_cards_for_a_man(recommendations, tool_calls, products, messages=()):
+    # الموديل ما بيقدر يقرر لحاله إنه هدية: لازم الزبون يكون حكى عن شخص تاني أو هدية.
+    gifts = {
+        (c.get("input") or {}).get("sku") for c in tool_calls
+        if c["name"] == "recommend_product" and (c.get("input") or {}).get("for_someone_else")
+    } if _customer_mentioned_gift(messages) else set()
+    by_sku = {p.sku: p for p in products}
+    return [
+        r["sku"] for r in recommendations
+        if r["sku"] not in gifts and r["sku"] in by_sku and _is_womens_product(by_sku[r["sku"]])
+    ]
+
+
 def _saudize(reply_text, recommendations, female):
     fixed = []
     for rec in recommendations:
@@ -619,7 +823,7 @@ def _price_the_offer(offer, products, engaged_skus, recommendations, currency):
     offer = dict(offer)
     hint = offer.pop("_sku", "")
     by_sku = {p.sku: p for p in products}
-    candidates = [hint] + list(reversed(engaged_skus)) + [r["sku"] for r in recommendations]
+    candidates = [hint] + [r["sku"] for r in recommendations] + list(reversed(engaged_skus))
     product = next((by_sku[s] for s in candidates if s in by_sku), None)
     percent = discounts.code_percent(offer["description"])
     if product is None or percent is None:
@@ -784,7 +988,10 @@ def chat(request):
     # (أول تردد مو عن السعر منعالجه بالقيمة، مش بهامش التاجر).
     code_moment = _price_signal(clean_messages[-1]["content"]) or _reactions(clean_messages, page_product) >= 2
     discount_codes = all_codes if engaged_skus and not given_codes and code_moment else []
-    priced_products = [p for p in products if p.sku in engaged_skus]
+    # سعر كل منتج بالكتالوج اللي واصل للموديل بعد الكود — محسوب هون، حتى لو سأل عن قطعة تانية.
+    priced_products = list(products)
+    # الأصغر أولاً: الموديل بيختار الخصم الأصغر اللي بيكفي (هامش التاجر).
+    all_codes.sort(key=lambda c: discounts.code_percent(c.description) or 0)
     discount_codes_section = ""
     tools = [RECOMMEND_TOOL, SIZE_TOOL]
     if discount_codes:
@@ -841,6 +1048,12 @@ def chat(request):
         result = llm.chat_with_retry(provider, system_prompt, clean_messages, tools)
     except llm.LLMError:
         return _cors_response({"ok": False, "error": "assistant_unavailable"}, status=502)
+    if not result.reply_text and not result.tool_calls:
+        # الموديل رجّع ولا شي (بيصير نادراً، خصوصاً بعد timeout): محاولة وحدة كمان قبل أي رد احتياطي.
+        try:
+            result = llm.chat_with_retry(provider, system_prompt, clean_messages, tools)
+        except llm.LLMError:
+            pass
 
     last_user_text = clean_messages[-1]["content"]
     purchase_intent = _has_purchase_intent(last_user_text)
@@ -987,6 +1200,82 @@ def chat(request):
         except llm.LLMError:
             pass
 
+    # ملاحظات الموديل لنفسه طلعت بالرد ("Avoid English. Could ask category..."): إعادة صياغة وحدة،
+    # وإذا ضلت، منقص الرد عند أول ملاحظة. ما بيوصل للزبون ولا حرف منها.
+    allowed_latin = _allowed_latin_words(products, all_codes, merchant.currency)
+    if reply_text and _leaked_notes(reply_text, lang, allowed_latin):
+        corrected_system_prompt = system_prompt + (
+            "\n\nCORRECTION — your previous reply included your own notes/planning to yourself. Write ONLY "
+            "the message the customer should read, in their language, nothing else."
+        )
+        try:
+            corrected = llm.chat_with_retry(provider, corrected_system_prompt, clean_messages, tools)
+            new_recs, new_offer, new_blocked_reason = _process_tool_calls(
+                corrected.tool_calls, products, discount_codes, lang, blocked_skus, merchant.currency
+            )
+            new_reply = corrected.reply_text or (new_recs[0]["reason"] if new_recs else new_blocked_reason)
+            if new_reply and not _script_mismatch(last_user_text, new_reply) and \
+                    not _leaked_notes(new_reply, lang, allowed_latin):
+                reply_text, recommendations = new_reply, _apply_budget(new_recs, budget_ceiling)
+                discount_offer = new_offer or discount_offer
+                result = llm.LLMResult(reply_text=new_reply, tool_calls=corrected.tool_calls)
+        except llm.LLMError:
+            pass
+        reply_text = _cut_notes(reply_text, lang, allowed_latin) or FALLBACK_REPHRASE_REPLY[lang]
+        for rec in recommendations:
+            rec["reason"] = _cut_notes(rec["reason"], lang, allowed_latin)
+
+    by_sku_all = {p.sku: p for p in products}
+    # زبون قال إنه رجال: ما منعرضله لبس نسائي إلا كهدية. إعادة صياغة وحدة، وإذا ضل، منشيل الكرت.
+    if saudi.male_revealed(clean_messages):
+        wrong = _womens_cards_for_a_man(recommendations, result.tool_calls, products, clean_messages)
+        if wrong and _asks_for_womens_item(last_user_text):
+            # رجال طالب شي بناتي/نسائي: أكيد هدية. الزر بيصير لصاحبة الهدية، وأي دعوة
+            # يرفع صورته هو بتنشال من الرد.
+            for rec in recommendations:
+                if rec["sku"] in wrong:
+                    rec["tryon_button_label"] = TRYON_BUTTON_LABELS[lang]["gift"]
+                    rec["reason"] = _strip_tryon_invites(rec["reason"]) or rec["reason"]
+            reply_text = _strip_tryon_invites(reply_text) or GIFT_REPLY[lang]
+        elif wrong:
+            corrected_system_prompt = system_prompt + (
+                "\n\nCORRECTION — the customer told you he is a man, and your reply showed women's "
+                "clothing (" + ", ".join(wrong) + ") as if for him. Rewrite your reply: show only men's "
+                "items, or if nothing fits say so briefly and ask whether it's a gift (rule 2b)."
+            )
+            try:
+                corrected = llm.chat_with_retry(provider, corrected_system_prompt, clean_messages, tools)
+                new_recs, new_offer, new_blocked_reason = _process_tool_calls(
+                    corrected.tool_calls, products, discount_codes, lang, blocked_skus, merchant.currency
+                )
+                new_reply = corrected.reply_text or (new_recs[0]["reason"] if new_recs else new_blocked_reason)
+                if new_reply and not _script_mismatch(last_user_text, new_reply):
+                    reply_text, recommendations = new_reply, _apply_budget(new_recs, budget_ceiling)
+                    discount_offer = new_offer or discount_offer
+                    result = llm.LLMResult(reply_text=new_reply, tool_calls=corrected.tool_calls)
+            except llm.LLMError:
+                pass
+            still = set(_womens_cards_for_a_man(recommendations, result.tool_calls, products, clean_messages))
+            recommendations = [r for r in recommendations if r["sku"] not in still]
+
+    # ما منعرف مين رح يلبسها والمتجر فيه رجالي ونسائي: ما منعرض لبس إله جنس قبل ما نسأل.
+    elif page_product is None and _wearer_unknown(clean_messages, products):
+        gendered = [r["sku"] for r in recommendations if _product_gender(by_sku_all.get(r["sku"]))]
+        if gendered:
+            corrected_system_prompt = system_prompt + (
+                "\n\nCORRECTION — you don't know yet whether this is for a man or a woman (they haven't "
+                "said), and you showed gendered clothing. Don't show any product now: reply with ONE short "
+                "question asking whether they want men's or women's (and if it's for them or a gift)."
+            )
+            try:
+                corrected = llm.chat_with_retry(provider, corrected_system_prompt, clean_messages, tools)
+                new_reply = (corrected.reply_text or "").strip()
+            except llm.LLMError:
+                new_reply = ""
+            recommendations = [r for r in recommendations if r["sku"] not in gendered]
+            reply_text = new_reply if new_reply and not _script_mismatch(last_user_text, new_reply) \
+                else WHO_IS_IT_FOR_REPLY[lang]
+
     # اللهجة والمخاطبة بالعربي: «هال» والأفعال المؤنثة الشائعة بتتصلّح بالكود، وأي كلمة
     # شامية/مصرية أو فعل مؤنث ضل بالرد → إعادة صياغة وحدة، ومنآخد الأنظف.
     if lang == "ar" and reply_text:
@@ -1015,6 +1304,13 @@ def chat(request):
             except llm.LLMError:
                 pass
 
+    # دعوة "ارفع صورتك" مرة وحدة بس: إذا انعرضت قبل وما في كرت جديد هالمرة، منشيلها.
+    already_invited = any(
+        m["role"] == "assistant" and TRYON_INVITE.search(m["content"]) for m in clean_messages[:-1]
+    )
+    if already_invited and not recommendations and reply_text and TRYON_INVITE.search(reply_text):
+        reply_text = _strip_tryon_invites(reply_text) or reply_text
+
     # الرد النصي لازم يطابق العرض المنظّم: لو في discount_offer حقيقي بس
     # الموديل ما ذكره بالنص، منضيف جملة مبنية من بيانات الكود الفعلية بس.
     # بعد الـ fallback: لما الموديل يرجّع أدوات بلا نص، الرد بيتعبّى من reason
@@ -1026,7 +1322,15 @@ def chat(request):
     elif given_codes and reply_text:
         # تذكير بكود انعطى قبل: إذا الرد ذكره، منحط سعره الصحيح جنبه.
         reminded = next((c for c in given_codes if c.code.lower() in reply_text.lower()), None)
-        if reminded is not None:
+        if reminded is None and _price_signal(last_user_text):
+            # الزبون رجع حكى عن السعر/الخصم والرد نسي الكود اللي معه: منذكّره فيه بسعره الصحيح.
+            reminder = _price_the_offer(
+                {"code": given_codes[0].code, "description": given_codes[0].description},
+                products, engaged_skus, recommendations, merchant.currency,
+            )
+            if reminder.get("new_price"):
+                reply_text = reply_text + " " + " ".join(DISCOUNT_REMINDER_LINE[lang].format(**reminder).split())
+        elif reminded is not None:
             reminder = _price_the_offer(
                 {"code": reminded.code, "description": reminded.description},
                 products, engaged_skus, recommendations, merchant.currency,

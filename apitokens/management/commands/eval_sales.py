@@ -21,6 +21,7 @@ from django.test.utils import setup_databases, setup_test_environment, teardown_
 
 from apitokens.models import ApiToken, DiscountCode, Product
 from apitokens.services import discounts, saudi
+from apitokens.widget_views import TRYON_INVITE
 
 ARABIC = re.compile(r"[؀-ۿ]")
 MARKDOWN = re.compile(r"\*\*|^#|^\s*[-*•]\s|^\s*\d+[.)]\s", re.MULTILINE)
@@ -74,7 +75,7 @@ SCENARIOS = [
          checks={"card": True, "not_gift": True},
          judge=["Reply is in Saudi Arabic dialect, not Egyptian, even though the customer wrote Egyptian",
                 "Reply treats the dress as for the customer herself (she's attending), not as a gift"]),
-    dict(name="english", turns=["hi, I need something for a summer brunch"], lang="en",
+    dict(name="english", turns=["hi, I need a dress for a summer brunch"], lang="en",
          checks={"card": True}, judge=["Reply is warm, persuasive and in natural English"]),
     dict(name="french", turns=["Bonjour, je cherche une robe verte pour un mariage"], lang="other",
          checks={"card": True}, judge=["Reply is entirely in French"]),
@@ -82,7 +83,8 @@ SCENARIOS = [
          checks={"card": True, "single_script": True},
          judge=["Reply is in Saudi Arabic dialect written in Arabic script, with no Latin words mixed in"]),
     dict(name="neutral_gender", turns=["مرحبا بدي قميص للشغل"], lang="ar",
-         checks={"card": True}, judge=["Reply does not address the customer with feminine forms (no gender was revealed)"]),
+         checks={}, judge=["Reply does not address the customer with feminine forms (no gender was revealed)",
+                           "Reply either shows a work shirt or asks in one short line whether it's men's or women's"]),
     dict(name="price_objection", turns=["بدي فستان سهرة أسود", "حلو بس غالي شوي"], lang="ar",
          checks={"discount": True, "no_repeat": True, "mentions": ["116.1"], "only_percents": [10]},
          judge=["On the price objection the reply defends the product's value and uses the discount, without giving up",
@@ -158,6 +160,32 @@ SCENARIOS = [
          checks={"discount": False},
          judge=["Reply answers with at least one real detail from the description (e.g. breathable linen) and invents no durability claims",
                 "Reply uses the real 14-day free returns as a safety net and nudges toward buying"]),
+    # ---- from a real tester conversation (2026-11-06) ----
+    dict(name="unknown_wearer", turns=["ما بعرف شو بدي", "بدي شي للطلعات العادية"], lang="ar",
+         checks={"card": False},
+         judge=["Reply is in Saudi Arabic dialect",
+                "Before showing any clothing, the reply asks in one short question who it's for (men's or women's / for you or a gift) instead of assuming"]),
+    dict(name="man_asks_red", turns=["أبي قميص للطلعات، أنا رجال", "عندكم شي أحمر؟"], lang="ar",
+         checks={"never_sku": "DRESS-RED"},
+         judge=["Reply does not present the red dress as something for him; it says there's no red men's item and offers the closest men's item or asks if it's a gift"]),
+    dict(name="price_same_item", turns=["أبي قميص أكسفورد أزرق للدوام", "غالي"], lang="ar",
+         checks={"discount": True, "card": False, "mentions": ["49.5"]},
+         judge=["Reply keeps selling the same Oxford shirt and uses the code on it (49.50 instead of 55) instead of switching to another product"]),
+    dict(name="torn_narrow", turns=["أبي قميص رجالي", "طيب وريني غيره", "احترت بصراحة"], lang="ar",
+         checks={"card": False},
+         judge=["Reply does not add a new product; it recommends ONE of the shirts already shown with a short reason and offers a simple either/or"]),
+    dict(name="code_on_other_item", turns=["بدي فستان سهرة أسود", "غالي شوي", "والفستان الأحمر الصيفي عليه خصم؟"], lang="ar",
+         checks={"discount_turns": [1], "mentions": ["44.1"]},
+         judge=["Reply mentions the red dress's real sale (49 instead of 69) and that the WELCOME10 code already given works on it too, bringing it to 44.10"]),
+    dict(name="man_gift_girls", turns=["أبي قميص للطلعات، انا شب", "بدي شي بناتي هلا"], lang="ar",
+         checks={"card": True, "gift": True},
+         judge=["Reply treats the girls' item as a gift for someone else and never asks him to upload his own photo for it"]),
+    dict(name="no_repeat_invite", turns=["أبي قميص كتان أبيض، انا رجال", "حلو حبيتو"], lang="ar",
+         checks={"no_self_tryon": True},
+         judge=["Reply moves toward buying (buy button or size) instead of repeating the photo try-on invitation"]),
+    dict(name="unknown_wearer_any", turns=["مرحبا كيفك", "اي شي", "شي للطلعة"], lang="ar",
+         checks={"card": False},
+         judge=["Reply asks whether it's men's or women's (or for whom) instead of showing a product"]),
     dict(name="no_fake_discount", turns=["do you have any discount codes?"], lang="en",
          checks={"discount": False}, judge=["Reply doesn't reveal or invent a discount code before a product was discussed (mentioning real sale items from the catalog is fine)"]),
 ]
@@ -321,6 +349,14 @@ class Command(BaseCommand):
             results.append((f"size advice={checks['size']}", bool(resp.get("size_advice")) == checks["size"]))
         if checks.get("no_tryon"):
             results.append(("no try-on button", all(c.get("tryon_supported") is False for c in cards)))
+        labels = [c.get("tryon_button_label") or "" for c in cards]
+        if checks.get("gift"):
+            self_words = re.compile(r"صورتك|شكلك|عليك|your photo|on you", re.IGNORECASE)
+            results.append(("gift try-on label", bool(labels) and not any(self_words.search(l) for l in labels)))
+        if checks.get("not_gift"):
+            results.append(("not a gift label", not any(re.search(r"هدي|gift", l, re.IGNORECASE) for l in labels)))
+        if checks.get("no_self_tryon"):
+            results.append(("no repeated photo invite", not TRYON_INVITE.search(reply)))
         if "discount_turns" in checks:
             results.append((f"code offered on turns {checks['discount_turns']}", list(offer_turns) == checks["discount_turns"]))
         if "mentions" in checks:

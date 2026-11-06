@@ -860,6 +860,146 @@ class SmartDiscountTests(TestCase):
         self.assertEqual(data["reply"], "وش رأيك؟ هذا مرّة حلو")
         self.assertIn("شو", mock_chat.call_args_list[1][0][1])
 
+    @patch("apitokens.widget_views.llm.chat_with_retry")
+    @patch("apitokens.widget_views.llm.get_provider")
+    def test_smallest_code_listed_first_and_every_catalog_item_priced(self, mock_provider, mock_chat):
+        DiscountCode.objects.create(merchant=self.merchant, code="VIP20", description="20% off everything")
+        mock_provider.return_value = FakeProvider()
+        mock_chat.return_value = fake_result(reply_text="ok")
+        self.post([{"role": "user", "content": "too expensive"}], shown_skus=["GOWN"])
+        prompt = mock_chat.call_args[0][1]
+        self.assertLess(prompt.index('"code": "WELCOME10"'), prompt.index('"code": "VIP20"'))
+        self.assertIn('"SUMMER": "44.10 instead of 49"', prompt)  # not shown yet, still priced
+
+    @patch("apitokens.widget_views.llm.chat_with_retry")
+    @patch("apitokens.widget_views.llm.get_provider")
+    def test_given_code_reminder_prices_the_product_shown_now(self, mock_provider, mock_chat):
+        mock_provider.return_value = FakeProvider()
+        mock_chat.return_value = fake_result(
+            reply_text="It's already on sale, and your WELCOME10 works on it too.",
+            tool_calls=[{"name": "recommend_product", "input": {"sku": "SUMMER", "reason": "x"}}],
+        )
+        data = self.post([
+            {"role": "user", "content": "gown"}, {"role": "assistant", "content": "Here."},
+            {"role": "user", "content": "pricey"}, {"role": "assistant", "content": "Use WELCOME10."},
+            {"role": "user", "content": "is the summer dress discounted?"},
+        ], shown_skus=["GOWN"])
+        self.assertIn("44.10 USD instead of 49 USD", data["reply"])
+
+    @patch("apitokens.widget_views.llm.chat_with_retry")
+    @patch("apitokens.widget_views.llm.get_provider")
+    def test_man_never_gets_a_womens_card_unless_gift(self, mock_provider, mock_chat):
+        Product.objects.create(merchant=self.merchant, sku="SHIRT", title="Men's Linen Shirt", price="45",
+                               tags="men,linen", image_url="https://example.com/m.jpg")
+        mock_provider.return_value = FakeProvider()
+        dress = fake_result(reply_text="ما عندنا قميص أحمر، بس هذا الفستان الأحمر",
+                            tool_calls=[{"name": "recommend_product", "input": {"sku": "SUMMER", "reason": "x"}}])
+        mock_chat.side_effect = [dress, dress]  # حتى إعادة الصياغة غلطت
+        msgs = [{"role": "user", "content": "أبي قميص، انا رجال"}, {"role": "assistant", "content": "هذا"},
+                {"role": "user", "content": "عندكم شي أحمر؟"}]
+        data = self.post(msgs, shown_skus=["SHIRT"])
+        self.assertEqual(mock_chat.call_count, 2)
+        self.assertEqual(data["recommendations"], [])
+        mock_chat.reset_mock()
+        mock_chat.side_effect = [fake_result(reply_text="هدية حلوة لزوجتك", tool_calls=[{
+            "name": "recommend_product", "input": {"sku": "SUMMER", "reason": "x", "for_someone_else": True}}])]
+        data = self.post(msgs[:2] + [{"role": "user", "content": "أبي شي أحمر هدية لزوجتي"}], shown_skus=["SHIRT"])
+        self.assertEqual([r["sku"] for r in data["recommendations"]], ["SUMMER"])
+        self.assertEqual(mock_chat.call_count, 1)
+
+    @patch("apitokens.widget_views.llm.chat_with_retry")
+    @patch("apitokens.widget_views.llm.get_provider")
+    def test_leaked_model_notes_never_reach_the_customer(self, mock_provider, mock_chat):
+        mock_provider.return_value = FakeProvider()
+        leak = fake_result(reply_text=(
+            "أبشر، وش ودك بقطعة حلوة لأي مناسبة؟ dress / shirt choices? Avoid English. Could ask category."
+        ))
+        mock_chat.side_effect = [leak, leak]  # حتى إعادة الصياغة سرّبت
+        data = self.post([{"role": "user", "content": "بدي قطعة حلوة"}])
+        self.assertEqual(data["reply"], "أبشر، وش ودك بقطعة حلوة لأي مناسبة؟")
+        mock_chat.side_effect = [leak, fake_result(reply_text="أبشر، فستان ولا قميص؟")]
+        data = self.post([{"role": "user", "content": "بدي قطعة حلوة"}])
+        self.assertEqual(data["reply"], "أبشر، فستان ولا قميص؟")
+
+    def test_latin_codes_titles_and_sizes_are_not_notes(self):
+        from .widget_views import _allowed_latin_words, _leaked_notes
+
+        allowed = _allowed_latin_words(list(Product.objects.filter(merchant=self.merchant)),
+                                       list(DiscountCode.objects.all()), "SAR")
+        self.assertFalse(_leaked_notes("مع كود WELCOME10 يصير Black Gown بـ116 SAR ومقاسك XL", "ar", allowed))
+        self.assertTrue(_leaked_notes("Sure! The customer wants a dress.", "en", allowed))
+        self.assertFalse(_leaked_notes("This gown is perfect for your evening.", "en", allowed))
+
+    @patch("apitokens.widget_views.llm.chat_with_retry")
+    @patch("apitokens.widget_views.llm.get_provider")
+    def test_price_pushback_after_code_reminds_it(self, mock_provider, mock_chat):
+        mock_provider.return_value = FakeProvider()
+        mock_chat.return_value = fake_result(reply_text="This gown is worth every bit for your evening.")
+        data = self.post([
+            {"role": "user", "content": "gown"}, {"role": "assistant", "content": "Here."},
+            {"role": "user", "content": "pricey"}, {"role": "assistant", "content": "Use WELCOME10."},
+            {"role": "user", "content": "any bigger discount?"},
+        ], shown_skus=["GOWN"])
+        self.assertIn("your code WELCOME10 still brings it to 116.10 USD", data["reply"])
+
+    @patch("apitokens.widget_views.llm.chat_with_retry")
+    @patch("apitokens.widget_views.llm.get_provider")
+    def test_empty_model_answer_is_retried_not_rephrase(self, mock_provider, mock_chat):
+        mock_provider.return_value = FakeProvider()
+        mock_chat.side_effect = [fake_result(reply_text=""), fake_result(reply_text="Fair point — this gown earns it.")]
+        data = self.post([{"role": "user", "content": "pricey"}], shown_skus=["GOWN"])
+        self.assertEqual(data["reply"], "Fair point — this gown earns it.")
+
+    @patch("apitokens.widget_views.llm.chat_with_retry")
+    @patch("apitokens.widget_views.llm.get_provider")
+    def test_man_asking_for_girls_item_gets_it_as_a_gift(self, mock_provider, mock_chat):
+        mock_provider.return_value = FakeProvider()
+        mock_chat.return_value = fake_result(
+            reply_text="هذا الفستان الأبيض الخفيف يضبط للطلعات. ارفع صورتك وجربه عليك.",
+            tool_calls=[{"name": "recommend_product", "input": {
+                "sku": "SUMMER", "reason": "خفيف وحلو، ارفع صورتك وجربه", "tryon_button_label": "جربه على صورتك 📸"}}],
+        )
+        data = self.post([
+            {"role": "user", "content": "بس انا بدي قطعة ذكورية !!"}, {"role": "assistant", "content": "هذا القميص"},
+            {"role": "user", "content": "بدي شي بناتي هلا"},
+        ])
+        self.assertEqual(mock_chat.call_count, 1)
+        self.assertEqual(data["recommendations"][0]["sku"], "SUMMER")
+        self.assertEqual(data["recommendations"][0]["tryon_button_label"], "جرّبه على صاحب الهدية 📸")
+        self.assertEqual(data["reply"], "هذا الفستان الأبيض الخفيف يضبط للطلعات.")
+        self.assertNotIn("صورتك", data["recommendations"][0]["reason"])
+
+    @patch("apitokens.widget_views.llm.chat_with_retry")
+    @patch("apitokens.widget_views.llm.get_provider")
+    def test_try_on_invitation_is_not_repeated(self, mock_provider, mock_chat):
+        mock_provider.return_value = FakeProvider()
+        mock_chat.return_value = fake_result(
+            reply_text="يا سلام، اختيار حلو للطلعات؛ خامته الخفيفة مريحة بالجو الحار، ارفع صورتك وجربه عليك.")
+        data = self.post([
+            {"role": "user", "content": "قميص"}, {"role": "assistant", "content": "هذا القميص، ارفع صورتك وجربه عليك."},
+            {"role": "user", "content": "حلو حبيتو"},
+        ], shown_skus=["GOWN"])
+        self.assertEqual(data["reply"], "يا سلام، اختيار حلو للطلعات؛ خامته الخفيفة مريحة بالجو الحار.")
+
+    @patch("apitokens.widget_views.llm.chat_with_retry")
+    @patch("apitokens.widget_views.llm.get_provider")
+    def test_no_gendered_card_before_knowing_who_wears_it(self, mock_provider, mock_chat):
+        Product.objects.create(merchant=self.merchant, sku="SHIRT", title="Men's Linen Shirt", price="45",
+                               tags="men,linen", image_url="https://example.com/m.jpg")
+        mock_provider.return_value = FakeProvider()
+        dress = fake_result(reply_text="هذا الفستان الأخضر خفيف للطلعة",
+                            tool_calls=[{"name": "recommend_product", "input": {"sku": "SUMMER", "reason": "x"}}])
+        mock_chat.side_effect = [dress, fake_result(reply_text="أبشر! تبيها رجالية ولا نسائية؟")]
+        msgs = [{"role": "user", "content": "اي شي"}, {"role": "assistant", "content": "فستان ولا قميص؟"},
+                {"role": "user", "content": "شي للطلعة"}]
+        data = self.post(msgs)
+        self.assertEqual(data["recommendations"], [])
+        self.assertEqual(data["reply"], "أبشر! تبيها رجالية ولا نسائية؟")
+        # لما يقول مين، الكرت بيمرق عادي
+        mock_chat.side_effect = [dress]
+        data = self.post(msgs[:2] + [{"role": "user", "content": "شي نسائي للطلعة"}])
+        self.assertEqual([r["sku"] for r in data["recommendations"]], ["SUMMER"])
+
     def _tools_offered(self, mock_chat):
         return [t["name"] for t in mock_chat.call_args_list[0][0][3]]
 
