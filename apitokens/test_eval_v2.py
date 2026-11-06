@@ -716,7 +716,7 @@ class ScenarioCatalogSanityTests(SimpleTestCase):
         for s in v2_scenarios.SCENARIOS:
             self.assertTrue(s["name"].strip(), s)
             self.assertTrue(s.get("description", "").strip(), s["name"])
-            self.assertIn(s.get("lang", "ar"), ("ar", "en"))
+            self.assertIn(s.get("lang", "ar"), ("ar", "en", "other"))
             self.assertIn(s.get("store", "default"), v2_scenarios.STORES, s["name"])
             self.assertTrue(s.get("judge"), f"{s['name']}: judge criteria missing")
             kinds = [st[0] for st in s["steps"]]
@@ -724,16 +724,35 @@ class ScenarioCatalogSanityTests(SimpleTestCase):
             says = v2_scenarios.customer_lines(s)
             self.assertTrue(6 <= len(says) <= 21, f"{s['name']}: {len(says)} turns")
 
-    def test_every_customer_line_is_non_empty_arabic_chat(self):
+    def test_every_customer_line_is_non_empty_chat(self):
         import re
 
         arabic = re.compile(r"[؀-ۿ]")
+        latin = re.compile(r"[A-Za-z]")
         for s in v2_scenarios.SCENARIOS:
-            for text in v2_scenarios.customer_lines(s):
+            for st in s["steps"]:
+                if st[0] != "say":
+                    continue
+                text = st[1]
                 self.assertTrue(text.strip(), s["name"])
                 self.assertEqual(text, text.strip(), f"{s['name']}: untrimmed {text!r}")
-                self.assertTrue(arabic.search(text), f"{s['name']}: no Arabic in {text!r}")
-                self.assertLessEqual(len(text), 200)
+                self.assertLessEqual(len(text), 200, f"{s['name']}: {text!r}")
+                lang = st[2].get("lang") or s.get("lang") or "ar"
+                if lang == "ar" and not s.get("arabizi"):
+                    self.assertTrue(arabic.search(text), f"{s['name']}: no Arabic in {text!r}")
+                else:
+                    self.assertTrue(latin.search(text) or arabic.search(text), f"{s['name']}: empty script {text!r}")
+
+    def test_persona_group_is_a_large_separate_suite(self):
+        cmd = eval_v2.Command()
+        personas = cmd._select({"only": "", "group": "personas"})
+        core = cmd._select({"only": "", "group": "core"})
+        self.assertGreaterEqual(len(personas), 40)
+        self.assertTrue(all(s.get("group") == "personas" for s in personas))
+        self.assertTrue(REQUIRED_SCENARIOS <= {s["name"] for s in core})
+        self.assertEqual(len(core) + len(personas), len(v2_scenarios.SCENARIOS))
+        with self.assertRaises(CommandError):
+            cmd._select({"only": "", "group": "no-such-group"})
 
     def test_expectation_keys_and_check_names_are_valid(self):
         for s in v2_scenarios.SCENARIOS:

@@ -598,6 +598,23 @@ SCENARIOS = [
 ]
 
 
+def _load_persona_scenarios():
+    """شخصيات الزباين في ملف مستقل حتى يبقى ملف المحرّك قابلاً للقراءة."""
+    from apitokens.evals.persona_scenarios import build_persona_scenarios
+
+    extra = build_persona_scenarios(
+        say, new_visit, navigate, tryon, event, forget,
+        NOT_AVAILABLE_WORDS, DELIVERY_PROMISE, BUY_WORDS, product_page, TRYON_WORDS,
+    )
+    overlap = {s["name"] for s in SCENARIOS} & {s["name"] for s in extra}
+    if overlap:
+        raise RuntimeError(f"persona scenario names collide with core: {sorted(overlap)}")
+    return extra
+
+
+SCENARIOS = SCENARIOS + _load_persona_scenarios()
+
+
 def scenario_by_name(name):
     return next((s for s in SCENARIOS if s["name"] == name), None)
 

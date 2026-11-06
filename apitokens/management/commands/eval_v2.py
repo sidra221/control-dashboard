@@ -1,6 +1,7 @@
 """تقييم حيّ لمحرّك المبيعات v2 (ذاكرة دائمة) ضد الموديل الحقيقي المضبوط بالإعدادات.
 
     python manage.py eval_v2
+    python manage.py eval_v2 --group personas --judge --out qa_reports/persona_eval.json
     python manage.py eval_v2 --only returning_customer_remembers,forget_me --runs 3
     python manage.py eval_v2 --provider openai --model gpt-5.1 --effort low --judge --out report.json
 
@@ -617,6 +618,7 @@ class Command(BaseCommand):
 
     def add_arguments(self, parser):
         parser.add_argument("--only", help="Comma-separated scenario names")
+        parser.add_argument("--group", help="Only this group: core (المحرك) or personas (شخصيات الزباين)")
         parser.add_argument("--list", action="store_true", help="List scenarios and exit")
         parser.add_argument("--provider", help="Override LLM_PROVIDER for this run (openai|anthropic|gemini|groq)")
         parser.add_argument("--model", help="Override the model of the (possibly overridden) provider")
@@ -634,7 +636,10 @@ class Command(BaseCommand):
         scenarios = self._select(opts)
         if opts["list"]:
             for s in scenarios:
-                self.stdout.write(f"{s['name']:<36} {len(s['steps']):>2} steps  {s['description']}")
+                says = len(v2_scenarios.customer_lines(s))
+                self.stdout.write(
+                    f"{s.get('group', 'core'):<9} {s['name']:<36} {says:>2} says  {s['description']}"
+                )
             return
         runs = max(1, opts["runs"])
         with llm_overrides(opts["provider"], opts["model"], opts["effort"], opts["analyzer_model"]):
@@ -674,13 +679,20 @@ class Command(BaseCommand):
 
     # ------------------------------------------------------------------
     def _select(self, opts):
-        only = [n for n in (opts.get("only") or "").split(",") if n.strip()]
-        names = {s["name"] for s in v2_scenarios.SCENARIOS}
-        unknown = [n for n in only if n.strip() not in names]
+        pool = v2_scenarios.SCENARIOS
+        group = (opts.get("group") or "").strip()
+        if group:
+            pool = [s for s in pool if s.get("group", "core") == group]
+            if not pool:
+                groups = sorted({s.get("group", "core") for s in v2_scenarios.SCENARIOS})
+                raise CommandError(f"unknown group: {group}. Available: {', '.join(groups)}")
+        only = [n.strip() for n in (opts.get("only") or "").split(",") if n.strip()]
+        names = {s["name"] for s in pool}
+        unknown = [n for n in only if n not in names]
         if unknown:
             raise CommandError(f"unknown scenario(s): {', '.join(unknown)}. Available: {', '.join(sorted(names))}")
-        wanted = {n.strip() for n in only}
-        return [s for s in v2_scenarios.SCENARIOS if not wanted or s["name"] in wanted]
+        wanted = set(only)
+        return [s for s in pool if not wanted or s["name"] in wanted]
 
     @staticmethod
     def _assistant_model():
