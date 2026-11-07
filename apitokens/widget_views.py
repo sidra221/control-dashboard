@@ -80,6 +80,10 @@ WHO_IS_IT_FOR_REPLY = {
     "ar": "أبشر! بس قبل، تبيها رجالية ولا نسائية؟ 😊",
     "en": "Happy to help! Men's or women's? 😊",
 }
+STEP1_REPLY = {
+    "ar": "أفهمك، السعر يفرق 👌 بس القطعة تستاهل. تحب أوريك خيارات أرخص من نفس النوع؟",
+    "en": "I get it, price matters 👌 It's worth it, though. Would you like to see some cheaper options of the same kind?",
+}
 GIFT_REPLY = {
     "ar": "اختيار حلو كهدية 🎁 تقدر تطلبه من زر الشراء تحت.",
     "en": "A lovely pick as a gift 🎁 You can order it with the buy button below.",
@@ -380,7 +384,8 @@ discount applies.
    - The products already shown in this conversation are listed at the end of these instructions. \
 Never call `recommend_product` for one of them again, except in the purchase case right below.
    - Exception to "never show the same sku twice": if they ask how to buy, order, check out, get the \
-link, or add a product you already showed to the cart, call `recommend_product` again for that exact \
+link, or add a product you already showed to the cart — or ask where it is, say they can't see it, or \
+ask you to send it or its picture — call `recommend_product` again for that exact \
 sku — this is how the system surfaces their purchase link/button. In the `reason`, point them straight \
 to the button/link below instead of re-describing the product. Outside this case, never recommend the \
 same sku twice in one conversation.
@@ -405,14 +410,17 @@ even loosely related.
 8. Objections and hesitation. When they liked a product but hold back, stay on THAT product and win \
 them over — don't jump to other products unless they reject it. An objection is never a reason to give up.
    a) Price ("expensive", "too much", over their budget, cheaper elsewhere, "any better price?") about a \
-product they've seen: acknowledge it in a few words (empathy, not apology); reframe the value in ONE \
-concrete sentence about THEM (what they get that a cheaper option won't give them, how many occasions it \
-covers, its real `was_price` sale if it has one) instead of repeating specs; then close with the discount \
-code if one is listed below (rule 10) ON THAT SAME PRODUCT, stating the exact price with the code as what \
-makes it an easy yes right now. Do NOT switch to a cheaper product as your first answer to "expensive" — \
-that throws away the product they chose. A cheaper real alternative from the same category comes only \
-when no code is listed, when they're still unhappy after the code, or when the price is far above a \
-budget they stated. Never an invented deal.
+product they've seen is a negotiation — give and take, never the code straight away:
+      Step 1, the FIRST time price comes up: acknowledge it in a few words (empathy, not apology); reframe \
+the value in ONE concrete sentence about THEM (what they get, how many occasions it covers, its real \
+`was_price` sale if it has one); then ask ONE short question: would they like to see something cheaper \
+of the same kind? No code, no product card yet. (If they stated a budget the product is over, skip the \
+question and show the best real item within that budget.)
+      Step 2: if they say yes, show the best genuinely cheaper real item(s) from the same category. If \
+they'd rather keep THAT piece (they say no, they want this one, or they push on price again), now close \
+with the discount code listed below (rule 10) on that same product, with its exact price with the code \
+— and say so if it now fits their budget. If no code is listed, stay on value or a real sale.
+      Never an invented deal.
    b) Non-price doubt ("not sure", "hmm", "I'll think about it"): find the real blocker and remove it. Fit \
 or size → the size check (11a) or the photo try-on; quality or fabric → one real detail from the \
 description, plus the store's return policy as a safety net if the store information has one; "will it \
@@ -439,12 +447,13 @@ on sale and you may use that real saving as a selling point. Use the `descriptio
 soon — the store gives you no such data. Build urgency and desire only from real benefits and real \
 sales, never from invented scarcity.
 10. Discount codes. The system only lists codes below once the customer has looked at a specific \
-product and is pushing back on price or still hesitating, and only until one has been given — if no "Discount codes you can offer" list appears below, you \
+product and is STILL pushing back after you offered value and cheaper options (rule 8a step 2) or is \
+still hesitating, and only until one has been given — if no "Discount codes you can offer" list appears below, you \
 have NO code to give: never mention a code, a percentage or a "special offer" (a real `was_price` sale is \
 fine). When codes are listed:
-   - Use one as a deliberate closing move on the product they're hesitating about (rule 8): a price \
-objection, a competitor's lower price, a price above their stated budget, a request for a better price, \
-or doubt that's still there after you answered it. Never to a browsing customer, and never to someone \
+   - Use one as a deliberate closing move on the product they're hesitating about (rule 8): they want \
+that piece after you offered cheaper ones, they push on price a second time, or doubt is still there \
+after you answered it. Never to a browsing customer, and never to someone \
 who has already decided to buy with no price concern ("I'll take it") — just point them to the buy button.
    - Call `offer_discount_code` with the exact code AND the sku of that product. If several codes are \
 listed, pick one whose own description genuinely fits that product — and among those, the SMALLEST \
@@ -808,6 +817,82 @@ def _reactions(messages, page_product):
     return sum(1 for m in messages[first_reply:] if m["role"] == "user")
 
 
+def _reactions_list(messages, page_product):
+    """رسائل الزبون بعد ما شاف أول منتج (أول رد من المساعد، أو صفحة المنتج)."""
+    if page_product is not None:
+        return [m["content"] for m in messages if m["role"] == "user"]
+    first_reply = next((i for i, m in enumerate(messages) if m["role"] == "assistant"), None)
+    if first_reply is None:
+        return []
+    return [m["content"] for m in messages[first_reply:] if m["role"] == "user"]
+
+
+AFFIRMATIVE = {
+    "اي", "ايه", "إيه", "ايوه", "أيوه", "اكيد", "أكيد", "تمام", "طيب", "يلا", "وريني", "فرجيني", "اعرض",
+    "yes", "yeah", "yep", "sure", "ok", "okay", "show",
+}
+
+
+def _insists_after_price_talk(messages, page_product):
+    """حكى عن السعر قبل، وآخر رسالة مو "إيه وريني" — يعني بدو نفس القطعة (أو رجع على السعر)."""
+    after = _reactions_list(messages, page_product)
+    if len(after) < 2 or not any(_price_signal(text) for text in after[:-1]):
+        return False
+    words = set(re.findall(r"[\w']+", after[-1].lower()))
+    return not (words & AFFIRMATIVE)
+
+
+CHEAPER_WORDS = ("ارخص", "أرخص", "اوفر", "أوفر", "اخف", "أخف", "cheaper", "lower price", "less expensive")
+
+
+def _said_yes_to_cheaper(messages):
+    """آخر رد من المساعد عرض "أرخص"، والزبون جاوب بموافقة."""
+    if len(messages) < 2 or messages[-2]["role"] != "assistant":
+        return False
+    if not any(w in messages[-2]["content"].lower() for w in CHEAPER_WORDS):
+        return False
+    return bool(set(re.findall(r"[\w']+", messages[-1]["content"].lower())) & AFFIRMATIVE)
+
+
+def _code_moment(messages, page_product):
+    """سلّم التفاوض — الكود مش أول جواب على "غالي":
+    1) أول مرة بيحكي عن السعر: قيمة + "تحب أوريك شي أرخص؟" (بلا كود).
+    2) بعدها: إذا أصرّ على نفس القطعة أو رجع اشتكى من السعر → الكود.
+    تردد مو عن السعر: الكود من تاني تردد (أول تردد منعالجه بالقيمة)."""
+    after = _reactions_list(messages, page_product)
+    if not after:
+        return False
+    price_now = _price_signal(after[-1])
+    price_before = any(_price_signal(text) for text in after[:-1])
+    if price_now:
+        return price_before
+    if price_before:
+        return True
+    return len(after) >= 2
+
+
+def _code_focus_sku(messages, code, products):
+    """المنتج اللي انعطى عليه الكود: رسالة المساعد اللي فيها الكود وسعر المنتج بعده."""
+    percent = discounts.code_percent(code.description)
+    if percent is None:
+        return ""
+    for m in reversed(messages[:-1]):
+        if m["role"] != "assistant" or code.code.lower() not in m["content"].lower():
+            continue
+        for p in products:
+            if discounts.mentions_amount(m["content"], discounts.price_after(p.price, percent)):
+                return p.sku
+    return ""
+
+
+def _mentions_any_code_price(text, code, products):
+    """الرد ذكر سعر منتج ما بعد هالكود (أي منتج) — فما منلزق تذكير تاني."""
+    percent = discounts.code_percent(code.description)
+    if percent is None:
+        return False
+    return any(discounts.mentions_amount(text, discounts.price_after(p.price, percent)) for p in products)
+
+
 def _code_for_prompt(code, priced_products):
     """الكود ووصفه، وسعر كل منتج شافه الزبون بعد الكود (محسوب هون، مش بالموديل)."""
     entry = {"code": code.code, "description": code.description}
@@ -889,6 +974,21 @@ def _script_mismatch(customer_text, reply_text):
     if not any(ch.isalpha() for ch in customer_text):
         return False  # إيموجي أو أرقام بس — ما في لغة نقارن فيها
     return customer_arabic != reply_arabic
+
+
+SEE_AGAIN_MARKERS = (
+    "وينو", "وينه", "وينها", "وين هو", "وين هي", "وين الفستان", "وين القميص", "وين الصوره", "وين الصورة",
+    "ما شفته", "ما شفتها", "ما شفت", "ما وصل", "ما وصلت", "ما ظهر", "ما ظهرت", "ما طلع", "ما طلعت",
+    "ما بين", "ما بان", "ابعت الصوره", "ابعت الصورة", "ارسل الصوره", "ارسل الصورة", "ابعثلي", "ابعتلي",
+    "ارسله", "ارسلها", "وريني اياه", "وريني إياه", "وريني ياه", "وريني هو", "فرجيني ياه", "فرجيني اياه",
+    "اعرضه", "اعرضها", "where is it", "where's it", "i can't see", "i cant see", "can't see it",
+    "show it", "show me it", "show me that", "send it", "send the picture", "send a picture",
+)
+
+
+def _wants_to_see_it(text):
+    lowered = (text or "").lower()
+    return any(marker in lowered for marker in SEE_AGAIN_MARKERS)
 
 
 def _has_purchase_intent(text):
@@ -990,7 +1090,7 @@ def chat(request):
     engaged_skus = [s for s in shown_skus if s] + ([page_product.sku] if page_product else [])
     # توقيت الكود: اعتراض على السعر بآخر رسالة، أو تاني ردة فعل للزبون على المنتج
     # (أول تردد مو عن السعر منعالجه بالقيمة، مش بهامش التاجر).
-    code_moment = _price_signal(clean_messages[-1]["content"]) or _reactions(clean_messages, page_product) >= 2
+    code_moment = _code_moment(clean_messages, page_product)
     discount_codes = all_codes if engaged_skus and not given_codes and code_moment else []
     # سعر كل منتج بالكتالوج اللي واصل للموديل بعد الكود — محسوب هون، حتى لو سأل عن قطعة تانية.
     priced_products = list(products)
@@ -1061,8 +1161,10 @@ def chat(request):
 
     last_user_text = clean_messages[-1]["content"]
     purchase_intent = _has_purchase_intent(last_user_text)
+    # "وينو؟ ما شفته" — الزبون بدو يشوف كرت منتج انحكى عنه: منسمح نعيد عرضه.
+    see_again = _wants_to_see_it(last_user_text)
     # منتج سبق وانعرض ما منعيد كرته — إلا لما الزبون بدو يشتريه (الكرت فيه زر الشراء).
-    blocked_skus = () if purchase_intent else shown_skus
+    blocked_skus = () if purchase_intent or see_again else shown_skus
 
     # بعض الموديلات أحياناً بتذكر منتج أو كود خصم بالنص العادي بدل ما تستخدم
     # الأداة المناسبة، رغم تعليمات واضحة بالبرومبت — هاد بيمنع ظهور كارت
@@ -1073,11 +1175,21 @@ def chat(request):
         p.title.lower() in result.reply_text.lower() for p in products if p.sku not in blocked_skus
     )
     force_tool = None
-    if result.tool_calls and not has_recommendation and names_a_product:
+    if (
+        discount_codes and not has_recommendation and not purchase_intent
+        and not any(c["name"] == "offer_discount_code" for c in result.tool_calls)
+        and _insists_after_price_talk(clean_messages, page_product)
+    ):
+        # الخطوة 2 من السلّم: حكى عن السعر، عرضنا عليه أرخص، وهو مصرّ على نفس القطعة — هون الكود.
+        force_tool = "offer_discount_code"
+    elif not has_recommendation and _said_yes_to_cheaper(clean_messages):
+        # سألناه "تحب أوريك أرخص؟" وقال إيه: لازم يطلع كرت، مش بس حكي.
+        force_tool = "recommend_product"
+    elif result.tool_calls and not has_recommendation and names_a_product:
         # استدعى أداة تانية (غالباً الخصم) وسمّى منتج بالنص بدون كرت.
         force_tool = "recommend_product"
     elif not result.tool_calls:
-        if purchase_intent:
+        if purchase_intent or see_again:
             force_tool = "recommend_product"
         elif any(d.code in result.reply_text for d in discount_codes):
             force_tool = "offer_discount_code"
@@ -1230,6 +1342,26 @@ def chat(request):
             rec["reason"] = _cut_notes(rec["reason"], lang, allowed_latin)
 
     by_sku_all = {p.sku: p for p in products}
+    # أول "غالي" (الخطوة 1 من السلّم): منسأل "تحب أوريك أرخص؟" قبل ما نعرض شي — إلا إذا قال ميزانية.
+    if (
+        recommendations and engaged_skus and not given_codes and not purchase_intent and not see_again
+        and _price_signal(last_user_text) and not code_moment
+        and not BUDGET_PATTERN.search(discounts.normalize_digits(last_user_text).lower())
+    ):
+        corrected_system_prompt = system_prompt + (
+            "\n\nCORRECTION — this is the FIRST time they pushed back on price (rule 8a step 1). Don't show "
+            "any product yet: acknowledge it, reframe the value of the product they're looking at in one "
+            "sentence, and ask ONE short question — would they like to see something cheaper?"
+        )
+        try:
+            corrected = llm.chat_with_retry(provider, corrected_system_prompt, clean_messages, tools)
+            new_reply = (corrected.reply_text or "").strip()
+        except llm.LLMError:
+            new_reply = ""
+        recommendations = []
+        reply_text = new_reply if new_reply and not _script_mismatch(last_user_text, new_reply) \
+            else STEP1_REPLY[lang]
+
     # زبون قال إنه رجال: ما منعرضله لبس نسائي إلا كهدية. إعادة صياغة وحدة، وإذا ضل، منشيل الكرت.
     if saudi.male_revealed(clean_messages):
         wrong = _womens_cards_for_a_man(recommendations, result.tool_calls, products, clean_messages)
@@ -1329,14 +1461,16 @@ def chat(request):
         if reminded is None and _price_signal(last_user_text):
             # الزبون رجع حكى عن السعر/الخصم والرد نسي الكود اللي معه: منذكّره فيه بسعره الصحيح.
             reminder = _price_the_offer(
-                {"code": given_codes[0].code, "description": given_codes[0].description},
+                {"code": given_codes[0].code, "description": given_codes[0].description,
+                 "_sku": _code_focus_sku(clean_messages, given_codes[0], products)},
                 products, engaged_skus, recommendations, merchant.currency,
             )
             if reminder.get("new_price"):
                 reply_text = reply_text + " " + " ".join(DISCOUNT_REMINDER_LINE[lang].format(**reminder).split())
-        elif reminded is not None:
+        elif reminded is not None and not _mentions_any_code_price(reply_text, reminded, products):
             reminder = _price_the_offer(
-                {"code": reminded.code, "description": reminded.description},
+                {"code": reminded.code, "description": reminded.description,
+                 "_sku": _code_focus_sku(clean_messages, reminded, products)},
                 products, engaged_skus, recommendations, merchant.currency,
             )
             if reminder.get("new_price") and not discounts.mentions_amount(reply_text, reminder["new_price"]):

@@ -30,6 +30,13 @@ def fake_result(reply_text="", tool_calls=None):
     return llm.LLMResult(reply_text=reply_text, tool_calls=tool_calls or [])
 
 
+# السلّم: أول "غالي" بياخد قيمة + "تحب أوريك أرخص؟" بلا كود — الكود من الخطوة التانية.
+PRICE_STEP1 = [
+    {"role": "user", "content": "أبي هذا"}, {"role": "assistant", "content": "هذا اختيار حلو"},
+    {"role": "user", "content": "غالي"}, {"role": "assistant", "content": "أفهمك، تحب أوريك شي أرخص؟"},
+]
+
+
 class WidgetChatBackendLogicTests(TestCase):
     """يغطي Fix 1 (توصيات متعددة، دمج بدون فقدان، تكرار، ميزانية) وFix 2
     (منع اختلاق خصم مش موجود فعلياً، discount_offer متوافق مع الواقع)."""
@@ -194,7 +201,7 @@ class WidgetChatBackendLogicTests(TestCase):
         mock_chat.return_value = fake_result(
             tool_calls=[{"name": "offer_discount_code", "input": {"code": "SAVE10"}}],
         )
-        resp = self.post([{"role": "user", "content": "غالي شوي"}], shown_skus=["DRESS-BLACK"])
+        resp = self.post(PRICE_STEP1 + [{"role": "user", "content": "غالي شوي"}], shown_skus=["DRESS-BLACK"])
         data = resp.json()
         self.assertEqual(data["discount_offer"], {
             "code": "SAVE10", "description": "خصم 10% على كل المنتجات", "sku": "DRESS-BLACK",
@@ -235,7 +242,7 @@ class WidgetChatBackendLogicTests(TestCase):
                 {"name": "offer_discount_code", "input": {"code": "DRESS10"}},
             ],
         )
-        data = self.post([{"role": "user", "content": "غالي شوي"}], shown_skus=["DRESS-BLACK"]).json()
+        data = self.post(PRICE_STEP1 + [{"role": "user", "content": "غالي شوي"}], shown_skus=["DRESS-BLACK"]).json()
         self.assertEqual(data["discount_offer"]["code"], "DRESS10")
         self.assertIn("DRESS10", data["reply"])
 
@@ -253,7 +260,7 @@ class WidgetChatBackendLogicTests(TestCase):
                 {"name": "offer_discount_code", "input": {"code": "DRESS10"}},
             ],
         )
-        data = self.post([{"role": "user", "content": "غالي شوي"}], shown_skus=["SHIRT-BLUE"]).json()
+        data = self.post(PRICE_STEP1 + [{"role": "user", "content": "غالي شوي"}], shown_skus=["SHIRT-BLUE"]).json()
         self.assertEqual(data["discount_offer"]["code"], "DRESS10")
         self.assertIn("فستان أنيق لسهرتك", data["reply"])
         self.assertIn("DRESS10", data["reply"])
@@ -272,7 +279,7 @@ class WidgetChatBackendLogicTests(TestCase):
         )
         forced = fake_result(tool_calls=[{"name": "recommend_product", "input": {"sku": "SHIRT-BLUE", "reason": "x"}}])
         mock_chat.side_effect = [first, forced]
-        data = self.post([{"role": "user", "content": "بدي قميص أرخص بدالو"}], shown_skus=["DRESS-BLACK"]).json()
+        data = self.post(PRICE_STEP1 + [{"role": "user", "content": "بدي قميص أرخص بدالو"}], shown_skus=["DRESS-BLACK"]).json()
         self.assertEqual([r["sku"] for r in data["recommendations"]], ["SHIRT-BLUE"])
         self.assertEqual(data["discount_offer"]["code"], "SHIRTS15")
 
@@ -600,6 +607,16 @@ class WidgetChatShopifyReadyTests(TestCase):
 
     @patch("apitokens.widget_views.llm.chat_with_retry")
     @patch("apitokens.widget_views.llm.get_provider")
+    def test_shown_card_is_resurfaced_when_customer_asks_where_it_is(self, mock_provider, mock_chat):
+        mock_provider.return_value = FakeProvider()
+        mock_chat.return_value = fake_result(reply_text="هذا هو 👇", tool_calls=[{
+            "name": "recommend_product", "input": {"sku": "DRESS-1", "reason": "هذا هو"},
+        }])
+        data = self.post([{"role": "user", "content": "وينو"}], shown_skus=["DRESS-1"]).json()
+        self.assertEqual([r["sku"] for r in data["recommendations"]], ["DRESS-1"])
+
+    @patch("apitokens.widget_views.llm.chat_with_retry")
+    @patch("apitokens.widget_views.llm.get_provider")
     def test_shown_card_is_resurfaced_when_customer_wants_to_buy(self, mock_provider, mock_chat):
         mock_provider.return_value = FakeProvider()
         mock_chat.return_value = fake_result(reply_text="Tap the button below", tool_calls=[{
@@ -700,7 +717,7 @@ class WidgetChatShopifyReadyTests(TestCase):
         mock_chat.return_value = fake_result(tool_calls=[{
             "name": "offer_discount_code", "input": {"code": "SAVE10", "pitch": "معك حق، بس هالقماش بيعيش معك سنين — وخود SAVE10"},
         }])
-        data = self.post([{"role": "user", "content": "غالي شوي"}], shown_skus=["DRESS-1"]).json()
+        data = self.post(PRICE_STEP1 + [{"role": "user", "content": "غالي شوي"}], shown_skus=["DRESS-1"]).json()
         self.assertEqual(data["discount_offer"]["code"], "SAVE10")
         self.assertIn("بيعيش معك سنين", data["reply"])
 
@@ -768,7 +785,7 @@ class SmartDiscountTests(TestCase):
             reply_text="I get it — this gown covers every formal night you have. Use WELCOME10.",
             tool_calls=[{"name": "offer_discount_code", "input": {"code": "WELCOME10", "sku": "GOWN"}}],
         )
-        data = self.post([{"role": "user", "content": "it's a bit pricey"}], shown_skus=["GOWN"])
+        data = self.post(PRICE_STEP1 + [{"role": "user", "content": "it's a bit pricey"}], shown_skus=["GOWN"])
         prompt = mock_chat.call_args[0][1]
         self.assertIn('"GOWN": "116.10 instead of 129"', prompt)
         self.assertEqual(data["discount_offer"]["new_price"], "116.10")
@@ -784,7 +801,7 @@ class SmartDiscountTests(TestCase):
             reply_text="أفهمك، وبكود WELCOME10 يصير ١١٦٫١٠ بس.",
             tool_calls=[{"name": "offer_discount_code", "input": {"code": "WELCOME10", "sku": "GOWN"}}],
         )
-        data = self.post([{"role": "user", "content": "غالي"}], shown_skus=["GOWN"])
+        data = self.post(PRICE_STEP1 + [{"role": "user", "content": "غالي"}], shown_skus=["GOWN"])
         self.assertEqual(data["reply"], "أفهمك، وبكود WELCOME10 يصير ١١٦٫١٠ بس.")
 
     @patch("apitokens.widget_views.llm.chat_with_retry")
@@ -875,7 +892,7 @@ class SmartDiscountTests(TestCase):
         DiscountCode.objects.create(merchant=self.merchant, code="VIP20", description="20% off everything")
         mock_provider.return_value = FakeProvider()
         mock_chat.return_value = fake_result(reply_text="ok")
-        self.post([{"role": "user", "content": "too expensive"}], shown_skus=["GOWN"])
+        self.post(PRICE_STEP1 + [{"role": "user", "content": "too expensive"}], shown_skus=["GOWN"])
         prompt = mock_chat.call_args[0][1]
         self.assertLess(prompt.index('"code": "WELCOME10"'), prompt.index('"code": "VIP20"'))
         self.assertIn('"SUMMER": "44.10 instead of 49"', prompt)  # not shown yet, still priced
@@ -1009,6 +1026,61 @@ class SmartDiscountTests(TestCase):
         data = self.post(msgs[:2] + [{"role": "user", "content": "شي نسائي للطلعة"}])
         self.assertEqual([r["sku"] for r in data["recommendations"]], ["SUMMER"])
 
+    @patch("apitokens.widget_views.llm.chat_with_retry")
+    @patch("apitokens.widget_views.llm.get_provider")
+    def test_first_price_pushback_asks_before_showing_cheaper(self, mock_provider, mock_chat):
+        mock_provider.return_value = FakeProvider()
+        mock_chat.side_effect = [
+            fake_result(reply_text="Here's a cheaper one.",
+                        tool_calls=[{"name": "recommend_product", "input": {"sku": "SUMMER", "reason": "x"}}]),
+            fake_result(reply_text="Fair, but it's worth it. Want to see something cheaper?"),
+        ]
+        data = self.post([{"role": "user", "content": "gown"}, {"role": "assistant", "content": "Here."},
+                          {"role": "user", "content": "too expensive"}], shown_skus=["GOWN"])
+        self.assertEqual(data["recommendations"], [])
+        self.assertEqual(data["reply"], "Fair, but it's worth it. Want to see something cheaper?")
+
+    @patch("apitokens.widget_views.llm.chat_with_retry")
+    @patch("apitokens.widget_views.llm.get_provider")
+    def test_reminder_prices_the_product_the_code_was_given_for(self, mock_provider, mock_chat):
+        mock_provider.return_value = FakeProvider()
+        mock_chat.return_value = fake_result(reply_text="WELCOME10 is the best I can do.")
+        data = self.post([
+            {"role": "user", "content": "gown"}, {"role": "assistant", "content": "Here."},
+            {"role": "user", "content": "pricey"}, {"role": "assistant", "content": "Cheaper? Here's one."},
+            {"role": "user", "content": "no, the gown"}, {"role": "assistant", "content": "Use WELCOME10: 116.10 instead of 129."},
+            {"role": "user", "content": "can you do 20%?"},
+        ], shown_skus=["GOWN", "SUMMER"])
+        self.assertIn("116.10", data["reply"])
+        self.assertNotIn("44.10", data["reply"])
+
+    @patch("apitokens.widget_views.llm.chat_with_retry")
+    @patch("apitokens.widget_views.llm.get_provider")
+    def test_insisting_on_the_same_item_gets_the_code_even_if_model_forgets(self, mock_provider, mock_chat):
+        mock_provider.return_value = FakeProvider()
+        mock_chat.side_effect = [
+            fake_result(reply_text="أبشر، الأسود يستاهل وسعره 129."),
+            fake_result(tool_calls=[{"name": "offer_discount_code", "input": {"code": "WELCOME10", "sku": "GOWN"}}]),
+        ]
+        data = self.post([
+            {"role": "user", "content": "فستان أسود"}, {"role": "assistant", "content": "هذا"},
+            {"role": "user", "content": "ميزانيتي 120 بس"}, {"role": "assistant", "content": "هذا أرخص"},
+            {"role": "user", "content": "لا أبي الأسود نفسه"},
+        ], shown_skus=["GOWN", "SUMMER"])
+        self.assertEqual(mock_chat.call_args_list[1].kwargs.get("force_tool"), "offer_discount_code")
+        self.assertEqual(data["discount_offer"]["new_price"], "116.10")
+        self.assertIn("116.10", data["reply"])
+        mock_chat.reset_mock()
+        mock_chat.side_effect = [fake_result(reply_text="Here's a cheaper one."), fake_result(
+            tool_calls=[{"name": "recommend_product", "input": {"sku": "SUMMER", "reason": "x"}}])]
+        self.post([
+            {"role": "user", "content": "gown"}, {"role": "assistant", "content": "Here."},
+            {"role": "user", "content": "pricey"}, {"role": "assistant", "content": "Want cheaper?"},
+            {"role": "user", "content": "yes show me"},
+        ], shown_skus=["GOWN"])
+        self.assertEqual(mock_chat.call_count, 2)  # "yes" = بدو يشوف أرخص: منجبر كرت، مش الكود
+        self.assertEqual(mock_chat.call_args_list[1].kwargs.get("force_tool"), "recommend_product")
+
     def _tools_offered(self, mock_chat):
         return [t["name"] for t in mock_chat.call_args_list[0][0][3]]
 
@@ -1027,7 +1099,15 @@ class SmartDiscountTests(TestCase):
         self.assertIn("offer_discount_code", self._tools_offered(mock_chat))  # تاني تردد
         mock_chat.reset_mock()
         self.post(first[:2] + [{"role": "user", "content": "حلو بس غالي علي"}], **shown)
-        self.assertIn("offer_discount_code", self._tools_offered(mock_chat))  # اعتراض سعر فوري
+        self.assertNotIn("offer_discount_code", self._tools_offered(mock_chat))  # أول "غالي": قيمة + أرخص؟
+        mock_chat.reset_mock()
+        self.post(first[:2] + [{"role": "user", "content": "غالي علي"}, {"role": "assistant", "content": "تحب أرخص؟"},
+                               {"role": "user", "content": "لا، أبي هذا نفسه"}], **shown)
+        self.assertIn("offer_discount_code", self._tools_offered(mock_chat))  # أصرّ على نفس القطعة
+        mock_chat.reset_mock()
+        self.post(first[:2] + [{"role": "user", "content": "غالي علي"}, {"role": "assistant", "content": "تحب أرخص؟"},
+                               {"role": "user", "content": "بس السعر لسا غالي"}], **shown)
+        self.assertIn("offer_discount_code", self._tools_offered(mock_chat))  # تاني مرة عن السعر
         mock_chat.reset_mock()
         self.post([{"role": "user", "content": "مو متأكد منه"}], shown_skus=[], page_url="")
         self.assertNotIn("offer_discount_code", self._tools_offered(mock_chat))  # ما شاف منتج
@@ -1046,7 +1126,7 @@ class SmartDiscountTests(TestCase):
                 tool_calls=[{"name": "offer_discount_code", "input": {"code": "WELCOME10", "sku": "GOWN"}}],
             ),
         ]
-        data = self.post([{"role": "user", "content": "too expensive"}], shown_skus=["GOWN"])
+        data = self.post(PRICE_STEP1 + [{"role": "user", "content": "too expensive"}], shown_skus=["GOWN"])
         self.assertEqual(mock_chat.call_count, 2)
         self.assertNotIn("25%", data["reply"])
         self.assertIn("116.10", data["reply"])
