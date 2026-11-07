@@ -1090,6 +1090,30 @@ class SmartDiscountTests(TestCase):
         self.assertEqual([c.code for c in _offerable_codes([vip, hala, shirts])], ["SHIRT5", "HALA10"])
         self.assertEqual([c.code for c in _offerable_codes([vip])], ["VIP15"])
 
+    @patch("apitokens.widget_views.llm.chat_with_retry")
+    @patch("apitokens.widget_views.llm.get_provider")
+    def test_transliterated_code_gets_exact_code_not_a_second_price(self, mock_provider, mock_chat):
+        mock_provider.return_value = FakeProvider()
+        mock_chat.return_value = fake_result(reply_text="أبشر، استخدم كود ويلكم عشرة ويصير 116.10.")
+        data = self.post([
+            {"role": "user", "content": "فستان"}, {"role": "assistant", "content": "هذا"},
+            {"role": "user", "content": "غالي"}, {"role": "assistant", "content": "استخدم WELCOME10: 116.10 بدل 129"},
+            {"role": "user", "content": "بدي هداك بسعر افضل"},
+        ], shown_skus=["GOWN"])
+        self.assertEqual(data["reply"], "أبشر، استخدم كود ويلكم عشرة ويصير 116.10. (الكود: WELCOME10 🎁)")
+
+    @patch("apitokens.widget_views.llm.chat_with_retry")
+    @patch("apitokens.widget_views.llm.get_provider")
+    def test_arabic_price_line_names_the_currency_in_arabic(self, mock_provider, mock_chat):
+        mock_provider.return_value = FakeProvider()
+        mock_chat.return_value = fake_result(
+            reply_text="أفهمك، وهذا الفستان يستاهل.",
+            tool_calls=[{"name": "offer_discount_code", "input": {"code": "WELCOME10", "sku": "GOWN"}}],
+        )
+        data = self.post(PRICE_STEP1 + [{"role": "user", "content": "لا أبي هذا نفسه"}], shown_skus=["GOWN"])
+        self.assertIn("116.10 دولار بدل 129 دولار", data["reply"])
+        self.assertNotIn("USD", data["reply"])
+
     def _tools_offered(self, mock_chat):
         return [t["name"] for t in mock_chat.call_args_list[0][0][3]]
 

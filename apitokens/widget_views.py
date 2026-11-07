@@ -88,6 +88,10 @@ GIFT_REPLY = {
     "ar": "اختيار حلو كهدية 🎁 تقدر تطلبه من زر الشراء تحت.",
     "en": "A lovely pick as a gift 🎁 You can order it with the buy button below.",
 }
+CODE_ONLY_LINE = {
+    "ar": "(الكود: {code} 🎁)",
+    "en": "(Code: {code} 🎁)",
+}
 DISCOUNT_REMINDER_LINE = {
     "ar": "وكود {code} اللي معك يخليه بـ{new_price} {currency} بدل {price} {currency} 🎁",
     "en": "And your code {code} still brings it to {new_price} {currency} instead of {price} {currency} 🎁",
@@ -467,7 +471,9 @@ you can do, remind them of that code and the price with it, and if it's still to
 genuinely cheaper real alternative from the same category. If they ask whether ANOTHER product has a \
 discount, tell them its real `was_price` sale if any AND that the code they already have works on it \
 too (if its description allows), quoting that product's price with the code from the list.
-   - Never invent a code, percentage, promotion, expiry date or eligibility condition.
+   - Never invent a code, percentage, promotion, expiry date or eligibility condition. Write the code \
+EXACTLY as listed, in its own Latin letters and digits — never translate, transliterate or spell it out \
+in Arabic words, because the customer types it at checkout.
    - Once a code and its price are on the table, don't repeat them in every reply. A "nice", "great" \
 or "thanks" gets a short, warm close (the buy button, their size) in fresh words — restate the price \
 only if they bring up price again. Asked for a bigger discount, your FIRST sentence says plainly that \
@@ -909,6 +915,20 @@ def _offerable_codes(codes):
         return codes
     smallest = min(general, key=lambda c: discounts.code_percent(c.description))
     return [c for c in codes if c not in general or c is smallest]
+
+
+CURRENCY_NAMES_AR = {
+    "SAR": "ريال", "USD": "دولار", "AED": "درهم", "KWD": "دينار", "QAR": "ريال", "OMR": "ريال",
+    "BHD": "دينار", "EGP": "جنيه", "JOD": "دينار", "EUR": "يورو",
+}
+
+
+def _offer_line(templates, lang, offer):
+    """سطر السعر بعد الكود — العملة بالعربي للزبون العربي ("ريال" مش "SAR")."""
+    offer = dict(offer)
+    if lang == "ar":
+        offer["currency"] = CURRENCY_NAMES_AR.get((offer.get("currency") or "").upper(), offer.get("currency") or "")
+    return " ".join(templates[lang].format(**offer).split())
 
 
 def _code_for_prompt(code, priced_products):
@@ -1483,8 +1503,11 @@ def chat(request):
                  "_sku": _code_focus_sku(clean_messages, given_codes[0], products)},
                 products, engaged_skus, recommendations, merchant.currency,
             )
-            if reminder.get("new_price"):
-                reply_text = reply_text + " " + " ".join(DISCOUNT_REMINDER_LINE[lang].format(**reminder).split())
+            if _mentions_any_code_price(reply_text, given_codes[0], products):
+                # السعر موجود بس الكود مكتوب غلط (مثلاً "هلا عشرة"): منحط الكود بحروفه الصح بس.
+                reply_text = reply_text + " " + CODE_ONLY_LINE[lang].format(code=given_codes[0].code)
+            elif reminder.get("new_price"):
+                reply_text = reply_text + " " + _offer_line(DISCOUNT_REMINDER_LINE, lang, reminder)
         elif reminded is not None and not _mentions_any_code_price(reply_text, reminded, products):
             reminder = _price_the_offer(
                 {"code": reminded.code, "description": reminded.description,
@@ -1492,7 +1515,7 @@ def chat(request):
                 products, engaged_skus, recommendations, merchant.currency,
             )
             if reminder.get("new_price") and not discounts.mentions_amount(reply_text, reminder["new_price"]):
-                reply_text = reply_text + " " + " ".join(DISCOUNT_PRICE_LINE[lang].format(**reminder).split())
+                reply_text = reply_text + " " + _offer_line(DISCOUNT_PRICE_LINE, lang, reminder)
     if discount_offer and reply_text and discount_offer["code"] not in reply_text:
         reply_text = reply_text + "\n\n" + DISCOUNT_APPENDIX[lang].format(**discount_offer)
     # السعر بعد الكود محسوب بالكود — لو الموديل ما ذكره صح، منضيفه نحنا.
@@ -1500,7 +1523,7 @@ def chat(request):
         discount_offer and reply_text and discount_offer.get("new_price")
         and not discounts.mentions_amount(reply_text, discount_offer["new_price"])
     ):
-        reply_text = reply_text + " " + " ".join(DISCOUNT_PRICE_LINE[lang].format(**discount_offer).split())
+        reply_text = reply_text + " " + _offer_line(DISCOUNT_PRICE_LINE, lang, discount_offer)
     # المقاس من الحساب بالكود — الموديل ممنوع يذكره بنفسه، فمنضيفه للرد.
     if size_advice and size_advice["text"] not in reply_text:
         reply_text = reply_text + "\n\n" + size_advice["text"]
