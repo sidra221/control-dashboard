@@ -45,6 +45,8 @@ PRICE_SIGNAL_MARKERS = (
     "كود", "كوبون", "فلوس", "مصاري", "مكلف", "كثير علي", "كتير علي", "بكم", "بكام", "قديش",
     "expensive", "pricey", "price", "cheaper", "cheap", "budget", "discount", "deal", "afford",
     "cost", "too much", "coupon", "promo", "cher", "prix", "caro", "teuer",
+    "راعينا", "راعيني", "راعني", "تراعينا", "نزل شوي", "نزّل شوي", "خفف", "خفّف", "سعر افضل", "سعر أفضل",
+    "احسن سعر", "أحسن سعر", "better price", "better deal", "go lower", "lower it",
 )
 
 # الزبون بدو يشتري منتج سبق وانعرض — هون بس منسمح بإعادة عرض نفس الكرت
@@ -466,7 +468,12 @@ discount: it's usually enough, and it protects the merchant's margin.
 or a percentage yourself. If the code brings it within the budget they gave, say so — that's your \
 strongest argument.
    - If the instructions below say a code was already given in this conversation: never offer another \
-code, a bigger discount or a new percentage, even if they ask. Say honestly that it's the best price \
+code, a bigger discount or a new percentage, even if they ask. When they ask you to go further \
+("raa3eena", "nazzil shwayy", "a better price?"), never open with "abshir", "tamam" or anything that \
+sounds like you're granting something new while repeating the same offer. Instead make them feel already \
+looked after: you already took care of them and gave them your best code, especially for them — then \
+the price with it, and one easy next step (installments if the store information offers them, or a \
+genuinely cheaper real alternative). Say honestly that it's the best price \
 you can do, remind them of that code and the price with it, and if it's still too much, show a \
 genuinely cheaper real alternative from the same category. If they ask whether ANOTHER product has a \
 discount, tell them its real `was_price` sale if any AND that the code they already have works on it \
@@ -917,6 +924,20 @@ def _offerable_codes(codes):
     return [c for c in codes if c not in general or c is smallest]
 
 
+# "أبشر،" / "تم!" / "Sure!" بأول الرد — كلمة موافقة بتوحي إنه في عرض جديد.
+GRANTING_OPENER = re.compile(
+    r"^\s*(?:أبشر|ابشر|تم|تمام|حاضر|ولا يهمك|من عيوني|على راسي|sure|of course|absolutely|done)"
+    r"(?:\s+(?:طال عمرك|يا غالي|يالغالي))?\s*[،,!.؛:\-—–🌷👌😊]*\s*",
+    re.IGNORECASE,
+)
+ALREADY_CARED = re.compile(
+    r"راعيت|أفضل|افضل|أقوى|اقوى|أحسن|احسن|أعلى خصم|اعلى خصم|best|lowest|already took care|looked after",
+    re.IGNORECASE,
+)
+CARE_OPENER = {
+    "ar": "والله راعيتك وعطيتك أقوى خصم عندي 🌷",
+    "en": "I've already looked after you with my best code 🌷",
+}
 CURRENCY_NAMES_AR = {
     "SAR": "ريال", "USD": "دولار", "AED": "درهم", "KWD": "دينار", "QAR": "ريال", "OMR": "ريال",
     "BHD": "دينار", "EGP": "جنيه", "JOD": "دينار", "EUR": "يورو",
@@ -1484,6 +1505,13 @@ def chat(request):
     )
     if already_invited and not recommendations and reply_text and TRYON_INVITE.search(reply_text):
         reply_text = _strip_tryon_invites(reply_text) or reply_text
+
+    # بعد ما انعطى الكود، "راعينا" ما بتنجاوب بـ"أبشر" وبعدين نفس العرض — منشيل كلمة الموافقة من أول الرد.
+    if given_codes and not discount_offer and reply_text and _price_signal(last_user_text):
+        reply_text = GRANTING_OPENER.sub("", reply_text, count=1).lstrip() or reply_text
+        if not ALREADY_CARED.search(reply_text):
+            # الزبون لازم يحس إنه انراعى أصلاً، مش إنه عم ياخد نفس العرض ببرود.
+            reply_text = CARE_OPENER[lang] + " " + reply_text
 
     # الرد النصي لازم يطابق العرض المنظّم: لو في discount_offer حقيقي بس
     # الموديل ما ذكره بالنص، منضيف جملة مبنية من بيانات الكود الفعلية بس.

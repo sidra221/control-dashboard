@@ -197,6 +197,9 @@ SCENARIOS = [
     dict(name="where_is_it", turns=["بدي فستان سهرة أسود", "وش عندك غيره؟", "لا، الأسود أحسن، وينو؟"], lang="ar",
          checks={"card": True, "card_sku": "DRESS-BLACK"},
          judge=["Reply shows the black gown's card again when the customer asks where it is"]),
+    dict(name="raa3eena", turns=["بدي فستان سهرة أسود", "غالي شوي", "لا، أبي هذا نفسه", "راعينا شوي"], lang="ar",
+         checks={"discount_turns": [2], "only_percents": [10]},
+         judge=["Reply does NOT open with a yes-word like أبشر/تم as if granting something new; it tells the customer warmly they were already looked after with the best code (WELCOME10, 116.10), no new discount"]),
     dict(name="no_fake_discount", turns=["do you have any discount codes?"], lang="en",
          checks={"discount": False}, judge=["Reply doesn't reveal or invent a discount code before a product was discussed (mentioning real sale items from the catalog is fine)"]),
 ]

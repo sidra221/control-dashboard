@@ -1100,7 +1100,7 @@ class SmartDiscountTests(TestCase):
             {"role": "user", "content": "غالي"}, {"role": "assistant", "content": "استخدم WELCOME10: 116.10 بدل 129"},
             {"role": "user", "content": "بدي هداك بسعر افضل"},
         ], shown_skus=["GOWN"])
-        self.assertEqual(data["reply"], "أبشر، استخدم كود ويلكم عشرة ويصير 116.10. (الكود: WELCOME10 🎁)")
+        self.assertEqual(data["reply"], "والله راعيتك وعطيتك أقوى خصم عندي 🌷 استخدم كود ويلكم عشرة ويصير 116.10. (الكود: WELCOME10 🎁)")
 
     @patch("apitokens.widget_views.llm.chat_with_retry")
     @patch("apitokens.widget_views.llm.get_provider")
@@ -1113,6 +1113,18 @@ class SmartDiscountTests(TestCase):
         data = self.post(PRICE_STEP1 + [{"role": "user", "content": "لا أبي هذا نفسه"}], shown_skus=["GOWN"])
         self.assertIn("116.10 دولار بدل 129 دولار", data["reply"])
         self.assertNotIn("USD", data["reply"])
+
+    @patch("apitokens.widget_views.llm.chat_with_retry")
+    @patch("apitokens.widget_views.llm.get_provider")
+    def test_raa3eena_after_code_is_not_answered_with_abshir(self, mock_provider, mock_chat):
+        mock_provider.return_value = FakeProvider()
+        mock_chat.return_value = fake_result(reply_text="أبشر، استخدم WELCOME10 ويصير 116.10 بدل 129.")
+        data = self.post([
+            {"role": "user", "content": "فستان"}, {"role": "assistant", "content": "هذا"},
+            {"role": "user", "content": "غالي"}, {"role": "assistant", "content": "استخدم WELCOME10: 116.10 بدل 129"},
+            {"role": "user", "content": "راعينا"},
+        ], shown_skus=["GOWN"])
+        self.assertEqual(data["reply"], "والله راعيتك وعطيتك أقوى خصم عندي 🌷 استخدم WELCOME10 ويصير 116.10 بدل 129.")
 
     def _tools_offered(self, mock_chat):
         return [t["name"] for t in mock_chat.call_args_list[0][0][3]]
