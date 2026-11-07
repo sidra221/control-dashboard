@@ -1081,6 +1081,15 @@ class SmartDiscountTests(TestCase):
         self.assertEqual(mock_chat.call_count, 2)  # "yes" = بدو يشوف أرخص: منجبر كرت، مش الكود
         self.assertEqual(mock_chat.call_args_list[1].kwargs.get("force_tool"), "recommend_product")
 
+    def test_only_the_smallest_general_code_is_offered(self):
+        from .widget_views import _offerable_codes
+
+        hala = DiscountCode(code="HALA10", description="خصم 10% على كل المنتجات")
+        vip = DiscountCode(code="VIP15", description="خصم 15% على كل المنتجات")
+        shirts = DiscountCode(code="SHIRT5", description="خصم 5% على القمصان")
+        self.assertEqual([c.code for c in _offerable_codes([vip, hala, shirts])], ["SHIRT5", "HALA10"])
+        self.assertEqual([c.code for c in _offerable_codes([vip])], ["VIP15"])
+
     def _tools_offered(self, mock_chat):
         return [t["name"] for t in mock_chat.call_args_list[0][0][3]]
 

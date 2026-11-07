@@ -893,6 +893,24 @@ def _mentions_any_code_price(text, code, products):
     return any(discounts.mentions_amount(text, discounts.price_after(p.price, percent)) for p in products)
 
 
+GENERAL_CODE_WORDS = ("كل", "جميع", "all", "every", "everything", "any", "sitewide", "store-wide")
+
+
+def _offerable_codes(codes):
+    """بين الأكواد العامة (على كل المنتجات) منعطي الموديل الأصغر بس — هامش التاجر.
+    الأكواد الخاصة بفئة (قمصان بس...) بتضل، والموديل بيختار اللي بينطبق."""
+    general = [
+        c for c in codes
+        if discounts.code_percent(c.description) is not None
+        and set(re.findall(r"[\w']+", c.description.lower())) & set(GENERAL_CODE_WORDS)
+    ]
+    codes = sorted(codes, key=lambda c: discounts.code_percent(c.description) or 0)
+    if len(general) < 2:
+        return codes
+    smallest = min(general, key=lambda c: discounts.code_percent(c.description))
+    return [c for c in codes if c not in general or c is smallest]
+
+
 def _code_for_prompt(code, priced_products):
     """الكود ووصفه، وسعر كل منتج شافه الزبون بعد الكود (محسوب هون، مش بالموديل)."""
     entry = {"code": code.code, "description": code.description}
@@ -1091,7 +1109,7 @@ def chat(request):
     # توقيت الكود: اعتراض على السعر بآخر رسالة، أو تاني ردة فعل للزبون على المنتج
     # (أول تردد مو عن السعر منعالجه بالقيمة، مش بهامش التاجر).
     code_moment = _code_moment(clean_messages, page_product)
-    discount_codes = all_codes if engaged_skus and not given_codes and code_moment else []
+    discount_codes = _offerable_codes(all_codes) if engaged_skus and not given_codes and code_moment else []
     # سعر كل منتج بالكتالوج اللي واصل للموديل بعد الكود — محسوب هون، حتى لو سأل عن قطعة تانية.
     priced_products = list(products)
     # الأصغر أولاً: الموديل بيختار الخصم الأصغر اللي بيكفي (هامش التاجر).
