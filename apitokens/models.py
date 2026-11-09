@@ -359,6 +359,8 @@ class Conversation(models.Model):
     order_id = models.CharField(max_length=64, blank=True, default="")
     order_total = models.DecimalField(max_digits=12, decimal_places=2, null=True, blank=True)
     order_currency = models.CharField(max_length=8, blank=True, default="")
+    # وقت وصول الطلب (webhook) — منحتاجه لنحسب إذا الطلب صار ضمن مدة الإسناد بعد التجربة.
+    order_at = models.DateTimeField(null=True, blank=True)
     started_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -378,6 +380,32 @@ class Conversation(models.Model):
     @property
     def converted(self):
         return bool(self.order_id)
+
+
+class TryOnEvent(models.Model):
+    """تجربة افتراضية وحدة (ناجحة أو فاشلة) — منسجّلها حتى نعرض إحصائيات التجارب
+    ونسند الطلبات للتجارب. session_id هو نفس معرّف محادثة الودجت (ممكن يكون فاضي)."""
+
+    merchant = models.ForeignKey(
+        ApiToken, on_delete=models.CASCADE, related_name="tryon_events",
+    )
+    session_id = models.CharField(max_length=64, blank=True, default="", db_index=True)
+    product = models.ForeignKey(
+        "Product", null=True, blank=True, on_delete=models.SET_NULL, related_name="tryon_events",
+    )
+    sku = models.CharField(max_length=64)
+    success = models.BooleanField(default=True)
+    error = models.CharField(max_length=120, blank=True, default="")
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        verbose_name = "تجربة افتراضية"
+        verbose_name_plural = "التجارب الافتراضية"
+        ordering = ["-created_at"]
+        indexes = [models.Index(fields=["merchant", "created_at"])]
+
+    def __str__(self):
+        return f"{self.merchant.label} — {self.sku} — {'ok' if self.success else 'fail'}"
 
 
 class SizeChart(models.Model):

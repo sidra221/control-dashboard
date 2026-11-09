@@ -2,6 +2,7 @@ import json
 from decimal import Decimal, InvalidOperation
 
 from django.http import HttpResponse
+from django.utils import timezone
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_http_methods
 
@@ -68,4 +69,7 @@ def _record_order(merchant, payload):
     conversation.order_id = str(payload.get("id") or "")
     conversation.order_total = total
     conversation.order_currency = (payload.get("currency") or "")[:8]
-    conversation.save(update_fields=["order_id", "order_total", "order_currency", "updated_at"])
+    conversation.order_at = timezone.now()
+    conversation.save(
+        update_fields=["order_id", "order_total", "order_currency", "order_at", "updated_at"]
+    )

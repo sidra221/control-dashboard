@@ -21,6 +21,7 @@ from .models import (
 from .services import catalog as catalog_service
 from .services import salla as salla_service
 from .services import sizing
+from .services import tryon_stats as tryon_stats_service
 from .services import shopify as shopify_service
 from .services import zid as zid_service
 
@@ -355,6 +356,37 @@ def conversations(request, pk):
             "merchant": merchant,
             "stats": stats,
             "conversations": Conversation.objects.filter(merchant=merchant)[:50],
+        },
+    )
+
+
+@staff_member_required
+def tryon_stats(request, pk):
+    merchant = get_object_or_404(ApiToken, pk=pk)
+    range_key = tryon_stats_service.clean_range(request.GET.get("range", "30"))
+    window_days = tryon_stats_service.clean_window(request.GET.get("window", "7"))
+    tab = request.GET.get("tab", "overview")
+    if tab not in ("overview", "activity"):
+        tab = "overview"
+    selected_sku = request.GET.get("sku", "").strip()
+    shoppers = request.GET.get("shoppers", "all")
+    if shoppers not in ("all", "identified"):
+        shoppers = "all"
+    stats = tryon_stats_service.build_stats(
+        merchant, range_key, window_days, sku=selected_sku or None, shoppers=shoppers,
+    )
+    return render(
+        request,
+        "apitokens/tryon_stats.html",
+        {
+            "merchant": merchant,
+            "stats": stats,
+            "range_key": range_key,
+            "window_days": window_days,
+            "tab": tab,
+            "selected_sku": selected_sku,
+            "shoppers": shoppers,
+            "currency": merchant.currency,
         },
     )
 

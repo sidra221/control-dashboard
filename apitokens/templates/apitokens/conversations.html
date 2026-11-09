@@ -4,6 +4,7 @@
 {% block page_title %}{{ T.conversations_title_prefix }}{{ merchant.label }}{% endblock %}
 {% block page_sub %}{{ T.conversations_sub }}{% endblock %}
 {% block header_links %}
+  <a class="back" href="{% url 'apitokens:tryon-stats' merchant.pk %}">{{ T.tryon_stats_link_short }}</a>
   <a class="back" href="{% url 'apitokens:catalog' merchant.pk %}">{{ T.manual_catalog_link }}</a>
   <a class="back" href="{% url 'apitokens:shopify-connect' merchant.pk %}">{{ T.shopify_link_short }}</a>
   <a class="back" href="{% url 'apitokens:dashboard' %}">{{ T.back_to_tokens }}</a>

@@ -5,6 +5,7 @@ import threading
 from django.conf import settings
 from django.db import connection as db_connection
 from django.http import HttpResponse
+from django.utils import timezone
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_http_methods
 
@@ -107,4 +108,7 @@ def _record_order(merchant, data):
     conversation.order_id = str(data.get("id") or "")[:64]
     conversation.order_total = salla_service._amount(total.get("amount"))
     conversation.order_currency = (total.get("currency") or data.get("currency") or "")[:8]
-    conversation.save(update_fields=["order_id", "order_total", "order_currency", "updated_at"])
+    conversation.order_at = timezone.now()
+    conversation.save(
+        update_fields=["order_id", "order_total", "order_currency", "order_at", "updated_at"]
+    )

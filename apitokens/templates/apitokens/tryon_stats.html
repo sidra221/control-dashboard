@@ -1,0 +1,247 @@
+{% extends "apitokens/base.html" %}
+{% load tryon_chart %}
+
+{% block title %}{{ T.tryon_stats_title_prefix }}{{ merchant.label }} — Control{% endblock %}
+{% block page_title %}{{ T.tryon_stats_title_prefix }}{{ merchant.label }}{% endblock %}
+{% block page_sub %}{{ T.tryon_stats_sub }}{% endblock %}
+{% block header_links %}
+  <a class="back" href="{% url 'apitokens:conversations' merchant.pk %}">{{ T.conversations_link_short }}</a>
+  <a class="back" href="{% url 'apitokens:dashboard' %}">{{ T.back_to_tokens }}</a>
+{% endblock %}
+
+{% block content %}
+  <div class="card">
+    <form class="tryon-filters" method="get" action="{% url 'apitokens:tryon-stats' merchant.pk %}">
+      <input type="hidden" name="tab" value="{{ tab }}">
+      <div class="field">
+        <label for="f-range">{{ T.tryon_filter_range }}</label>
+        <select id="f-range" name="range">
+          <option value="7" {% if range_key == "7" %}selected{% endif %}>{{ T.tryon_range_7 }}</option>
+          <option value="30" {% if range_key == "30" %}selected{% endif %}>{{ T.tryon_range_30 }}</option>
+          <option value="period" {% if range_key == "period" %}selected{% endif %}>{{ T.tryon_range_period }}</option>
+        </select>
+      </div>
+      <div class="field">
+        <label for="f-window">{{ T.tryon_filter_window }}</label>
+        <select id="f-window" name="window">
+          <option value="7" {% if window_days == 7 %}selected{% endif %}>{{ T.tryon_window_7 }}</option>
+          <option value="14" {% if window_days == 14 %}selected{% endif %}>{{ T.tryon_window_14 }}</option>
+          <option value="30" {% if window_days == 30 %}selected{% endif %}>{{ T.tryon_window_30 }}</option>
+        </select>
+      </div>
+      {% if tab == "activity" %}
+      <div class="field">
+        <label for="f-sku">{{ T.tryon_filter_product }}</label>
+        <select id="f-sku" name="sku">
+          <option value="">{{ T.tryon_filter_all_products }}</option>
+          {% for p in stats.products %}
+            <option value="{{ p.sku }}" {% if p.sku == selected_sku %}selected{% endif %}>{{ p.name|default:p.sku }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="field">
+        <label for="f-shoppers">{{ T.tryon_filter_shoppers }}</label>
+        <select id="f-shoppers" name="shoppers">
+          <option value="all" {% if shoppers != "identified" %}selected{% endif %}>{{ T.tryon_shoppers_all }}</option>
+          <option value="identified" {% if shoppers == "identified" %}selected{% endif %}>{{ T.tryon_shoppers_identified }}</option>
+        </select>
+      </div>
+      {% else %}
+      <input type="hidden" name="sku" value="{{ selected_sku }}">
+      <input type="hidden" name="shoppers" value="{{ shoppers }}">
+      {% endif %}
+      <button type="submit" class="btn-primary">{{ T.tryon_apply_btn }}</button>
+    </form>
+    <p class="card-note range-note">{{ stats.range_start|date:"Y-m-d" }} — {{ stats.range_end|date:"Y-m-d" }}</p>
+  </div>
+
+  <nav class="tryon-tabs" aria-label="{{ T.tryon_tabs_label }}">
+    <a href="?tab=overview&amp;range={{ range_key|urlencode }}&amp;window={{ window_days }}&amp;shoppers={{ shoppers|urlencode }}{% if selected_sku %}&amp;sku={{ selected_sku|urlencode }}{% endif %}"
+       class="{% if tab != 'activity' %}active{% endif %}"{% if tab != 'activity' %} aria-current="page"{% endif %}>{{ T.tryon_tab_overview }}</a>
+    <a href="?tab=activity&amp;range={{ range_key|urlencode }}&amp;window={{ window_days }}&amp;shoppers={{ shoppers|urlencode }}{% if selected_sku %}&amp;sku={{ selected_sku|urlencode }}{% endif %}"
+       class="{% if tab == 'activity' %}active{% endif %}"{% if tab == 'activity' %} aria-current="page"{% endif %}>{{ T.tryon_tab_activity }}</a>
+  </nav>
+
+  {% if tab == "activity" %}
+  <div class="card">
+    <h2>{{ T.tryon_activity_title }}</h2>
+    {% if stats.events %}
+    <div class="table-scroll">
+    <table>
+      <thead>
+        <tr>
+          <th>{{ T.tryon_th_time }}</th>
+          <th>{{ T.tryon_th_product }}</th>
+          <th>{{ T.tryon_th_status }}</th>
+          <th>{{ T.tryon_th_shopper }}</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for e in stats.events %}
+        <tr>
+          <td class="nowrap">{{ e.created_at|date:"Y-m-d H:i" }}</td>
+          <td>{{ e.name|default:e.sku }}{% if e.name %} <span class="sku">{{ e.sku }}</span>{% endif %}</td>
+          <td>
+            {% if e.success %}
+              <span class="badge active">{{ T.tryon_status_success }}</span>
+            {% else %}
+              <span class="badge failed">{{ T.tryon_status_failed }}</span>
+              {% if e.error %}<span class="err-text">{{ e.error }}</span>{% endif %}
+            {% endif %}
+          </td>
+          <td>{% if e.session_short %}<code>{{ e.session_short }}</code>{% else %}—{% endif %}</td>
+          <td>{% if e.has_order %}<span class="badge active">{{ T.tryon_ordered_badge }}</span>{% endif %}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    </div>
+    {% else %}
+    <p class="empty"><span class="ico">👗</span>{{ T.tryon_activity_empty }}</p>
+    {% endif %}
+  </div>
+
+  {% else %}
+  <div class="stats four">
+    <div class="stat"><div class="n">{{ stats.totals.tryons }}</div><div class="l">{{ T.tryon_stat_total }}</div></div>
+    <div class="stat"><div class="n">{{ stats.totals.unique_shoppers }}</div><div class="l">{{ T.tryon_stat_unique }}</div></div>
+    <div class="stat"><div class="n">{{ stats.totals.per_shopper|floatformat:"1u" }}</div><div class="l">{{ T.tryon_stat_per_shopper }}</div></div>
+    <div class="stat">
+      <div class="n"><bdi>{{ stats.totals.attributed_revenue|floatformat:"2u" }} {{ currency }}</bdi></div>
+      <div class="l">{{ T.tryon_stat_revenue }}</div>
+      <div class="note">{{ T.tryon_revenue_note }}</div>
+    </div>
+  </div>
+  <p class="card-note sub-line">
+    <strong>{{ stats.totals.attributed_orders }}</strong> {{ T.tryon_stat_orders_line }}
+    · <strong>{{ stats.totals.failed }}</strong> {{ T.tryon_stat_failed_line }}
+  </p>
+
+  <div class="card">
+    <h2>{{ T.tryon_chart_title }}</h2>
+    {% tryon_chart stats.chart as g %}
+    {% if g.has_data %}
+    <div class="chart-legend">
+      <span><i class="sw bar"></i>{{ T.tryon_legend_tryons }}</span>
+      <span><i class="sw line"></i>{{ T.tryon_legend_orders }}</span>
+    </div>
+    <div class="chart-wrap" dir="ltr">
+      <svg class="tryon-chart" viewBox="0 0 {{ g.width }} {{ g.height }}" role="img" aria-label="{{ T.tryon_chart_aria }}" preserveAspectRatio="xMidYMid meet">
+        <title>{{ T.tryon_chart_title }}</title>
+        <line class="grid" x1="{{ g.left }}" x2="{{ g.right }}" y1="{{ g.top }}" y2="{{ g.top }}"/>
+        {% if g.mid != "" %}<line class="grid" x1="{{ g.left }}" x2="{{ g.right }}" y1="{{ g.mid_y }}" y2="{{ g.mid_y }}"/>{% endif %}
+        <line class="axis" x1="{{ g.left }}" x2="{{ g.right }}" y1="{{ g.base_y }}" y2="{{ g.base_y }}"/>
+        <text class="tick" x="{{ g.label_x }}" y="{{ g.top }}" text-anchor="end" dominant-baseline="hanging">{{ g.max }}</text>
+        {% if g.mid != "" %}<text class="tick" x="{{ g.label_x }}" y="{{ g.mid_y }}" text-anchor="end" dominant-baseline="middle">{{ g.mid }}</text>{% endif %}
+        <text class="tick" x="{{ g.label_x }}" y="{{ g.base_y }}" text-anchor="end" dominant-baseline="text-bottom">0</text>
+        {% for b in g.bars %}
+          <rect class="bar" x="{{ b.x }}" y="{{ b.y }}" width="{{ b.w }}" height="{{ b.h }}" rx="2">
+            <title>{{ b.date }} — {{ T.tryon_legend_tryons }}: {{ b.tryons }} · {{ T.tryon_legend_orders }}: {{ b.orders }}</title>
+          </rect>
+        {% endfor %}
+        {% if not g.single %}<polyline class="line" points="{{ g.points }}"/>{% endif %}
+        {% for d in g.dots %}
+          <circle class="dot" cx="{{ d.cx }}" cy="{{ d.cy }}" r="3"/>
+        {% endfor %}
+        {% if g.single %}
+          <text class="tick" x="{{ g.first_x }}" y="{{ g.label_y }}" text-anchor="middle">{{ g.first_date }}</text>
+        {% else %}
+          <text class="tick" x="{{ g.left }}" y="{{ g.label_y }}" text-anchor="start">{{ g.first_date }}</text>
+          <text class="tick" x="{{ g.right }}" y="{{ g.label_y }}" text-anchor="end">{{ g.last_date }}</text>
+        {% endif %}
+      </svg>
+    </div>
+    {% else %}
+    <p class="empty"><span class="ico">📊</span>{{ T.tryon_chart_empty }}</p>
+    {% endif %}
+  </div>
+
+  <div class="card">
+    <h2>{{ T.tryon_top_products_title }}</h2>
+    {% if stats.top_products %}
+    <div class="table-scroll">
+    <table>
+      <thead>
+        <tr>
+          <th>{{ T.tryon_th_product }}</th>
+          <th>{{ T.tryon_th_tryons }}</th>
+          <th>{{ T.tryon_th_orders }}</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for p in stats.top_products %}
+        <tr>
+          <td>{{ p.name|default:p.sku }}{% if p.name %} <span class="sku">{{ p.sku }}</span>{% endif %}</td>
+          <td>{{ p.tryons }}</td>
+          <td>{{ p.orders }}</td>
+          <td>
+            {% if p.tryons >= 3 and p.orders == 0 %}
+              <span class="badge warn" title="{{ T.tryon_no_orders_hint }}">{{ T.tryon_no_orders_badge }}</span>
+              <span class="hint">{{ T.tryon_no_orders_hint }}</span>
+            {% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    </div>
+    {% else %}
+    <p class="empty"><span class="ico">🗂️</span>{{ T.tryon_top_products_empty }}</p>
+    {% endif %}
+  </div>
+  {% endif %}
+{% endblock %}
+
+{% block extra_style %}
+  :root {
+    --warn-bg: #fffbeb;
+    --warn-text: #b45309;
+    --chart-orders: #059669;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --warn-bg: #3a2a08; --warn-text: #fbbf24; --chart-orders: #34d399; }
+  }
+  th, td { text-align: start; vertical-align: top; }
+  .nowrap { white-space: nowrap; }
+  .tryon-filters { display: flex; flex-wrap: wrap; gap: 14px; align-items: end; }
+  .tryon-filters .field select { min-width: 160px; }
+  .range-note { margin: 14px 0 0 !important; }
+  .tryon-tabs { display: flex; gap: 8px; margin-bottom: 20px; flex-wrap: wrap; }
+  .tryon-tabs a {
+    padding: 8px 18px; border-radius: 10px; border: 1px solid var(--border);
+    background: var(--card); color: var(--muted); font-size: 13.5px; font-weight: 600;
+    text-decoration: none; transition: all .15s ease;
+  }
+  .tryon-tabs a:hover { color: var(--accent); border-color: var(--accent); }
+  .tryon-tabs a.active { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .stats.four { grid-template-columns: repeat(4, 1fr); margin-bottom: 10px; }
+  .stat .note { font-size: 11.5px; color: var(--muted); margin-top: 8px; line-height: 1.5; }
+  .sub-line { font-size: 13px; color: var(--muted); margin: 0 0 24px; }
+  .sub-line strong { color: var(--text); }
+  .sku { color: var(--muted); font-size: 11.5px; margin-inline-start: 4px; }
+  .err-text { color: var(--error-text); font-size: 12px; margin-inline-start: 6px; }
+  .badge.failed { background: var(--error-bg); color: var(--error-text); }
+  .badge.failed::before { background: var(--error-text); }
+  .badge.warn { background: var(--warn-bg); color: var(--warn-text); }
+  .badge.warn::before { background: var(--warn-text); }
+  .hint { color: var(--muted); font-size: 12px; margin-inline-start: 8px; }
+  .chart-legend { display: flex; gap: 18px; font-size: 12.5px; color: var(--muted); margin-bottom: 8px; }
+  .chart-legend .sw { display: inline-block; vertical-align: middle; margin-inline-end: 6px; }
+  .chart-legend .sw.bar { width: 12px; height: 12px; border-radius: 3px; background: var(--accent); }
+  .chart-legend .sw.line { width: 16px; height: 3px; border-radius: 2px; background: var(--chart-orders); }
+  .chart-wrap { width: 100%; }
+  .tryon-chart { display: block; width: 100%; height: auto; max-height: 320px; font-family: inherit; }
+  .tryon-chart .grid { stroke: var(--border); stroke-width: 1; stroke-dasharray: 3 4; }
+  .tryon-chart .axis { stroke: var(--muted); stroke-width: 1; opacity: .5; }
+  .tryon-chart .tick { fill: var(--muted); font-size: 11px; }
+  .tryon-chart .bar { fill: var(--accent); }
+  .tryon-chart .line { fill: none; stroke: var(--chart-orders); stroke-width: 2; stroke-linejoin: round; }
+  .tryon-chart .dot { fill: var(--chart-orders); stroke: var(--card); stroke-width: 1.5; }
+  @media (max-width: 720px) {
+    .stats.four { grid-template-columns: 1fr 1fr; }
+    .tryon-filters .field { flex: 1 1 140px; }
+    .hint { display: block; margin: 4px 0 0; }
+  }
+{% endblock %}

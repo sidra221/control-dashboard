@@ -11,7 +11,9 @@ from django.utils import timezone
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_http_methods
 
-from .models import ApiToken, Conversation, Product, SallaConnection, SizeChart, ZidConnection
+from .models import (
+    ApiToken, Conversation, Product, SallaConnection, SizeChart, TryOnEvent, ZidConnection,
+)
 from .services import catalog as catalog_service
 from .services import discounts, kieai, llm, saudi, sizing
 
@@ -1809,6 +1811,18 @@ TRYON_PROMPT = (
 )
 
 
+def _record_tryon_event(merchant, session_id, product, sku, success, error=""):
+    """بنسجّل محاولة التجربة للإحصائيات — أي خطأ بالتسجيل ما لازم يكسر الرد."""
+    try:
+        with transaction.atomic():
+            TryOnEvent.objects.create(
+                merchant=merchant, session_id=session_id or "", product=product,
+                sku=sku[:64], success=success, error=error,
+            )
+    except Exception:
+        logger.exception("tryon_event_record_failed merchant=%s sku=%s", merchant.pk, sku)
+
+
 @csrf_exempt
 @require_http_methods(["POST", "OPTIONS"])
 def tryon(request):
@@ -1857,6 +1871,10 @@ def tryon(request):
             prompt=TRYON_PROMPT,
         )
     except kieai.TryOnError as exc:
+        _record_tryon_event(
+            merchant, _clean_session_id(request.POST.get("session_id")), product, sku,
+            success=False, error=str(exc)[:120],
+        )
         return _cors_response({"ok": False, "error": str(exc)}, status=502)
 
     with transaction.atomic():
@@ -1864,6 +1882,7 @@ def tryon(request):
         result = merchant.consume_quota(1)
 
     session_id = _clean_session_id(request.POST.get("session_id"))
+    _record_tryon_event(merchant, session_id, product, sku, success=True)
     if session_id:
         conversation = Conversation.objects.filter(merchant=merchant, session_id=session_id).first()
         if conversation is not None:
