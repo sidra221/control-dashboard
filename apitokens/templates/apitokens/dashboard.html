@@ -129,6 +129,7 @@
               {% endif %}
             </div>
             <small style="display:block;margin-top:4px;color:var(--muted)">{% if t.portal_key_hash %}{{ T.portal_admin_status_active_since }} {{ t.portal_key_created_at|date:"Y-m-d" }}{% else %}{{ T.portal_admin_status_none }}{% endif %}</small>
+            {% if t.portal_key_hash %}<small style="display:block;color:var(--muted)">{% if t.terms_accepted_at %}{{ T.portal_admin_terms_accepted }} {{ t.terms_accepted_at|date:"Y-m-d" }} ({{ t.terms_accepted_version }}){% else %}{{ T.portal_admin_terms_pending }}{% endif %}</small>{% endif %}
           </td>
           <td>
             <a class="btn-toggle" href="{% url 'apitokens:catalog' t.pk %}">{{ T.th_catalog }} ({{ t.product_count }})</a>

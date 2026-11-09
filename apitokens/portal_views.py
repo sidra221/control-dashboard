@@ -4,11 +4,11 @@
 from datetime import timedelta
 
 from django.db.models import Count, Q, Sum
-from django.shortcuts import render
+from django.shortcuts import redirect, render
 from django.utils import timezone
 
 from .models import Conversation, TryOnEvent
-from .portal_auth import portal_required
+from .portal_auth import PORTAL_TERMS_VERSION, accept_terms, portal_required, terms_accepted_required
 from .services import tryon_stats as tryon_stats_service
 
 
@@ -33,6 +33,7 @@ def _conversation_kpis(merchant):
 
 
 @portal_required
+@terms_accepted_required
 def home(request):
     merchant = request.portal_merchant
     range_key = tryon_stats_service.clean_range(request.GET.get("range", tryon_stats_service.DEFAULT_RANGE))
@@ -55,4 +56,24 @@ def home(request):
             "currency": merchant.currency,
             "has_data": has_data,
         },
+    )
+
+
+@portal_required
+def accept(request):
+    """موافقة التاجر على سياسة الخصوصية قبل أول عرض للوحة. بتنسجّل بالنسخة والوقت."""
+    merchant = request.portal_merchant
+    if merchant.terms_accepted_version == PORTAL_TERMS_VERSION:
+        return redirect("portal:home")
+    error = False
+    if request.method == "POST":
+        if request.POST.get("agree") == "1":
+            accept_terms(merchant)
+            return redirect("portal:home")
+        error = True
+    return render(
+        request,
+        "apitokens/portal/accept.html",
+        {"merchant": merchant, "version": PORTAL_TERMS_VERSION, "error": error},
+        status=400 if error else 200,
     )

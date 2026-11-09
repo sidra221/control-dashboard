@@ -16,6 +16,10 @@ from django.views.decorators.http import require_GET, require_POST
 
 from .models import ApiToken
 
+# نسخة سياسة الخصوصية اللي بيوافق عليها التاجر. غيّرها لما تتغيّر السياسة جوهرياً،
+# فبنطلب الموافقة من كل التجار من جديد.
+PORTAL_TERMS_VERSION = "2026-11-09"
+
 SESSION_MERCHANT = "portal_merchant_id"
 SESSION_KEY_HASH = "portal_key_hash"
 _SESSION_KEYS = (SESSION_MERCHANT, SESSION_KEY_HASH)
@@ -41,7 +45,10 @@ def revoke_portal_key(merchant):
 
 
 def _harden(response):
-    response["Referrer-Policy"] = "no-referrer"
+    # same-origin مش no-referrer: مع no-referrer المتصفح بيبعت `Origin: null` بكل POST
+    # وجانغو بيرفضه (CSRF) — فكانوا زر الموافقة والخروج واللغة ما بيشتغلوا. هيك بنضل
+    # ما منسرّب الرابط لأي موقع تاني.
+    response["Referrer-Policy"] = "same-origin"
     response["Cache-Control"] = "no-store"
     response["X-Robots-Tag"] = "noindex, nofollow"
     return response
@@ -78,6 +85,24 @@ def portal_required(view):
         return _harden(view(request, *args, **kwargs))
 
     return wrapper
+
+
+def terms_accepted_required(view):
+    """بتنحط تحت portal_required: التاجر اللي ما وافق (أو وافق على نسخة قديمة) بيروح لصفحة الموافقة."""
+
+    @wraps(view)
+    def wrapper(request, *args, **kwargs):
+        if request.portal_merchant.terms_accepted_version != PORTAL_TERMS_VERSION:
+            return redirect("portal:accept")
+        return view(request, *args, **kwargs)
+
+    return wrapper
+
+
+def accept_terms(merchant):
+    merchant.terms_accepted_at = timezone.now()
+    merchant.terms_accepted_version = PORTAL_TERMS_VERSION
+    merchant.save(update_fields=["terms_accepted_at", "terms_accepted_version"])
 
 
 @require_GET

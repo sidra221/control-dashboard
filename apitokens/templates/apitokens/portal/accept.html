@@ -1,0 +1,35 @@
+{% extends "apitokens/portal/base.html" %}
+
+{% block title %}{{ T.portal_accept_title }}{% endblock %}
+{% block page_title %}{{ T.portal_accept_title }}{% endblock %}
+{% block page_sub %}{{ merchant.label }} — {{ T.portal_accept_sub }}{% endblock %}
+{% block header_actions %}
+  <form class="logout-form" method="post" action="{% url 'portal:logout' %}">
+    {% csrf_token %}
+    <button type="submit" class="btn-ghost">{{ T.portal_home_logout }}</button>
+  </form>
+{% endblock %}
+
+{% block content %}
+  <div class="card">
+    <p>{{ T.portal_accept_intro }}</p>
+    <ul>
+      <li>{{ T.portal_accept_point_1 }}</li>
+      <li>{{ T.portal_accept_point_2 }}</li>
+      <li>{{ T.portal_accept_point_3 }}</li>
+      <li>{{ T.portal_accept_point_4 }}</li>
+    </ul>
+    <p><a href="{% url 'privacy' %}" target="_blank" rel="noopener noreferrer">{{ T.portal_accept_read }}</a>
+      <small style="color:var(--muted)"> · {{ T.portal_accept_version }}: {{ version }}</small></p>
+
+    <form method="post" action="{% url 'portal:accept' %}">
+      {% csrf_token %}
+      {% if error %}<p role="alert" style="color:#b91c1c;font-weight:700">{{ T.portal_accept_error }}</p>{% endif %}
+      <label style="display:flex;gap:10px;align-items:flex-start;margin:14px 0;cursor:pointer">
+        <input type="checkbox" name="agree" value="1" style="margin-top:4px">
+        <span>{{ T.portal_accept_checkbox }}</span>
+      </label>
+      <button type="submit" class="btn-primary">{{ T.portal_accept_button }}</button>
+    </form>
+  </div>
+{% endblock %}

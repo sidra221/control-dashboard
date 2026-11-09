@@ -20,4 +20,6 @@ PORTAL_ADMIN_TRANSLATIONS = {
     },
     "portal_admin_msg_generated": {"ar": "تم توليد رابط البوابة", "en": "Portal link generated"},
     "portal_admin_msg_revoked": {"ar": "تم إلغاء رابط البوابة", "en": "Portal link revoked"},
+    "portal_admin_terms_accepted": {"ar": "وافق على السياسة بتاريخ", "en": "Agreed to the policy on"},
+    "portal_admin_terms_pending": {"ar": "ما وافق على السياسة بعد", "en": "Has not agreed to the policy yet"},
 }

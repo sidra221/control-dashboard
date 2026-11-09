@@ -73,4 +73,35 @@ PORTAL_TRANSLATIONS = {
         "en": "Tried on a lot but nobody bought it — may signal a price, size or photo problem",
     },
     "portal_home_top_empty": {"ar": "ما في منتجات انجرّبت بهالفترة", "en": "No products were tried on in this period"},
+    # ===== portal/accept.html — موافقة التاجر على سياسة الخصوصية =====
+    "portal_accept_title": {"ar": "الموافقة على سياسة الخصوصية", "en": "Privacy policy agreement"},
+    "portal_accept_sub": {"ar": "خطوة واحدة قبل عرض لوحة المتجر", "en": "One step before your dashboard"},
+    "portal_accept_intro": {
+        "ar": "قبل استخدام لوحة المتجر وخدمة المساعد الذكي وتجربة اللبس، يرجى الاطلاع على سياسة الخصوصية والموافقة عليها.",
+        "en": "Before using the store dashboard, the AI assistant and the virtual try-on, please read and agree to the privacy policy.",
+    },
+    "portal_accept_point_1": {
+        "ar": "تُعالَج بيانات متجرك (المنتجات والطلبات والمحادثات) لأغراض تشغيل الخدمة فقط.",
+        "en": "Your store data (products, orders and conversations) is processed only to run the service.",
+    },
+    "portal_accept_point_2": {
+        "ar": "عند استخدام تجربة اللبس، تُعالَج الصور التي يرفعها زبائنك لإنتاج صورة التجربة، وفق القسم الخاص بذلك في السياسة.",
+        "en": "When the try-on is used, photos uploaded by your shoppers are processed to produce the try-on image, as described in the dedicated section of the policy.",
+    },
+    "portal_accept_point_3": {
+        "ar": "نستعين بمزوّدين خارجيين لمعالجة النصوص والصور، وقد تُعالَج البيانات خارج بلدك.",
+        "en": "We use external providers to process text and images, and data may be processed outside your country.",
+    },
+    "portal_accept_point_4": {
+        "ar": "لا نبيع البيانات ولا نستخدمها للإعلانات.",
+        "en": "We do not sell data or use it for advertising.",
+    },
+    "portal_accept_read": {"ar": "قراءة سياسة الخصوصية كاملة", "en": "Read the full privacy policy"},
+    "portal_accept_checkbox": {
+        "ar": "أقرّ بأنني اطّلعت على سياسة الخصوصية وأوافق على معالجة البيانات الموضحة فيها لأغراض تشغيل الخدمة في متجري.",
+        "en": "I confirm that I have read the privacy policy and agree to the processing of data described in it to run the service for my store.",
+    },
+    "portal_accept_button": {"ar": "أوافق وأتابع", "en": "I agree and continue"},
+    "portal_accept_error": {"ar": "يجب تعليم خانة الموافقة للمتابعة.", "en": "Please tick the agreement box to continue."},
+    "portal_accept_version": {"ar": "نسخة السياسة", "en": "Policy version"},
 }

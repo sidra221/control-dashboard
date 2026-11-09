@@ -12,7 +12,7 @@ from . import portal_auth
 from .models import ApiToken
 
 PORTAL_HEADERS = {
-    "Referrer-Policy": "no-referrer",
+    "Referrer-Policy": "same-origin",
     "Cache-Control": "no-store",
     "X-Robots-Tag": "noindex, nofollow",
 }

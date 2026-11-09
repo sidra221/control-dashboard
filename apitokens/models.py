@@ -60,6 +60,9 @@ class ApiToken(models.Model):
     # مفصول عن `token` لأنه مكتوب علناً بسكربت الويدجت بمتجر التاجر.
     portal_key_hash = models.CharField(max_length=64, blank=True, default="", db_index=True, editable=False)
     portal_key_created_at = models.DateTimeField(null=True, blank=True, editable=False)
+    # موافقة التاجر على سياسة الخصوصية: أي نسخة ومتى — بنطلبها من جديد لما ننزّل نسخة جديدة.
+    terms_accepted_at = models.DateTimeField(null=True, blank=True, editable=False)
+    terms_accepted_version = models.CharField(max_length=16, blank=True, default="", editable=False)
 
     class Meta:
         verbose_name = "توكن API"

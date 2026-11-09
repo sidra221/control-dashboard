@@ -8,5 +8,6 @@ urlpatterns = [
     path("enter/<str:key>/", portal_auth.enter, name="enter"),
     path("expired/", portal_auth.expired, name="expired"),
     path("logout/", portal_auth.logout, name="logout"),
+    path("accept/", portal_views.accept, name="accept"),
     path("", portal_views.home, name="home"),
 ]

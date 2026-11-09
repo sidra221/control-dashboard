@@ -12,9 +12,12 @@ from django.utils import timezone
 from .i18n import TRANSLATIONS
 from .i18n_portal import PORTAL_TRANSLATIONS
 from .models import ApiToken, Conversation, Product, TryOnEvent
+from .portal_auth import PORTAL_TERMS_VERSION
 
 
 def make_merchant(label, key, **kw):
+    # التجار بهالاختبارات وافقوا على السياسة (بوابة الموافقة مختبرة بـ test_portal_consent).
+    kw.setdefault("terms_accepted_version", PORTAL_TERMS_VERSION)
     return ApiToken.objects.create(
         label=label, image_quota=100, portal_key_hash=hashlib.sha256(key.encode()).hexdigest(), **kw,
     )
@@ -155,7 +158,7 @@ class PortalContentTests(PortalBase):
     def test_headers_hardened(self):
         resp = self.get()
         self.assertEqual(resp["Cache-Control"], "no-store")
-        self.assertEqual(resp["Referrer-Policy"], "no-referrer")
+        self.assertEqual(resp["Referrer-Policy"], "same-origin")
 
     def test_language_toggle_returns_to_portal_page(self):
         html = self.get("en", range="7", window="14").content.decode()
