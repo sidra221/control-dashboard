@@ -203,8 +203,6 @@
     "  border: none; cursor: pointer; width: 100%; margin-top: 6px; font-family: inherit;",
     "}",
     ".card button.tryon { background: #eef0ff; color: #4f46e5; }",
-    ".card .tryon-note { margin-top: 6px; font-size: 10.5px; line-height: 1.5; color: #8b90a6; }",
-    ".card .tryon-note a { color: #6b7083; text-decoration: underline; }",
     ".card a.buy, .card button.addcart { background: linear-gradient(135deg, #6366f1, #4f46e5); color: #fff; }",
     ".typing { align-self: flex-start; font-size: 12px; color: #9095ab; padding: 0 4px; }",
     ".msg.writing::after { content: '▍'; margin-inline-start: 1px; opacity: .6; animation: sw-blink 1s steps(1) infinite; }",
@@ -411,26 +409,6 @@
     })();
   }
 
-  var TRYON_NOTE = {
-    ar: { before: "بمتابعتك ورفع صورتك فإنك توافق على ", link: "سياسة خصوصية تجربة اللبس", after: ". قد يخطئ الذكاء الاصطناعي في النتيجة." },
-    en: { before: "By continuing and uploading your photo, you agree to the ", link: "Try-On Privacy Policy", after: ". AI can make mistakes." },
-  };
-
-  function tryonPrivacyNote() {
-    var t = TRYON_NOTE[uiLang()];
-    var note = document.createElement("div");
-    note.className = "tryon-note";
-    note.appendChild(document.createTextNode(t.before));
-    var link = document.createElement("a");
-    link.href = API_BASE + "/privacy/#tryon";
-    link.target = "_blank";
-    link.rel = "noopener noreferrer";
-    link.textContent = t.link;
-    note.appendChild(link);
-    note.appendChild(document.createTextNode(t.after));
-    return note;
-  }
-
   function addErrorMessage(text) {
     var el = document.createElement("div");
     el.className = "msg error";
@@ -556,8 +534,6 @@
       }
     });
     card.appendChild(tryBtn);
-    // تنبيه الخصوصية تحت الزر: بمتابعة الزبون ورفع صورته بيوافق على سياسة التجربة.
-    if (rec.tryon_supported !== false) card.appendChild(tryonPrivacyNote());
 
     var labels = UI[uiLang()];
     if (IS_SHOPIFY && rec.variant_id) {
