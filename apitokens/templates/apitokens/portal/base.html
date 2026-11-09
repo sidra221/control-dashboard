@@ -1,0 +1,184 @@
+<!DOCTYPE html>
+<html lang="{{ LANG }}" dir="{{ DIR }}">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex,nofollow">
+<title>{% block title %}{{ T.portal_home_title }}{% endblock %}</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Crect width='100' height='100' rx='22' fill='%236366f1'/%3E%3Ctext x='50' y='68' font-size='58' text-anchor='middle' fill='white' font-family='sans-serif'%3EC%3C/text%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Tajawal:wght@400;500;700;800&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #f3f4f8;
+    --bg-soft: #eceefb;
+    --card: #ffffff;
+    --border: #e4e6ef;
+    --text: #1a1d29;
+    --muted: #6b7083;
+    --accent: #6366f1;
+    --accent-dark: #4f46e5;
+    --accent-soft: #eef0ff;
+    --success-bg: #ecfdf5;
+    --success-text: #047857;
+    --warn-bg: #fffbeb;
+    --warn-text: #b45309;
+    --chart-orders: #059669;
+    --shadow: 0 1px 2px rgba(20, 20, 50, 0.04), 0 8px 24px -12px rgba(20, 20, 50, 0.10);
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #11121b;
+      --bg-soft: #171926;
+      --card: #191b28;
+      --border: #2b2e3f;
+      --text: #eef0f8;
+      --muted: #9095ab;
+      --accent: #818cf8;
+      --accent-dark: #a5b4fc;
+      --accent-soft: #23253a;
+      --success-bg: #082f24;
+      --success-text: #34d399;
+      --warn-bg: #3a2a08;
+      --warn-text: #fbbf24;
+      --chart-orders: #34d399;
+      --shadow: 0 1px 2px rgba(0, 0, 0, 0.3), 0 8px 24px -12px rgba(0, 0, 0, 0.5);
+    }
+  }
+
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background:
+      radial-gradient(1200px 400px at 50% -120px, var(--bg-soft), transparent),
+      var(--bg);
+    color: var(--text);
+    font-family: "Tajawal", "Segoe UI", Tahoma, Arial, sans-serif;
+    padding: 32px 16px 64px;
+    line-height: 1.5;
+  }
+
+  .wrap { max-width: 1100px; margin: 0 auto; }
+
+  header {
+    display: flex; align-items: center; justify-content: space-between;
+    margin-bottom: 24px; gap: 16px; flex-wrap: wrap;
+  }
+  .brand { display: flex; align-items: center; gap: 12px; min-width: 0; }
+  .brand-mark {
+    width: 40px; height: 40px; border-radius: 12px;
+    background: linear-gradient(135deg, var(--accent), var(--accent-dark));
+    color: #fff; display: flex; align-items: center; justify-content: center;
+    font-weight: 800; font-size: 18px; flex-shrink: 0;
+  }
+  header h1 { font-size: 20px; font-weight: 800; margin: 0; overflow-wrap: anywhere; }
+  header .sub { font-size: 13px; color: var(--muted); margin: 2px 0 0; }
+  .header-links { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+
+  .lang-switch { display: flex; border: 1px solid var(--border); border-radius: 10px; overflow: hidden; margin: 0; }
+  .lang-switch button {
+    cursor: pointer; border: none; background: var(--card); color: var(--muted);
+    font-size: 12.5px; font-weight: 600; padding: 8px 12px; transition: all .15s ease;
+  }
+  .lang-switch button.active { background: var(--accent); color: #fff; }
+  .lang-switch button:not(.active):hover { color: var(--accent); }
+  .logout-form { margin: 0; }
+  .btn-ghost {
+    cursor: pointer; border: 1px solid var(--border); border-radius: 10px;
+    background: var(--card); color: var(--muted); padding: 8px 14px;
+    font-size: 12.5px; font-weight: 600; font-family: inherit; transition: all .15s ease;
+  }
+  .btn-ghost:hover { color: var(--accent); border-color: var(--accent); }
+
+  .stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; margin-bottom: 14px; }
+  .stats.four { grid-template-columns: repeat(4, 1fr); }
+  .stats.five { grid-template-columns: repeat(5, 1fr); }
+  .stat {
+    background: var(--card); border: 1px solid var(--border); border-radius: 14px;
+    padding: 16px 18px; box-shadow: var(--shadow); min-width: 0;
+  }
+  .stat .n { font-size: 26px; font-weight: 800; overflow-wrap: anywhere; }
+  .stat .l { font-size: 12.5px; color: var(--muted); margin-top: 2px; }
+
+  .card {
+    background: var(--card); border: 1px solid var(--border); border-radius: 16px;
+    padding: 20px 22px; margin-bottom: 20px; box-shadow: var(--shadow);
+  }
+  .card h2 { font-size: 15.5px; font-weight: 700; margin: 0 0 16px; }
+  .section-title { font-size: 14px; font-weight: 700; color: var(--muted); margin: 26px 0 12px; }
+  .card-note { font-size: 12.5px; color: var(--muted); margin: 0; }
+
+  .field { display: flex; flex-direction: column; gap: 6px; }
+  .field label { font-size: 12.5px; color: var(--muted); font-weight: 500; }
+  .field select {
+    padding: 11px 14px; border-radius: 10px; border: 1px solid var(--border);
+    font-size: 14px; font-family: inherit; background: var(--bg); color: var(--text);
+  }
+  .field select:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+  .btn-primary {
+    cursor: pointer; border: none; border-radius: 10px; padding: 11px 22px;
+    font-size: 14px; font-weight: 700; color: #fff; font-family: inherit;
+    background: linear-gradient(135deg, var(--accent), var(--accent-dark));
+  }
+
+  .table-scroll { overflow-x: auto; }
+  table { width: 100%; border-collapse: collapse; font-size: 13.5px; }
+  th, td { text-align: start; padding: 10px 8px; vertical-align: top; }
+  thead th { color: var(--muted); font-weight: 600; font-size: 12.5px; border-bottom: 1px solid var(--border); }
+  tbody tr { border-bottom: 1px solid var(--border); }
+  tbody tr:last-child { border-bottom: none; }
+  .nowrap { white-space: nowrap; }
+
+  .badge {
+    display: inline-flex; align-items: center; gap: 6px;
+    padding: 4px 11px; border-radius: 999px; font-size: 11.5px; font-weight: 600;
+  }
+  .badge::before { content: ""; width: 7px; height: 7px; border-radius: 50%; }
+  .badge.warn { background: var(--warn-bg); color: var(--warn-text); }
+  .badge.warn::before { background: var(--warn-text); }
+  .hint { color: var(--muted); font-size: 12px; margin-inline-start: 8px; }
+  .sku { color: var(--muted); font-size: 11.5px; margin-inline-start: 4px; }
+  .empty { color: var(--muted); padding: 36px 0; text-align: center; font-size: 14px; }
+  .empty .ico { font-size: 28px; display: block; margin-bottom: 8px; opacity: .6; }
+  .empty strong { display: block; color: var(--text); font-size: 15.5px; margin-bottom: 6px; }
+
+  {% block extra_style %}{% endblock %}
+
+  @media (max-width: 860px) {
+    .stats.five { grid-template-columns: 1fr 1fr 1fr; }
+  }
+  @media (max-width: 720px) {
+    body { padding: 20px 12px 48px; }
+    .stats, .stats.four, .stats.five { grid-template-columns: 1fr 1fr; }
+    .stat .n { font-size: 22px; }
+    .card { padding: 16px; }
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div class="brand">
+      <div class="brand-mark">C</div>
+      <div>
+        <h1>{% block page_title %}{{ T.portal_home_title }}{% endblock %}</h1>
+        <p class="sub">{% block page_sub %}{% endblock %}</p>
+      </div>
+    </div>
+    <div class="header-links">
+      <form class="lang-switch" method="post" action="{% url 'apitokens:set-language' %}" aria-label="{{ T.portal_home_lang_label }}">
+        {% csrf_token %}
+        <input type="hidden" name="next" value="{{ request.get_full_path }}">
+        <button type="submit" name="lang" value="ar" class="{% if LANG == 'ar' %}active{% endif %}">AR</button>
+        <button type="submit" name="lang" value="en" class="{% if LANG == 'en' %}active{% endif %}">EN</button>
+      </form>
+      {% block header_actions %}{% endblock %}
+    </div>
+  </header>
+
+  {% block content %}{% endblock %}
+</div>
+</body>
+</html>

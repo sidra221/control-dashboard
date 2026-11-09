@@ -1,0 +1,165 @@
+{% extends "apitokens/portal/base.html" %}
+{% load tryon_chart %}
+
+{% block title %}{{ merchant.label }} — {{ T.portal_home_title }}{% endblock %}
+{% block page_title %}{{ merchant.label }}{% endblock %}
+{% block page_sub %}{{ T.portal_home_sub }}{% endblock %}
+{% block header_actions %}
+  <form class="logout-form" method="post" action="{% url 'portal:logout' %}">
+    {% csrf_token %}
+    <button type="submit" class="btn-ghost">{{ T.portal_home_logout }}</button>
+  </form>
+{% endblock %}
+
+{% block content %}
+  {% if not has_data %}
+  <div class="card">
+    <p class="empty"><span class="ico">👗</span><strong>{{ T.portal_home_empty_title }}</strong>{{ T.portal_home_empty_text }}</p>
+  </div>
+  {% else %}
+  <div class="card">
+    <form class="filters" method="get" action="{% url 'portal:home' %}">
+      <div class="field">
+        <label for="f-range">{{ T.portal_home_filter_range }}</label>
+        <select id="f-range" name="range">
+          <option value="7" {% if range_key == "7" %}selected{% endif %}>{{ T.portal_home_range_7 }}</option>
+          <option value="30" {% if range_key == "30" %}selected{% endif %}>{{ T.portal_home_range_30 }}</option>
+          <option value="period" {% if range_key == "period" %}selected{% endif %}>{{ T.portal_home_range_period }}</option>
+        </select>
+      </div>
+      <div class="field">
+        <label for="f-window">{{ T.portal_home_filter_window }}</label>
+        <select id="f-window" name="window">
+          <option value="7" {% if window_days == 7 %}selected{% endif %}>{{ T.portal_home_window_7 }}</option>
+          <option value="14" {% if window_days == 14 %}selected{% endif %}>{{ T.portal_home_window_14 }}</option>
+          <option value="30" {% if window_days == 30 %}selected{% endif %}>{{ T.portal_home_window_30 }}</option>
+        </select>
+      </div>
+      <button type="submit" class="btn-primary">{{ T.portal_home_apply }}</button>
+    </form>
+    <p class="card-note range-note"><bdi>{{ stats.range_start|date:"Y-m-d" }} — {{ stats.range_end|date:"Y-m-d" }}</bdi></p>
+  </div>
+
+  <h2 class="section-title">{{ T.portal_home_tryon_section }}</h2>
+  <div class="stats four">
+    <div class="stat"><div class="n">{{ stats.totals.tryons }}</div><div class="l">{{ T.portal_home_stat_total }}</div></div>
+    <div class="stat"><div class="n">{{ stats.totals.unique_shoppers }}</div><div class="l">{{ T.portal_home_stat_unique }}</div></div>
+    <div class="stat"><div class="n">{{ stats.totals.per_shopper|floatformat:"1u" }}</div><div class="l">{{ T.portal_home_stat_per_shopper }}</div></div>
+    <div class="stat">
+      <div class="n"><bdi>{{ stats.totals.attributed_revenue|floatformat:"2u" }} {{ currency }}</bdi></div>
+      <div class="l">{{ T.portal_home_stat_revenue }}</div>
+      <div class="note"><strong>{{ stats.totals.attributed_orders }}</strong> {{ T.portal_home_orders_line }}</div>
+    </div>
+  </div>
+  <p class="card-note explain">{{ T.portal_home_revenue_explain }}</p>
+
+  <h2 class="section-title">{{ T.portal_home_conv_section }}</h2>
+  <div class="stats five">
+    <div class="stat"><div class="n">{{ conv.total }}</div><div class="l">{{ T.portal_home_conv_total }}</div></div>
+    <div class="stat"><div class="n">{{ conv.with_recommendation }}</div><div class="l">{{ T.portal_home_conv_recommendation }}</div></div>
+    <div class="stat"><div class="n">{{ conv.intent }}</div><div class="l">{{ T.portal_home_conv_intent }}</div></div>
+    <div class="stat"><div class="n">{{ conv.orders }}</div><div class="l">{{ T.portal_home_conv_orders }}</div></div>
+    <div class="stat"><div class="n"><bdi>{{ conv.revenue|floatformat:"2u" }} {{ currency }}</bdi></div><div class="l">{{ T.portal_home_conv_revenue }}</div></div>
+  </div>
+
+  <div class="card chart-card">
+    <h2>{{ T.portal_home_chart_title }}</h2>
+    {% tryon_chart stats.chart as g %}
+    {% if g.has_data %}
+    <div class="chart-legend">
+      <span><i class="sw bar"></i>{{ T.portal_home_legend_tryons }}</span>
+      <span><i class="sw line"></i>{{ T.portal_home_legend_orders }}</span>
+    </div>
+    <div class="chart-wrap" dir="ltr">
+      <svg class="tryon-chart" viewBox="0 0 {{ g.width }} {{ g.height }}" role="img" aria-label="{{ T.portal_home_chart_aria }}" preserveAspectRatio="xMidYMid meet">
+        <title>{{ T.portal_home_chart_title }}</title>
+        <line class="grid" x1="{{ g.left }}" x2="{{ g.right }}" y1="{{ g.top }}" y2="{{ g.top }}"/>
+        {% if g.mid != "" %}<line class="grid" x1="{{ g.left }}" x2="{{ g.right }}" y1="{{ g.mid_y }}" y2="{{ g.mid_y }}"/>{% endif %}
+        <line class="axis" x1="{{ g.left }}" x2="{{ g.right }}" y1="{{ g.base_y }}" y2="{{ g.base_y }}"/>
+        <text class="tick" x="{{ g.label_x }}" y="{{ g.top }}" text-anchor="end" dominant-baseline="hanging">{{ g.max }}</text>
+        {% if g.mid != "" %}<text class="tick" x="{{ g.label_x }}" y="{{ g.mid_y }}" text-anchor="end" dominant-baseline="middle">{{ g.mid }}</text>{% endif %}
+        <text class="tick" x="{{ g.label_x }}" y="{{ g.base_y }}" text-anchor="end" dominant-baseline="text-bottom">0</text>
+        {% for b in g.bars %}
+          <rect class="bar" x="{{ b.x }}" y="{{ b.y }}" width="{{ b.w }}" height="{{ b.h }}" rx="2">
+            <title>{{ b.date }} — {{ T.portal_home_legend_tryons }}: {{ b.tryons }} · {{ T.portal_home_legend_orders }}: {{ b.orders }}</title>
+          </rect>
+        {% endfor %}
+        {% if not g.single %}<polyline class="line" points="{{ g.points }}"/>{% endif %}
+        {% for d in g.dots %}
+          <circle class="dot" cx="{{ d.cx }}" cy="{{ d.cy }}" r="3"/>
+        {% endfor %}
+        {% if g.single %}
+          <text class="tick" x="{{ g.first_x }}" y="{{ g.label_y }}" text-anchor="middle">{{ g.first_date }}</text>
+        {% else %}
+          <text class="tick" x="{{ g.left }}" y="{{ g.label_y }}" text-anchor="start">{{ g.first_date }}</text>
+          <text class="tick" x="{{ g.right }}" y="{{ g.label_y }}" text-anchor="end">{{ g.last_date }}</text>
+        {% endif %}
+      </svg>
+    </div>
+    {% else %}
+    <p class="empty"><span class="ico">📊</span>{{ T.portal_home_chart_empty }}</p>
+    {% endif %}
+  </div>
+
+  <div class="card">
+    <h2>{{ T.portal_home_top_title }}</h2>
+    {% if stats.top_products %}
+    <div class="table-scroll">
+    <table>
+      <thead>
+        <tr>
+          <th>{{ T.portal_home_th_product }}</th>
+          <th>{{ T.portal_home_th_tryons }}</th>
+          <th>{{ T.portal_home_th_orders }}</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for p in stats.top_products %}
+        <tr>
+          <td>{{ p.name|default:p.sku }}{% if p.name %} <span class="sku">{{ p.sku }}</span>{% endif %}</td>
+          <td>{{ p.tryons }}</td>
+          <td>{{ p.orders }}</td>
+          <td>
+            {% if p.tryons >= 3 and p.orders == 0 %}
+              <span class="badge warn" title="{{ T.portal_home_no_orders_hint }}">{{ T.portal_home_no_orders_badge }}</span>
+              <span class="hint">{{ T.portal_home_no_orders_hint }}</span>
+            {% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    </div>
+    {% else %}
+    <p class="empty"><span class="ico">🗂️</span>{{ T.portal_home_top_empty }}</p>
+    {% endif %}
+  </div>
+  {% endif %}
+{% endblock %}
+
+{% block extra_style %}
+  .filters { display: flex; flex-wrap: wrap; gap: 14px; align-items: end; }
+  .filters .field select { min-width: 160px; }
+  .range-note { margin: 14px 0 0; }
+  .stat .note { font-size: 12px; color: var(--muted); margin-top: 8px; }
+  .stat .note strong { color: var(--text); }
+  .explain { margin: 0 0 8px; line-height: 1.7; }
+  .chart-legend { display: flex; gap: 18px; font-size: 12.5px; color: var(--muted); margin-bottom: 8px; flex-wrap: wrap; }
+  .chart-legend .sw { display: inline-block; vertical-align: middle; margin-inline-end: 6px; }
+  .chart-legend .sw.bar { width: 12px; height: 12px; border-radius: 3px; background: var(--accent); }
+  .chart-legend .sw.line { width: 16px; height: 3px; border-radius: 2px; background: var(--chart-orders); }
+  .chart-wrap { width: 100%; }
+  .tryon-chart { display: block; width: 100%; height: auto; max-height: 320px; font-family: inherit; }
+  .tryon-chart .grid { stroke: var(--border); stroke-width: 1; stroke-dasharray: 3 4; }
+  .tryon-chart .axis { stroke: var(--muted); stroke-width: 1; opacity: .5; }
+  .tryon-chart .tick { fill: var(--muted); font-size: 11px; }
+  .tryon-chart .bar { fill: var(--accent); }
+  .tryon-chart .line { fill: none; stroke: var(--chart-orders); stroke-width: 2; stroke-linejoin: round; }
+  .tryon-chart .dot { fill: var(--chart-orders); stroke: var(--card); stroke-width: 1.5; }
+  @media (max-width: 720px) {
+    .filters .field { flex: 1 1 140px; }
+    .filters .btn-primary { flex: 1 1 100%; }
+    .hint { display: block; margin: 4px 0 0; }
+  }
+{% endblock %}

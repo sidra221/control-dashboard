@@ -8,11 +8,14 @@ from django.contrib import messages
 from django.contrib.admin.views.decorators import staff_member_required
 from django.db import transaction
 from django.db.models import Count, Q, Sum
-from django.http import HttpResponseRedirect
+from django.http import HttpResponseBadRequest, HttpResponseRedirect
+from django.urls import reverse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.utils import timezone
+from django.utils.http import url_has_allowed_host_and_scheme
 from django.views.decorators.http import require_http_methods
 
+from . import portal_auth
 from .i18n import LANGUAGES, t
 from .models import (
     ApiToken, Conversation, DiscountCode, Product, SallaConnection, ShopifyConnection, SizeChart, ZidConnection,
@@ -33,7 +36,8 @@ def set_language(request):
     if lang in LANGUAGES:
         request.session["lang"] = lang
     next_url = request.POST.get("next") or request.GET.get("next") or "/"
-    if not next_url.startswith("/"):
+    # بس مسار داخلي: `//evil.com` و`/\evil.com` بيعدّوا startswith("/") وبيطلعوا لموقع تاني.
+    if not url_has_allowed_host_and_scheme(next_url, allowed_hosts={request.get_host()}) or not next_url.startswith("/"):
         next_url = "/"
     return HttpResponseRedirect(next_url)
 
@@ -42,6 +46,8 @@ def set_language(request):
 def dashboard(request):
     new_token = None
     lang = request.session.get("lang", "ar")
+    # رابط البوابة بيظهر مرة وحدة: منسحبو من الجلسة سواء انعرض أو لا
+    new_portal_link = _pop_portal_link(request)
 
     if request.method == "POST":
         label = request.POST.get("label", "").strip()
@@ -82,10 +88,41 @@ def dashboard(request):
         {
             "tokens": tokens,
             "new_token": new_token,
+            "new_portal_link": new_portal_link,
             "periods": periods,
             "stats": stats,
         },
     )
+
+
+def _pop_portal_link(request):
+    stash = request.session.pop("new_portal_link", None)
+    if not isinstance(stash, dict) or not stash.get("url"):
+        return None
+    label = ApiToken.objects.filter(pk=stash.get("merchant_id")).values_list("label", flat=True).first()
+    if label is None:
+        return None
+    return {"label": label, "url": stash["url"]}
+
+
+@staff_member_required
+@require_http_methods(["POST"])
+def portal_link(request, pk):
+    merchant = get_object_or_404(ApiToken, pk=pk)
+    lang = request.session.get("lang", "ar")
+    action = request.POST.get("action")
+    if action == "generate":
+        key = portal_auth.generate_portal_key(merchant)
+        url = request.build_absolute_uri(reverse("portal:enter", args=[key]))
+        request.session["new_portal_link"] = {"merchant_id": merchant.pk, "url": url}
+        messages.success(request, t("portal_admin_msg_generated", lang))
+    elif action == "revoke":
+        portal_auth.revoke_portal_key(merchant)
+        request.session.pop("new_portal_link", None)  # ما نترك رابط ملغي معلّق بالجلسة
+        messages.success(request, t("portal_admin_msg_revoked", lang))
+    else:
+        return HttpResponseBadRequest("invalid action")
+    return redirect("apitokens:dashboard")
 
 
 @staff_member_required

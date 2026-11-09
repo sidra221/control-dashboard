@@ -325,6 +325,14 @@ TRANSLATIONS = {
 }
 
 
+# نصوص بوابة التاجر بملفات منفصلة حتى ما تنخلط مع نصوص الإدارة.
+from .i18n_portal import PORTAL_TRANSLATIONS  # noqa: E402
+from .i18n_portal_admin import PORTAL_ADMIN_TRANSLATIONS  # noqa: E402
+
+TRANSLATIONS.update(PORTAL_TRANSLATIONS)
+TRANSLATIONS.update(PORTAL_ADMIN_TRANSLATIONS)
+
+
 def get_translations(lang):
     if lang not in LANGUAGES:
         lang = DEFAULT_LANGUAGE

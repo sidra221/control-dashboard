@@ -36,6 +36,16 @@
   </div>
   {% endif %}
 
+  {% if new_portal_link %}
+  <div class="token-reveal">
+    <p>{{ T.portal_admin_new_link_prefix }}{{ new_portal_link.label }}{{ T.portal_admin_new_link_suffix }}</p>
+    <div class="token-row">
+      <input type="text" readonly value="{{ new_portal_link.url }}" id="fresh-portal-link">
+      <button type="button" class="btn-copy" onclick="copyToken(this, '{{ new_portal_link.url|escapejs }}')">{{ T.copy }}</button>
+    </div>
+  </div>
+  {% endif %}
+
   <div class="card">
     <h2>{{ T.generate_new_token }}</h2>
     <form class="generate" method="post">
@@ -74,6 +84,7 @@
           <th>{{ T.th_used }}</th>
           <th>{{ T.th_status }}</th>
           <th>{{ T.th_created }}</th>
+          <th>{{ T.portal_admin_th }}</th>
           <th></th>
           <th></th>
           <th></th>
@@ -102,6 +113,23 @@
             {% endif %}
           </td>
           <td>{{ t.created_at|date:"Y-m-d H:i" }}</td>
+          <td>
+            <div class="token-cell">
+              <form method="post" action="{% url 'apitokens:portal-link' t.pk %}"{% if t.portal_key_hash %} onsubmit="return confirm('{{ T.portal_admin_regenerate_confirm|escapejs }}')"{% endif %}>
+                {% csrf_token %}
+                <input type="hidden" name="action" value="generate">
+                <button type="submit" class="btn-toggle">{% if t.portal_key_hash %}{{ T.portal_admin_btn_regenerate }}{% else %}{{ T.portal_admin_btn_link }}{% endif %}</button>
+              </form>
+              {% if t.portal_key_hash %}
+              <form method="post" action="{% url 'apitokens:portal-link' t.pk %}" onsubmit="return confirm('{{ T.portal_admin_revoke_confirm|escapejs }}')">
+                {% csrf_token %}
+                <input type="hidden" name="action" value="revoke">
+                <button type="submit" class="btn-toggle">{{ T.portal_admin_btn_revoke }}</button>
+              </form>
+              {% endif %}
+            </div>
+            <small style="display:block;margin-top:4px;color:var(--muted)">{% if t.portal_key_hash %}{{ T.portal_admin_status_active_since }} {{ t.portal_key_created_at|date:"Y-m-d" }}{% else %}{{ T.portal_admin_status_none }}{% endif %}</small>
+          </td>
           <td>
             <a class="btn-toggle" href="{% url 'apitokens:catalog' t.pk %}">{{ T.th_catalog }} ({{ t.product_count }})</a>
           </td>
