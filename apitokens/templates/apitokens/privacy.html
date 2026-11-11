@@ -32,7 +32,7 @@
       <li><strong>بيانات المتجر:</strong> اسم المتجر ورابطه، والمنتجات (الاسم والوصف والسعر والصور والمقاسات والتوفر)، لكي يقترحها المساعد على العملاء.</li>
       <li><strong>الطلبات:</strong> رقم الطلب وقيمته فقط، لقياس المبيعات التي حققها المساعد. لا نطّلع على بيانات الدفع.</li>
       <li><strong>المحادثات:</strong> نصوص المحادثة بين العميل والمساعد، والمنتجات المقترحة فيها، لكي يراجعها التاجر.</li>
-      <li><strong>صور تجربة اللبس:</strong> الصورة التي يرفعها العميل تُرسل لمعالجتها وإنتاج صورة التجربة فقط، ولا نحتفظ بها على خوادمنا.</li>
+      <li><strong>صور تجربة اللبس:</strong> الصورة التي يرفعها العميل تُرسل لمعالجتها وإنتاج صورة التجربة فقط، ولا نخزّنها على خوادمنا. التفاصيل في قسم «معالجة صور تجربة اللبس» أدناه.</li>
     </ul>
 
     <h2>كيف نستخدم البيانات</h2>
@@ -43,6 +43,18 @@
 
     <h2>الحماية والاحتفاظ</h2>
     <p>تُنقل البيانات عبر اتصال مشفّر (HTTPS)، وتُحفظ مفاتيح الوصول إلى متجرك على خوادمنا فقط. نحتفظ بالبيانات طوال مدة استخدام المتجر للخدمة. عند إلغاء تثبيت التطبيق نوقف الخدمة ونحذف مفاتيح الوصول فوراً، ويمكن للتاجر طلب حذف بيانات متجره بالكامل في أي وقت.</p>
+
+    <h2 id="tryon">معالجة صور تجربة اللبس</h2>
+    <p>تتيح خاصية «تجربة اللبس» للعميل رفع صورته لرؤية المنتج عليه. وفيما يلي كيف نعالج الصور التي يرفعها العملاء:</p>
+    <ul>
+      <li><strong>الصور المعالَجة:</strong> لا تُعالَج إلا الصور التي يرفعها العميل بنفسه لإنتاج صورة التجربة.</li>
+      <li><strong>الغرض:</strong> تُستخدم الصورة لغرض واحد فقط، هو إنشاء صورة تُظهر المنتج المختار على العميل. لا نبيعها، ولا نستخدمها للإعلانات، ولا لتدريب نماذجنا.</li>
+      <li><strong>المعالجة:</strong> تُرسل الصورة عبر اتصال مشفّر (HTTPS) إلى مزوّد خارجي لتوليد الصور. ولا نخزّن الصورة الأصلية ولا الصورة الناتجة على خوادمنا.</li>
+      <li><strong>لدى المزوّد:</strong> تخضع الملفات لدى المزوّد لسياسته وشروطه. وقد أعلن المزوّد أن الملفات الناتجة تُحفظ لديه مدة 14 يوماً ثم تُحذف تلقائياً. وقد تُعالَج البيانات خارج بلد العميل، ومنها الولايات المتحدة. ولا تتضمن شروط المزوّد المنشورة التزاماً محدداً بشأن مدة الاحتفاظ بالصور المرفوعة أو استخدامها في تطوير النماذج.</li>
+      <li><strong>ما نسجّله:</strong> نسجّل بيانات تشغيلية فقط (عدد التجارب، وارتباطها بالمحادثة) دون الصورة نفسها.</li>
+      <li><strong>ضوابط الاستخدام:</strong> يجب أن تكون الصورة المرفوعة للعميل نفسه. ولا يجوز رفع صور الأطفال أو صور أشخاص آخرين دون موافقتهم الصريحة.</li>
+      <li><strong>الحذف والاستفسار:</strong> لطلب حذف أي بيانات متعلقة بك أو الاستفسار عنها، تواصل معنا عبر وسيلة التواصل الموضحة أدناه.</li>
+    </ul>
 
     <h2>التواصل</h2>
     <p>لأي استفسار أو طلب حذف للبيانات{% if contact_email %}، راسلنا على <a href="mailto:{{ contact_email }}">{{ contact_email }}</a>{% else %}، تواصل معنا عبر قناة الدعم الموضحة في صفحة التطبيق بمتجر التطبيقات{% endif %}.</p>
@@ -57,7 +69,7 @@
       <li><strong>Store data:</strong> store name and URL, and products (name, description, price, images, sizes, availability), so the assistant can recommend them.</li>
       <li><strong>Orders:</strong> order number and total only, to measure the sales the assistant generated. We never access payment details.</li>
       <li><strong>Conversations:</strong> the chat between the shopper and the assistant, and the products recommended in it, for the merchant to review.</li>
-      <li><strong>Try-on photos:</strong> a photo uploaded by a shopper is sent for processing to produce the try-on image only, and is not kept on our servers.</li>
+      <li><strong>Try-on photos:</strong> a photo uploaded by a shopper is sent for processing to produce the try-on image only, and is not stored on our servers. See "Try-on photo processing" below.</li>
     </ul>
 
     <h2>How we use data</h2>
@@ -68,6 +80,18 @@
 
     <h2>Security and retention</h2>
     <p>Data is transferred over HTTPS, and your store's access keys are kept on our servers only. We keep data for as long as the store uses the service. On uninstall we stop the service and delete the access keys immediately; merchants can request full deletion of their store's data at any time.</p>
+
+    <h2 id="tryon-en">Try-on photo processing</h2>
+    <p>The try-on feature lets a shopper upload a photo to see a product on themselves. Here is how we handle the photos shoppers upload:</p>
+    <ul>
+      <li><strong>Photos processed:</strong> we only process photos that the shopper uploads themselves, to produce the try-on image.</li>
+      <li><strong>Purpose:</strong> the photo is used for one purpose only: to create an image showing the selected product on the shopper. We do not sell it, use it for advertising, or use it to train our own models.</li>
+      <li><strong>Processing:</strong> the photo is sent over an encrypted connection (HTTPS) to an external image-generation provider. We do not store the original photo or the generated image on our servers.</li>
+      <li><strong>At the provider:</strong> files at the provider are subject to the provider's own policy and terms. The provider has published that generated files are kept for 14 days and then deleted automatically. Data may be processed outside the shopper's country, including in the United States. The provider's published terms do not state a specific retention period for uploaded photos or whether they are used to develop models.</li>
+      <li><strong>What we log:</strong> operational data only (the number of try-ons and their link to the conversation), never the photo itself.</li>
+      <li><strong>Rules of use:</strong> the photo must be of the shopper. Photos of children, or of other people without their explicit consent, must not be uploaded.</li>
+      <li><strong>Deletion and questions:</strong> to request deletion of data about you, or to ask a question, use the contact details below.</li>
+    </ul>
 
     <h2>Contact</h2>
     <p>For questions or data deletion requests{% if contact_email %}, email <a href="mailto:{{ contact_email }}">{{ contact_email }}</a>{% else %}, use the support channel listed on the app's page in the App Market{% endif %}.</p>
