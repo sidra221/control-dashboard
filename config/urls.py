@@ -33,6 +33,7 @@ urlpatterns = [
     path("demo/", demo_views.home, name="demo-home"),
     path("demo/products/<str:handle>/", demo_views.product, name="demo-product"),
     path("demo/cart/", demo_views.cart, name="demo-cart"),
+    path("demo/checkout/", demo_views.checkout, name="demo-checkout"),
     path("portal/", include("apitokens.portal_urls")),
     path("", include("apitokens.urls")),
 ]

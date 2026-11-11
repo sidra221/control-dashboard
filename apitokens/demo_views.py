@@ -2,20 +2,29 @@
 الشات كأنه مركّب على متجر سعودي حقيقي. المنتجات بتجي من كتالوج التاجر يلي
 توكنه = settings.DEMO_STORE_KEY؛ إذا مو مضبوط أو التاجر مو موجود ← 404.
 
-السلة كلها بالمتصفح (localStorage)، ما في طلبات ولا دفع حقيقي أبداً.
+السلة كلها بالمتصفح (localStorage)، ما في دفع حقيقي أبداً. "إتمام الطلب" بيسجّل طلب
+تجريبي (DEMO-...) على المحادثة اللي إضافة السلة جاية منها، بنفس آلية الربط برقم السلة
+عند سلة/زد، حتى تظهر المبيعات المنسوبة بالإحصائيات.
 """
+
+import json
+import re
+import secrets
 
 from decimal import Decimal
 from urllib.parse import urlparse
 
 from django.conf import settings
-from django.http import Http404
+from django.db.models import Q
+from django.http import Http404, JsonResponse
 from django.shortcuts import render
 from django.templatetags.static import static
+from django.utils import timezone
 from django.utils.text import slugify
-from django.views.decorators.http import require_GET
+from django.views.decorators.csrf import ensure_csrf_cookie
+from django.views.decorators.http import require_GET, require_POST
 
-from .models import ApiToken
+from .models import ApiToken, Conversation
 
 DEMO_PRODUCTS_PREFIX = "/demo/products/"
 STORE_NAME = "متجر الأناقة"
@@ -234,6 +243,67 @@ def product(request, handle):
 
 
 @require_GET
+@ensure_csrf_cookie
 def cart(request):
     merchant = demo_merchant()
     return render_demo(request, "cart.html", merchant, all_cards(merchant))
+
+
+# نفس أرقام الشحن اللي بصفحة السلة (cart.html)
+FREE_SHIPPING = Decimal("299")
+SHIPPING_FEE = Decimal("25")
+CART_ID_RE = re.compile(r"^[A-Za-z0-9_-]{8,64}$")
+
+
+@require_POST
+def checkout(request):
+    """طلب تجريبي: بيحسب الإجمالي من أسعار الكتالوج (مش من العميل) وبيسجّله على المحادثة
+    اللي رقم سلتها = cart_id (إن وجدت). ما في دفع حقيقي."""
+    merchant = demo_merchant()
+    try:
+        body = json.loads(request.body or "{}")
+    except json.JSONDecodeError:
+        return JsonResponse({"ok": False, "error": "invalid_json"}, status=400)
+    cart_id = str(body.get("cart_id") or "").strip()
+    if not CART_ID_RE.match(cart_id):
+        return JsonResponse({"ok": False, "error": "invalid_cart_id"}, status=400)
+    raw_items = body.get("items")
+    if not isinstance(raw_items, list) or not raw_items or len(raw_items) > 50:
+        return JsonResponse({"ok": False, "error": "invalid_items"}, status=400)
+
+    subtotal = Decimal("0")
+    for item in raw_items:
+        if not isinstance(item, dict):
+            continue
+        pid = str(item.get("product_id") or "").strip()
+        try:
+            qty = int(item.get("qty"))
+        except (TypeError, ValueError):
+            continue
+        if not pid or not 1 <= qty <= 99:
+            continue
+        product = merchant.products.filter(Q(external_id=pid) | Q(sku=pid)).first()
+        if product is not None:
+            subtotal += product.price * qty
+    if subtotal <= 0:
+        return JsonResponse({"ok": False, "error": "empty_cart"}, status=400)
+    total = subtotal + (Decimal("0") if subtotal >= FREE_SHIPPING else SHIPPING_FEE)
+
+    order_id = "DEMO-" + secrets.token_hex(4).upper()
+    conversation = Conversation.objects.filter(
+        merchant=merchant, platform_cart_id=cart_id, order_id="",
+    ).first()
+    if conversation is not None:
+        conversation.order_id = order_id
+        conversation.order_total = total
+        conversation.order_currency = (merchant.currency or "SAR")[:8]
+        conversation.order_at = timezone.now()
+        conversation.save(
+            update_fields=["order_id", "order_total", "order_currency", "order_at", "updated_at"],
+        )
+    return JsonResponse({
+        "ok": True,
+        "order_id": order_id,
+        "total": str(total),
+        "attributed": conversation is not None,
+    })

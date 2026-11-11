@@ -81,7 +81,7 @@
   <div class="modal">
     <div class="modal-icon">✦</div>
     <h3 id="demo-modal-title">شكراً لتجربتك!</h3>
-    <p>هذا متجر تجريبي لأغراض العرض فقط، لذلك لن يُنفَّذ أي طلب أو عملية دفع حقيقية. يسعدنا أنك جرّبت تجربة التسوق مع مساعدنا الذكي.</p>
+    <p>هذا متجر تجريبي لأغراض العرض فقط، لذلك لن تتم أي عملية دفع حقيقية ولن يُشحن أي طلب. سُجّل طلب تجريبي ليظهر في إحصائيات التاجر. يسعدنا أنك جرّبت تجربة التسوق مع مساعدنا الذكي.</p>
     <button type="button" class="btn" id="modal-close" style="width:100%">حسناً</button>
   </div>
 </div>
@@ -158,7 +158,24 @@
     });
 
     var modal = document.getElementById("demo-modal");
-    document.getElementById("checkout-btn").addEventListener("click", function () { modal.classList.add("open"); });
+    function csrfToken() {
+      var m = document.cookie.match(/(?:^|; )csrftoken=([^;]+)/);
+      return m ? decodeURIComponent(m[1]) : "";
+    }
+    var checkoutBtn = document.getElementById("checkout-btn");
+    checkoutBtn.addEventListener("click", function () {
+      var items = cart.read().map(function (it) { return { product_id: it.product_id, qty: it.qty }; });
+      checkoutBtn.disabled = true;
+      fetch("/demo/checkout/", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "X-CSRFToken": csrfToken() },
+        body: JSON.stringify({ cart_id: cart.cartId(), items: items }),
+      })
+        .then(function (r) { return r.json(); })
+        .then(function (data) { if (data && data.ok) cart.write([], false); })
+        .catch(function () {})
+        .then(function () { checkoutBtn.disabled = false; modal.classList.add("open"); });
+    });
     document.getElementById("modal-close").addEventListener("click", function () { modal.classList.remove("open"); });
     modal.addEventListener("click", function (e) { if (e.target === modal) modal.classList.remove("open"); });
 

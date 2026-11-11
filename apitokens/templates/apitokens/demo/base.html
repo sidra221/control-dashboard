@@ -307,7 +307,23 @@
       return items;
     }
 
+    // رقم سلة ثابت بالمتصفح: الويدجت بيبعته مع أحداث السلة ومنه بنربط الطلب بالمحادثة.
+    function cartId() {
+      var k = "demo_cart_id";
+      try {
+        var v = localStorage.getItem(k);
+        if (!v) {
+          var bytes = new Uint8Array(12);
+          (window.crypto || window.msCrypto).getRandomValues(bytes);
+          v = "dc_" + Array.prototype.map.call(bytes, function (b) { return ("0" + b.toString(16)).slice(-2); }).join("");
+          localStorage.setItem(k, v);
+        }
+        return v;
+      } catch (e) { return ""; }
+    }
+
     window.DemoCart = {
+      cartId: cartId,
       read: read, write: write, count: count, add: addItem, find: findProduct,
       products: PRODUCTS, formatPrice: formatPrice, url: CART_URL
     };
@@ -315,6 +331,7 @@
     // API للويدجت: ControlCart.add({product_id, quantity, size}) → Promise
     window.ControlCart = {
       url: CART_URL,
+      cartId: cartId,
       add: function (opts) {
         opts = opts || {};
         return new Promise(function (resolve, reject) {

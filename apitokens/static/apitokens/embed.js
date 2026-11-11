@@ -97,6 +97,10 @@
         return cart.id || cart.session_id || "";
       });
     }
+    // متجر مخصص (متل متجر الديمو): بيقدر يعرّف ControlCart.cartId() ليربط طلباته بالمحادثة.
+    if (controlCart() && typeof window.ControlCart.cartId === "function") {
+      return window.ControlCart.cartId();
+    }
     return null;
   }
 
