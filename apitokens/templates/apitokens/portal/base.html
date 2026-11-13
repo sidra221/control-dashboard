@@ -20,6 +20,7 @@
     --accent: #6366f1;
     --accent-dark: #4f46e5;
     --accent-soft: #eef0ff;
+    --on-accent: #ffffff;
     --success-bg: #ecfdf5;
     --success-text: #047857;
     --warn-bg: #fffbeb;
@@ -41,6 +42,8 @@
       --accent: #818cf8;
       --accent-dark: #a5b4fc;
       --accent-soft: #23253a;
+      /* الأزرار الأساسية بالداكن فاتحة (lavender): نص أبيض عليها ما بينقرا */
+      --on-accent: #1e1b4b;
       --success-bg: #082f24;
       --success-text: #34d399;
       --warn-bg: #3a2a08;
@@ -123,7 +126,7 @@
   .field select:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
   .btn-primary {
     cursor: pointer; border: none; border-radius: 10px; padding: 11px 22px;
-    font-size: 14px; font-weight: 700; color: #fff; font-family: inherit;
+    font-size: 14px; font-weight: 700; color: var(--on-accent); font-family: inherit;
     background: linear-gradient(135deg, var(--accent), var(--accent-dark));
   }
 

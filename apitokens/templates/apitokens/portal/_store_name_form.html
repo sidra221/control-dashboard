@@ -1,0 +1,18 @@
+{# نموذج اسم المتجر + طلب كود الاشتراك. الزر بيستنى مهلة الإرسال (مشتركة مع كود التوثيق لنفس الرقم). #}
+<form method="post" action="{% url 'portal:pending' %}">
+  {% csrf_token %}
+  <input type="hidden" name="action" value="request">
+  <div class="field{% if name_error %} has-error{% endif %}" style="margin-bottom:16px">
+    <label for="store_name{% if not autofocus %}-2{% endif %}">{{ T.portal_sub_store_label }}</label>
+    <div class="input-wrap">
+      <input type="text" id="store_name{% if not autofocus %}-2{% endif %}" name="store_name" value="{{ store_name }}" maxlength="{{ store_name_max }}"
+             required autocomplete="organization"{% if autofocus %} autofocus{% endif %}
+             {% if name_error %}aria-invalid="true" {% endif %}aria-describedby="store-msg{% if not autofocus %}-2{% endif %}">
+    </div>
+    <span id="store-msg{% if not autofocus %}-2{% endif %}">
+      {% if name_error %}<span class="field-error" role="alert">{{ name_error }}</span>{% else %}<span class="field-hint">{{ T.portal_sub_store_hint }}</span>{% endif %}
+    </span>
+  </div>
+  <button type="submit" class="btn-primary block" data-countdown="{{ wait_seconds }}"
+          data-label="{{ T.portal_otp_resend_in }}" data-ready="{{ T.portal_sub_request_button }}"{% if wait_seconds %} disabled{% endif %}>{% if wait_seconds %}{{ resend_in_label }}{% else %}{{ T.portal_sub_request_button }}{% endif %}</button>
+</form>

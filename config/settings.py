@@ -208,3 +208,7 @@ PORTAL_OTP_BACKEND = os.environ.get("PORTAL_OTP_BACKEND", "").strip().lower() or
 PORTAL_OTP_MAX_SENDS_PER_HOUR = int(os.environ.get("PORTAL_OTP_MAX_SENDS_PER_HOUR", "120"))
 # سقف الحسابات المعلّقة (بدون متجر) من التسجيل العام: فوقه بنرفض التسجيل الجديد.
 PORTAL_MAX_PENDING_ACCOUNTS = int(os.environ.get("PORTAL_MAX_PENDING_ACCOUNTS", "500"))
+# رصيد صور التجربة الشهري للمتجر اللي بينشئه التاجر بنفسه بكود الاشتراك (لحد ما تصير في باقات مدفوعة).
+PORTAL_TRIAL_IMAGE_QUOTA = int(os.environ.get("PORTAL_TRIAL_IMAGE_QUOTA", "20"))
+# سقف المتاجر التجريبية اللي بتنعمل بكود الاشتراك بآخر 24 ساعة (حماية رصيد الصور والواتساب). فوقه ما منرسل كود.
+PORTAL_MAX_TRIAL_STORES_PER_DAY = int(os.environ.get("PORTAL_MAX_TRIAL_STORES_PER_DAY", "30"))

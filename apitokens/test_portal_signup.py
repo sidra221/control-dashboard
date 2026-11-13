@@ -387,8 +387,8 @@ class PendingPageTests(SignupBase):
         self.assertEqual(resp.status_code, 200)
         self.assert_headers(resp)
         html = resp.content.decode()
-        self.assertIn("Your account was created", html)
-        self.assertIn("link it to your store", html)
+        self.assertIn("Activate your subscription", html)
+        self.assertIn("Request subscription code", html)
         self.assertIn("Layla", html)
         self.assertIn(f'action="{reverse("portal:logout")}"', html)
         self.assertIn("csrfmiddlewaretoken", html)
@@ -397,7 +397,7 @@ class PendingPageTests(SignupBase):
         login_pending(self.client)
         self.set_lang("ar")
         html = self.client.get(reverse("portal:pending")).content.decode()
-        self.assertIn("تم إنشاء حسابك", html)
+        self.assertIn("فعّل اشتراكك", html)
         self.assertIn('dir="rtl"', html)
 
     def test_name_is_escaped(self):

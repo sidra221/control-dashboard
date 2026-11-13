@@ -170,7 +170,13 @@ class PhoneOtp(models.Model):
     على `<pk>:<code>`. صالح 10 دقايق و5 محاولات غلط بالكتير. consumed_at مليان = مستخدم أو
     مبطّل (أو إرسال فاشل: send_error مليان بدون message_id). message_id/status من LightOTP."""
 
+    PURPOSE_VERIFY = "verify"        # توثيق رقم الحساب
+    PURPOSE_SUBSCRIBE = "subscribe"  # كود الاشتراك: إدخاله بينشئ متجر للحساب
+
     account = models.ForeignKey(MerchantAccount, on_delete=models.CASCADE, related_name="otps")
+    purpose = models.CharField(max_length=16, default=PURPOSE_VERIFY)
+    # اسم المتجر يلي انطلب عليه الاشتراك (بس لـ subscribe): بيصير اسم المتجر عند التفعيل
+    store_name = models.CharField(max_length=100, blank=True)
     # رقم الحساب وقت الإرسال: التهدئة بتنحسب لكل رقم، وتغيّر الرقم بيبطل الكود القديم
     phone = models.CharField(max_length=20)
     code_hash = models.CharField(max_length=64, editable=False)

@@ -3,6 +3,7 @@
 
 from datetime import timedelta
 
+from django.conf import settings
 from django.db.models import Count, Q, Sum
 from django.shortcuts import redirect, render
 from django.utils import timezone
@@ -10,7 +11,7 @@ from django.views.decorators.http import require_http_methods, require_POST
 
 from . import portal_otp
 from .i18n import t
-from .models import Conversation, TryOnEvent
+from .models import Conversation, PhoneOtp, TryOnEvent
 from .portal_auth import (
     PORTAL_TERMS_VERSION, _client_ip, _landing, _lang, accept_terms, portal_account_required, portal_required,
     portal_session_required, terms_accepted_required, verify_throttled,
@@ -85,13 +86,74 @@ def accept(request):
     )
 
 
+_SUBSCRIBE_ERRORS = {
+    portal_otp.V_WRONG: "portal_sub_err_wrong",
+    portal_otp.V_EXPIRED: "portal_sub_err_expired",
+    portal_otp.V_EXHAUSTED: "portal_sub_err_exhausted",
+    portal_otp.V_NONE: "portal_sub_err_none",
+    portal_otp.V_CLOSED: "portal_sub_err_closed",
+}
+
+
 @portal_account_required
+@require_http_methods(["GET", "POST"])
 def pending(request):
-    """حساب اتسجّل بس لسا ما انربط بمتجر. لو انربط → عالرئيسية (وهناك الموافقة على السياسة أول)."""
+    """حساب موثّق بلا متجر: صفحة الاشتراك. بتعرض ميزات الخدمة، وبتطلب اسم المتجر وبترسل كود الاشتراك
+    على واتساب (action=request)، وإدخال الكود (action=activate) بينشئ المتجر وبيفتح لوحته."""
     account = request.portal_account
     if account.merchant_id is not None:
         return redirect("portal:home")
-    return render(request, "apitokens/portal/pending.html", {"account": account})
+    lang = _lang(request)
+    action = request.POST.get("action") if request.method == "POST" else None
+
+    if action == "request":
+        store_name = portal_otp.clean_store_name(request.POST.get("store_name"))
+        if not store_name:
+            return _render_subscribe(request, account, lang, name_error=t("portal_sub_err_name", lang),
+                                     store_name=request.POST.get("store_name", ""), status=400)
+        outcome = portal_otp.send_subscription_code(account, store_name, lang, _client_ip(request))
+        if outcome.status == portal_otp.LINKED:
+            return redirect("portal:home")
+        portal_otp.remember_outcome(request, outcome)
+        return redirect("portal:pending")
+
+    if action == "activate":
+        if verify_throttled(request):
+            return _render_subscribe(request, account, lang, form_error=t("portal_otp_throttled", lang), status=429)
+        status, _merchant = portal_otp.activate_subscription(account, request.POST.get("code", ""))
+        if status in (portal_otp.V_OK, portal_otp.LINKED):
+            return redirect("portal:home")  # الرئيسية بتطلب الموافقة على السياسة أول
+        return _render_subscribe(request, account, lang, code_error=t(_SUBSCRIBE_ERRORS[status], lang), status=400)
+
+    if action is not None:
+        return redirect("portal:pending")
+    return _render_subscribe(request, account, lang, flash=portal_otp.pop_flash(request))
+
+
+def _render_subscribe(request, account, lang, flash=None, name_error="", code_error="", form_error="",
+                      store_name=None, status=200):
+    active = portal_otp.active_otp(account, purpose=PhoneOtp.PURPOSE_SUBSCRIBE)
+    wait = portal_otp.page_wait_seconds(request, account)
+    info = ""
+    if flash == portal_otp.WAIT:
+        form_error = t("portal_otp_wait", lang).replace("{n}", str(wait or portal_otp.LIGHTOTP_WAIT_HINT))
+    elif flash == portal_otp.OK:
+        pass  # ما في رسالة إضافية: مرحلة الكود بتقول أصلاً "أرسلنا كود الاشتراك … إلى الرقم"
+    elif flash in _FLASH_TEXT:
+        form_error = t(_FLASH_TEXT[flash][1], lang)
+    ctx = {
+        "account": account,
+        "code_stage": active is not None or bool(code_error),
+        "store_name": store_name if store_name is not None else (active.store_name if active else portal_otp.last_store_name(account)),
+        "store_name_max": portal_otp.STORE_NAME_MAX,
+        "code_length": portal_otp.SUBSCRIBE_CODE_LENGTH,
+        "plan_line": t("portal_sub_plan", lang).replace("{n}", str(settings.PORTAL_TRIAL_IMAGE_QUOTA)),
+        "masked_phone": portal_otp.mask_phone(account.phone),
+        "wait_seconds": wait,
+        "resend_in_label": t("portal_otp_resend_in", lang).replace("{n}", str(wait)),
+        "info": info, "form_error": form_error, "name_error": name_error, "code_error": code_error,
+    }
+    return render(request, "apitokens/portal/pending.html", ctx, status=status)
 
 
 # ---------- تحقق الواتساب (OTP) ----------

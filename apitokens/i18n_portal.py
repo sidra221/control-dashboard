@@ -1,4 +1,4 @@
-"""نصوص بوابة التاجر: portal_home_ (الرئيسية)، portal_accept_ (الموافقة)، portal_login_ و portal_register_ و portal_signup_ (الدخول والتسجيل)، portal_otp_ (تحقق الواتساب)، portal_pending_ (بانتظار الربط)."""
+"""نصوص بوابة التاجر: portal_home_ (الرئيسية)، portal_accept_ (الموافقة)، portal_login_ و portal_register_ و portal_signup_ (الدخول والتسجيل)، portal_otp_ (تحقق الواتساب)، portal_pending_ و portal_sub_ (صفحة الاشتراك)."""
 
 PORTAL_TRANSLATIONS = {
     "portal_home_title": {"ar": "لوحة المتجر", "en": "Store dashboard"},
@@ -196,15 +196,80 @@ PORTAL_TRANSLATIONS = {
         "en": "Registration is temporarily unavailable. Please try again later.",
     },
 
-    # ===== portal/pending.html — حساب بانتظار الربط بمتجر =====
-    "portal_pending_title": {"ar": "تم إنشاء حسابك", "en": "Your account was created"},
-    "portal_pending_sub": {"ar": "بانتظار ربطه بمتجرك", "en": "Waiting to be linked to your store"},
+    # ===== portal/pending.html — صفحة الاشتراك (حساب موثّق بلا متجر) =====
+    "portal_pending_title": {"ar": "فعّل اشتراكك", "en": "Activate your subscription"},
+    "portal_pending_sub": {"ar": "خطوة أخيرة لتشغيل الخدمة في متجرك", "en": "One last step to run the service in your store"},
     "portal_pending_hello": {"ar": "أهلاً", "en": "Welcome,"},
     "portal_pending_text": {
-        "ar": "تم إنشاء حسابك. رح نربطه بمتجرك ونتواصل معك. بعد الربط بتقدر تدخل للوحة المتجر بنفس رقمك وكلمة مرورك.",
-        "en": "Your account was created. We will link it to your store and contact you. Once linked, you can open the store dashboard with the same phone number and password.",
+        "ar": "حسابك جاهز. اطلب كود الاشتراك وسيصلك على واتساب، ثم أدخله هنا لتفتح لوحة متجرك.",
+        "en": "Your account is ready. Request your subscription code, we will send it on WhatsApp, then enter it here to open your store dashboard.",
     },
-    "portal_pending_phone_note": {"ar": "رقم التواصل:", "en": "Contact number:"},
+    "portal_sub_features_title": {"ar": "ماذا تقدّم الخدمة لمتجرك", "en": "What the service does for your store"},
+    "portal_sub_f1_title": {"ar": "مساعد تسوق ذكي", "en": "AI shopping assistant"},
+    "portal_sub_f1_text": {
+        "ar": "يحاور زبائنك داخل متجرك، ويقترح عليهم المنتجات المناسبة من منتجاتك، ويساعدهم في اختيار المقاس.",
+        "en": "Chats with your shoppers inside your store, suggests the right items from your catalog and helps them pick a size.",
+    },
+    "portal_sub_f2_title": {"ar": "تجربة اللبس الافتراضية", "en": "Virtual try-on"},
+    "portal_sub_f2_text": {
+        "ar": "يرفع الزبون صورته ويرى القطعة عليه قبل أن يشتري.",
+        "en": "Shoppers upload a photo and see the item on themselves before they buy.",
+    },
+    "portal_sub_f3_title": {"ar": "ربط مع سلة وزد وShopify", "en": "Works with Salla, Zid and Shopify"},
+    "portal_sub_f3_text": {
+        "ar": "يمكن ربط الخدمة بمتجرك على إحدى هذه المنصات لمزامنة منتجاتك.",
+        "en": "The service can be connected to your store on these platforms to sync your products.",
+    },
+    "portal_sub_f4_title": {"ar": "لوحة إحصائيات", "en": "Stats dashboard"},
+    "portal_sub_f4_text": {
+        "ar": "تتابع فيها عدد التجارب والطلبات والمبيعات التي جاءت بعد التجربة.",
+        "en": "Track try-ons, orders and the sales that followed a try-on.",
+    },
+    "portal_sub_plan": {
+        "ar": "يتضمن الاشتراك {n} تجربة لبس شهرياً.",
+        "en": "The subscription includes {n} try-ons per month.",
+    },
+    "portal_sub_store_label": {"ar": "اسم المتجر", "en": "Store name"},
+    "portal_sub_store_hint": {"ar": "كما يظهر لزبائنك", "en": "As your shoppers see it"},
+    "portal_sub_request_button": {"ar": "اطلب كود الاشتراك", "en": "Request subscription code"},
+    "portal_sub_sent_to": {
+        "ar": "أرسلنا كود الاشتراك على واتساب إلى الرقم",
+        "en": "We sent your subscription code on WhatsApp to",
+    },
+    "portal_sub_whatsapp_note": {
+        "ar": "تصلك الرسالة من خدمة التحقق، والرمز المكوّن من 8 أحرف وأرقام فيها هو كود اشتراكك.",
+        "en": "The message comes from our verification service; the 8-character code in it is your subscription code.",
+    },
+    "portal_sub_store_for": {"ar": "المتجر:", "en": "Store:"},
+    "portal_sub_code_label": {"ar": "كود الاشتراك", "en": "Subscription code"},
+    "portal_sub_code_hint": {"ar": "8 أحرف وأرقام، صالح 30 دقيقة", "en": "8 letters and digits, valid for 30 minutes"},
+    "portal_sub_code_title": {"ar": "8 أحرف وأرقام", "en": "8 letters and digits"},
+    "portal_sub_activate_button": {"ar": "فعّل الاشتراك", "en": "Activate subscription"},
+    "portal_sub_err_name": {
+        "ar": "أدخل اسم متجرك (حرفان على الأقل).",
+        "en": "Enter your store name (at least 2 characters).",
+    },
+    "portal_sub_err_wrong": {
+        "ar": "الكود غير صحيح. تأكد منه وحاول مرة أخرى.",
+        "en": "That code is incorrect. Check it and try again.",
+    },
+    "portal_sub_err_expired": {
+        "ar": "انتهت صلاحية الكود. اطلب كوداً جديداً.",
+        "en": "This code has expired. Request a new one.",
+    },
+    "portal_sub_err_exhausted": {
+        "ar": "تجاوزت عدد المحاولات المسموح. اطلب كوداً جديداً.",
+        "en": "Too many wrong attempts. Request a new code.",
+    },
+    "portal_sub_change_name": {"ar": "تغيير اسم المتجر", "en": "Change store name"},
+    "portal_sub_err_closed": {
+        "ar": "تفعيل الاشتراكات الجديدة غير متاح حالياً. حاول مرة أخرى لاحقاً.",
+        "en": "New subscriptions are temporarily unavailable. Please try again later.",
+    },
+    "portal_sub_err_none": {
+        "ar": "لا يوجد كود فعّال. اطلب كود الاشتراك أولاً.",
+        "en": "There is no active code. Request your subscription code first.",
+    },
 
     # ===== portal/verify.html — تحقق الواتساب (OTP) =====
     "portal_otp_title": {"ar": "تأكيد رقم الواتساب", "en": "Verify your WhatsApp number"},

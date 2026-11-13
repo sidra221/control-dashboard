@@ -4,14 +4,157 @@
 {% block page_title %}{{ T.portal_pending_title }}{% endblock %}
 {% block page_sub %}{{ T.portal_pending_sub }}{% endblock %}
 
+{% block extra_style %}{{ block.super }}
+  body.auth .wrap { max-width: 480px; }
+  .sub-stack { display: flex; flex-direction: column; gap: 16px; }
+  .features h2 { font-size: 15px; margin: 0 0 14px; }
+  .feature-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 14px; }
+  .feature-list li { display: grid; grid-template-columns: 34px 1fr; gap: 12px; align-items: start; }
+  .feature-icon {
+    width: 34px; height: 34px; border-radius: 10px; background: var(--accent-soft); color: var(--accent);
+    display: flex; align-items: center; justify-content: center;
+  }
+  .feature-icon svg { width: 18px; height: 18px; }
+  .feature-list strong { display: block; font-size: 14px; }
+  .feature-list span { display: block; font-size: 13px; color: var(--muted); line-height: 1.6; }
+  .plan-line {
+    margin: 16px 0 0; padding: 10px 14px; border-radius: 10px; font-size: 13.5px; font-weight: 600;
+    background: var(--accent-soft); color: var(--accent-dark);
+  }
+  .alert-ok { background: var(--success-bg); color: var(--success-text); border-radius: 10px; padding: 10px 14px; font-size: 13.5px; margin: 0 0 14px; }
+  .masked-phone { font-weight: 700; unicode-bidi: isolate; }
+  /* أعلى من قواعد .field input العامة (وقاعدة محاذاة اليمين لحقول ltr بالعربي) */
+  .field input.code-input, html[dir=rtl] .field input.code-input {
+    text-align: center; font-size: 22px; font-weight: 700; letter-spacing: .3em; text-transform: uppercase;
+    padding-inline-start: calc(14px + .3em);
+  }
+  .field input.code-input::placeholder { letter-spacing: .3em; }
+  /* بمرحلة الكود: خانة الكود أول (على الموبايل كانت تحت الطيّة)، والميزات بعدها */
+  .sub-stack.code-first { flex-direction: column-reverse; }
+  .sub-secondary { margin-top: 12px; }
+  .sub-secondary .btn-ghost { width: 100%; padding: 11px 14px; }
+  .sub-secondary .btn-ghost:disabled { opacity: .6; cursor: not-allowed; }
+  .sub-secondary.quiet .btn-ghost { border-color: transparent; font-size: 13.5px; }
+  .change-name { margin-top: 12px; font-size: 13.5px; }
+  .change-name summary { cursor: pointer; color: var(--accent); font-weight: 600; text-align: center; list-style: none; padding: 6px; }
+  .change-name summary::-webkit-details-marker { display: none; }
+  .change-name[open] summary { margin-bottom: 10px; }
+  .btn-primary.block:disabled[data-countdown] { cursor: not-allowed; }
+{% endblock %}
+
 {% block content %}
-  <div class="card auth-card">
+<div class="sub-stack{% if code_stage %} code-first{% endif %}">
+  <section class="card auth-card features" aria-labelledby="features-title">
     <p style="margin-top:0"><strong>{{ T.portal_pending_hello }} <bdi>{{ account.name }}</bdi></strong></p>
-    <p>{{ T.portal_pending_text }}</p>
-    <p class="card-note">{{ T.portal_pending_phone_note }} <bdi dir="ltr">{{ account.phone }}</bdi></p>
-    <form method="post" action="{% url 'portal:logout' %}" style="margin-top:18px">
+    <p class="card-note" style="margin-bottom:18px">{{ T.portal_pending_text }}</p>
+    <h2 id="features-title">{{ T.portal_sub_features_title }}</h2>
+    <ul class="feature-list">
+      <li>
+        <span class="feature-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a8 8 0 0 1-11.6 7.1L4 20l1-4.6A8 8 0 1 1 21 12z"/></svg></span>
+        <div><strong>{{ T.portal_sub_f1_title }}</strong><span>{{ T.portal_sub_f1_text }}</span></div>
+      </li>
+      <li>
+        <span class="feature-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20.4 6.6 16 4l-1.5 1.5a3.5 3.5 0 0 1-5 0L8 4 3.6 6.6a1 1 0 0 0-.4 1.3l1.6 3.2a1 1 0 0 0 1.3.4L8 10.6V20h8v-9.4l1.9.9a1 1 0 0 0 1.3-.4l1.6-3.2a1 1 0 0 0-.4-1.3z"/></svg></span>
+        <div><strong>{{ T.portal_sub_f2_title }}</strong><span>{{ T.portal_sub_f2_text }}</span></div>
+      </li>
+      <li>
+        <span class="feature-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1"/><path d="M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1"/></svg></span>
+        <div><strong>{{ T.portal_sub_f3_title }}</strong><span>{{ T.portal_sub_f3_text }}</span></div>
+      </li>
+      <li>
+        <span class="feature-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20V10"/><path d="M10 20V4"/><path d="M16 20v-7"/><path d="M22 20H2"/></svg></span>
+        <div><strong>{{ T.portal_sub_f4_title }}</strong><span>{{ T.portal_sub_f4_text }}</span></div>
+      </li>
+    </ul>
+    <p class="plan-line">{{ plan_line }}</p>
+  </section>
+
+  <section class="card auth-card" aria-label="{{ T.portal_pending_title }}">
+    {% if info %}<p class="alert-ok" role="status">{{ info }}</p>{% endif %}
+    {% if form_error %}<p class="alert-error" role="alert" style="margin-top:0">{{ form_error }}</p>{% endif %}
+
+    {% if code_stage %}
+      <p style="margin-top:0">{{ T.portal_sub_sent_to }} <bdi dir="ltr" class="masked-phone">{{ masked_phone }}</bdi></p>
+      <p class="card-note">{{ T.portal_sub_whatsapp_note }}</p>
+      {% if store_name %}<p class="card-note" style="margin-top:6px">{{ T.portal_sub_store_for }} <bdi>{{ store_name }}</bdi></p>{% endif %}
+      <form method="post" action="{% url 'portal:pending' %}" class="auth-form" style="margin-top:16px">
+        {% csrf_token %}
+        <input type="hidden" name="action" value="activate">
+        <div class="field{% if code_error %} has-error{% endif %}">
+          <label for="code">{{ T.portal_sub_code_label }}</label>
+          <div class="input-wrap">
+            <input type="text" id="code" name="code" class="code-input" value="" dir="ltr"
+                   autocomplete="one-time-code" maxlength="{{ code_length }}"
+                   title="{{ T.portal_sub_code_title }}" placeholder="••••••••" required autofocus
+                   autocapitalize="characters" autocorrect="off" spellcheck="false"
+                   {% if code_error %}aria-invalid="true" {% endif %}aria-describedby="code-msg">
+          </div>
+          <span id="code-msg">
+            {% if code_error %}<span class="field-error" role="alert">{{ code_error }}</span>{% else %}<span class="field-hint">{{ T.portal_sub_code_hint }}</span>{% endif %}
+          </span>
+        </div>
+        <button type="submit" class="btn-primary block">{{ T.portal_sub_activate_button }}</button>
+      </form>
+      {# إعادة الإرسال بنفس اسم المتجر، بعدّاد حي من ثواني السيرفر #}
+      <form method="post" action="{% url 'portal:pending' %}" class="sub-secondary countdown-form">
+        {% csrf_token %}
+        <input type="hidden" name="action" value="request">
+        <input type="hidden" name="store_name" value="{{ store_name }}">
+        <button type="submit" class="btn-ghost" data-countdown="{{ wait_seconds }}"
+                data-label="{{ T.portal_otp_resend_in }}" data-ready="{{ T.portal_otp_resend }}"{% if wait_seconds %} disabled{% endif %}>{% if wait_seconds %}{{ resend_in_label }}{% else %}{{ T.portal_otp_resend }}{% endif %}</button>
+      </form>
+      {# اسم غلط؟ كود جديد باسم تاني (بنفس المهلة بين الإرسالات) #}
+      <details class="change-name"{% if name_error %} open{% endif %}>
+        <summary>{{ T.portal_sub_change_name }}</summary>
+        {% include "apitokens/portal/_store_name_form.html" with autofocus=False %}
+      </details>
+    {% else %}
+      {% include "apitokens/portal/_store_name_form.html" with autofocus=True %}
+    {% endif %}
+
+    <form method="post" action="{% url 'portal:logout' %}" class="sub-secondary quiet">
       {% csrf_token %}
-      <button type="submit" class="btn-ghost" style="width:100%;padding:12px 14px">{{ T.portal_home_logout }}</button>
+      <button type="submit" class="btn-ghost">{{ T.portal_home_logout }}</button>
     </form>
-  </div>
+  </section>
+</div>
+{% endblock %}
+
+{% block scripts %}{{ block.super }}
+<script>
+  (function () {
+    // عدّاد حي لكل زر عليه مهلة (إعادة الإرسال وطلب الكود): من ثواني السيرفر، وبيتعطّل بأول ضغطة
+    document.querySelectorAll("button[data-countdown]").forEach(function (btn) {
+      var seconds = parseInt(btn.getAttribute("data-countdown"), 10) || 0;
+      var tpl = btn.getAttribute("data-label"), ready = btn.getAttribute("data-ready");
+      var deadline = Date.now() + seconds * 1000, timer = null, submitted = false;
+      var render = function () {
+        var left = Math.ceil((deadline - Date.now()) / 1000);
+        if (left > 0) { btn.disabled = true; btn.textContent = tpl.replace("{n}", left); return true; }
+        if (!submitted) { btn.disabled = false; btn.textContent = ready; }
+        return false;
+      };
+      if (render()) {
+        timer = setInterval(function () { if (!render()) { clearInterval(timer); timer = null; } }, 250);
+      }
+      btn.form.addEventListener("submit", function (e) {
+        if (submitted || btn.disabled) { e.preventDefault(); return; }
+        submitted = true;
+        btn.disabled = true;
+      });
+    });
+    // لصق كود فيه مسافات أو شرطة: maxlength بيقصّه، فننظّفه قبل (السيرفر بيقبلهن كمان)
+    var code = document.getElementById("code");
+    if (code) {
+      code.addEventListener("paste", function (e) {
+        var text = (e.clipboardData || window.clipboardData).getData("text");
+        if (!text) return;
+        e.preventDefault();
+        code.value = text.replace(/[\s​-‏‪-‮⁦-⁩-]/g, "").toUpperCase().slice(0, {{ code_length }});
+      });
+    }
+    // رجوع بزر المتصفح: الصفحة المخزّنة عندها عدّاد قديم، فنجيب نسخة جديدة من السيرفر
+    window.addEventListener("pageshow", function (ev) { if (ev.persisted) window.location.reload(); });
+  })();
+</script>
 {% endblock %}
