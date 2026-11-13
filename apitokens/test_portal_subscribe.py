@@ -26,8 +26,11 @@ class SubscribeTests(PortalBase):
     def request_code(self, name="متجر ليلى"):
         return self.client.post(URL, {"action": "request", "store_name": name})
 
-    def activate(self, code):
-        return self.client.post(URL, {"action": "activate", "code": code})
+    def activate(self, code, agree=True):
+        data = {"action": "activate", "code": code}
+        if agree:
+            data["agree"] = "1"
+        return self.client.post(URL, data)
 
     def test_page_shows_features_plan_and_store_form(self):
         html = self.client.get(URL).content.decode()
@@ -64,12 +67,33 @@ class SubscribeTests(PortalBase):
         self.assertEqual((store.label, store.image_quota, store.period), ("متجر ليلى", 20, ApiToken.Period.MONTHLY))
         self.assertTrue(store.is_active)
         self.assertTrue(store.token)
-        # نفس الجلسة: الرئيسية بتطلب الموافقة على السياسة أول
-        self.assertRedirects(self.client.get(reverse("portal:home")), reverse("portal:accept"), fetch_redirect_response=False)
+        # الموافقة انسجّلت مع التفعيل: الداشبورد بتفتح فوراً بدون شاشة الموافقة
+        self.assertEqual(store.terms_accepted_version, portal_auth.PORTAL_TERMS_VERSION)
+        self.assertIsNotNone(store.terms_accepted_at)
+        self.assertEqual(self.client.get(reverse("portal:home")).status_code, 200)
         # الصفحة بعدها بتحوّل عالرئيسية، والكود ما بيتستخدم مرتين
         self.assertRedirects(self.client.get(URL), reverse("portal:home"), fetch_redirect_response=False)
         self.assertRedirects(self.activate(code), reverse("portal:home"), fetch_redirect_response=False)
         self.assertEqual(ApiToken.objects.filter(label="متجر ليلى").count(), 1)
+
+    def test_activation_needs_the_privacy_agreement_and_does_not_burn_an_attempt(self):
+        self.request_code()
+        code = sent_codes(self.sender)[-1]
+        resp = self.activate(code, agree=False)
+        self.assertEqual(resp.status_code, 400)
+        html = resp.content.decode()
+        self.assertIn("Please tick the agreement box to continue.", html)
+        self.assertIn('name="code"', html)
+        self.assertEqual(PhoneOtp.objects.get(purpose=PhoneOtp.PURPOSE_SUBSCRIBE).attempts, 0)
+        self.account.refresh_from_db()
+        self.assertIsNone(self.account.merchant)
+        self.assertRedirects(self.activate(code), reverse("portal:home"), fetch_redirect_response=False)
+
+    def test_code_form_has_agreement_checkbox_and_policy_link(self):
+        self.request_code()
+        html = self.client.get(URL).content.decode()
+        self.assertIn('name="agree" value="1" required', html)
+        self.assertIn(f'href="{reverse("privacy")}"', html)
 
     def test_wrong_code_counts_and_locks_after_5(self):
         self.request_code()
@@ -186,12 +210,13 @@ class SubscribeTests(PortalBase):
 
     def test_new_store_dashboard_shows_token_and_install_line(self):
         self.request_code()
-        self.activate(sent_codes(self.sender)[-1])
-        self.client.post(reverse("portal:accept"), {"agree": "1"})
+        self.assertRedirects(self.activate(sent_codes(self.sender)[-1]), reverse("portal:home"),
+                             fetch_redirect_response=False)
         store = MerchantAccount.objects.get(pk=self.account.pk).merchant
         html = self.client.get(reverse("portal:home")).content.decode()
         self.assertIn("Install the assistant in your store", html)
-        self.assertIn('<details class="card install-card" open>', html)  # متجر جديد: مفتوحة فوق
+        self.assertIn('<details class="install-details" open>', html)  # متجر جديد: خطوات التركيب مفتوحة
+        self.assertLess(html.index("install-card"), html.index("No data yet"))  # التوكن أول شي
         self.assertIn(store.token, html)
         self.assertIn(f'&lt;script src="http://testserver/static/apitokens/embed.js" data-store-key="{store.token}"&gt;&lt;/script&gt;', html)
         self.assertIn("There are no products yet", html)
@@ -205,7 +230,8 @@ class SubscribeTests(PortalBase):
         Conversation.objects.create(merchant=store, session_id="s1")
         login_portal(self.client, store, phone="+966500000777")
         html = self.client.get(reverse("portal:home")).content.decode()
-        self.assertIn('<details class="card install-card">', html)
+        self.assertIn('<details class="install-details">', html)  # الخطوات مطوية
+        self.assertLess(html.index(store.token), html.index("Virtual try-on"))  # بس التوكن بيضل أول شي
         self.assertIn("The assistant has 1 products", html)
 
     def test_arabic_page(self):

@@ -12,8 +12,8 @@
 {% endblock %}
 
 {% block content %}
+  {% include "apitokens/portal/_install_card.html" with open=has_no_data %}
   {% if not has_data %}
-  {% include "apitokens/portal/_install_card.html" with open=True %}
   <div class="card">
     <p class="empty"><span class="ico">👗</span><strong>{{ T.portal_home_empty_title }}</strong>{{ T.portal_home_empty_text }}</p>
   </div>
@@ -136,17 +136,17 @@
     <p class="empty"><span class="ico">🗂️</span>{{ T.portal_home_top_empty }}</p>
     {% endif %}
   </div>
-  {% include "apitokens/portal/_install_card.html" with open=False %}
   {% endif %}
 {% endblock %}
 
 {% block extra_style %}
-  .install-card summary { cursor: pointer; list-style: none; }
-  .install-card summary::-webkit-details-marker { display: none; }
-  .install-card summary h2 { display: inline; margin: 0; }
-  .install-card summary::after { content: "▾"; color: var(--muted); margin-inline-start: 8px; }
-  .install-card[open] summary::after { content: "▴"; }
-  .install-card[open] summary { margin-bottom: 14px; }
+  .install-card h2 { margin-bottom: 10px; }
+  .install-details { margin-top: 16px; border-top: 1px solid var(--border); padding-top: 14px; }
+  .install-details summary { cursor: pointer; list-style: none; font-size: 14px; font-weight: 700; color: var(--accent); }
+  .install-details summary::-webkit-details-marker { display: none; }
+  .install-details summary::after { content: "▾"; margin-inline-start: 8px; }
+  .install-details[open] summary::after { content: "▴"; }
+  .install-details[open] summary { margin-bottom: 14px; }
   .install-steps { margin: 0; padding-inline-start: 22px; display: flex; flex-direction: column; gap: 16px; }
   .install-steps li > strong { display: block; font-size: 14px; margin-bottom: 8px; }
   .install-steps li > .card-note { display: block; margin-top: 6px; line-height: 1.7; }
@@ -157,7 +157,7 @@
     font-family: ui-monospace, SFMono-Regular, Menlo, monospace; text-align: left;
   }
   .copy-btn { flex: none; padding: 8px 14px; }
-  .install-secret { margin: 14px 0 0; }
+  .install-secret { margin: 8px 0 0; }
   .filters { display: flex; flex-wrap: wrap; gap: 14px; align-items: end; }
   .filters .field select { min-width: 160px; }
   .range-note { margin: 14px 0 0; }

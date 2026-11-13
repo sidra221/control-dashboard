@@ -65,6 +65,7 @@ def home(request):
             "window_days": window_days,
             "currency": merchant.currency,
             "has_data": has_data,
+            "has_no_data": not has_data,
             # تركيب المساعد: سطر السكربت بتوكن المتجر، وعدد منتجاته (بلا منتجات المساعد ما عنده شي يقترحه)
             "widget_src": request.build_absolute_uri(static("apitokens/embed.js")),
             "product_count": product_count,
@@ -128,9 +129,16 @@ def pending(request):
     if action == "activate":
         if verify_throttled(request):
             return _render_subscribe(request, account, lang, form_error=t("portal_otp_throttled", lang), status=429)
-        status, _merchant = portal_otp.activate_subscription(account, request.POST.get("code", ""))
-        if status in (portal_otp.V_OK, portal_otp.LINKED):
-            return redirect("portal:home")  # الرئيسية بتطلب الموافقة على السياسة أول
+        # الموافقة على السياسة بنفس الكبسة (بدل شاشة بالنص): بلاها ما منلمس الكود ولا منحسب محاولة
+        if request.POST.get("agree") != "1":
+            return _render_subscribe(request, account, lang, terms_error=t("portal_accept_error", lang),
+                                     status=400)
+        status, merchant = portal_otp.activate_subscription(account, request.POST.get("code", ""))
+        if status == portal_otp.V_OK:
+            accept_terms(merchant)  # → الداشبورد فوراً بدون شاشة الموافقة
+            return redirect("portal:home")
+        if status == portal_otp.LINKED:
+            return redirect("portal:home")
         return _render_subscribe(request, account, lang, code_error=t(_SUBSCRIBE_ERRORS[status], lang), status=400)
 
     if action is not None:
@@ -139,7 +147,7 @@ def pending(request):
 
 
 def _render_subscribe(request, account, lang, flash=None, name_error="", code_error="", form_error="",
-                      store_name=None, status=200):
+                      terms_error="", store_name=None, status=200):
     active = portal_otp.active_otp(account, purpose=PhoneOtp.PURPOSE_SUBSCRIBE)
     wait = portal_otp.page_wait_seconds(request, account)
     info = ""
@@ -151,7 +159,8 @@ def _render_subscribe(request, account, lang, flash=None, name_error="", code_er
         form_error = t(_FLASH_TEXT[flash][1], lang)
     ctx = {
         "account": account,
-        "code_stage": active is not None or bool(code_error),
+        "code_stage": active is not None or bool(code_error) or bool(terms_error),
+        "terms_error": terms_error,
         "store_name": store_name if store_name is not None else (active.store_name if active else portal_otp.last_store_name(account)),
         "store_name_max": portal_otp.STORE_NAME_MAX,
         "code_length": portal_otp.SUBSCRIBE_CODE_LENGTH,

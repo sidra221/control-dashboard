@@ -31,6 +31,10 @@
   .field input.code-input::placeholder { letter-spacing: .3em; }
   /* بمرحلة الكود: خانة الكود أول (على الموبايل كانت تحت الطيّة)، والميزات بعدها */
   .sub-stack.code-first { flex-direction: column-reverse; }
+  .terms-check { display: grid; grid-template-columns: 20px 1fr; gap: 10px; align-items: start; font-size: 13px; color: var(--text); line-height: 1.6; cursor: pointer; }
+  .field .terms-check input { width: 18px; height: 18px; margin: 2px 0 0; accent-color: var(--accent); padding: 0; }
+  .terms-link { font-size: 12.5px; color: var(--accent); font-weight: 600; text-decoration: none; }
+  .terms-link:hover { text-decoration: underline; }
   .sub-secondary { margin-top: 12px; }
   .sub-secondary .btn-ghost { width: 100%; padding: 11px 14px; }
   .sub-secondary .btn-ghost:disabled { opacity: .6; cursor: not-allowed; }
@@ -91,6 +95,16 @@
           </div>
           <span id="code-msg">
             {% if code_error %}<span class="field-error" role="alert">{{ code_error }}</span>{% else %}<span class="field-hint">{{ T.portal_sub_code_hint }}</span>{% endif %}
+          </span>
+        </div>
+        {# الموافقة على السياسة مع التفعيل: بعدها الداشبورد بتفتح فوراً #}
+        <div class="field terms-field{% if terms_error %} has-error{% endif %}">
+          <label class="terms-check">
+            <input type="checkbox" name="agree" value="1" required{% if terms_error %} aria-invalid="true"{% endif %} aria-describedby="terms-msg">
+            <span>{{ T.portal_accept_checkbox }}</span>
+          </label>
+          <span id="terms-msg">
+            {% if terms_error %}<span class="field-error" role="alert">{{ terms_error }}</span>{% else %}<a class="terms-link" href="{% url 'privacy' %}" target="_blank" rel="noopener noreferrer">{{ T.portal_accept_read }}</a>{% endif %}
           </span>
         </div>
         <button type="submit" class="btn-primary block">{{ T.portal_sub_activate_button }}</button>
