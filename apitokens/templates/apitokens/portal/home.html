@@ -13,11 +13,10 @@
 
 {% block content %}
   {% include "apitokens/portal/_install_card.html" with open=has_no_data %}
+  {# متجر بلا بيانات: نفس اللوحة كاملة بأصفار، مع سطر بيشرح إنها بتتعبّى من أول تجربة #}
   {% if not has_data %}
-  <div class="card">
-    <p class="empty"><span class="ico">👗</span><strong>{{ T.portal_home_empty_title }}</strong>{{ T.portal_home_empty_text }}</p>
-  </div>
-  {% else %}
+  <p class="empty-banner" role="status"><strong>{{ T.portal_home_empty_title }}</strong> {{ T.portal_home_empty_text }}</p>
+  {% endif %}
   <div class="card">
     <form class="filters" method="get" action="{% url 'portal:home' %}">
       <div class="field">
@@ -66,7 +65,8 @@
   <div class="card chart-card">
     <h2>{{ T.portal_home_chart_title }}</h2>
     {% tryon_chart stats.chart as g %}
-    {% if g.has_data %}
+    {# حتى لو كلها أصفار بنرسم المحاور والأيام (متجر جديد بيشوف شكل الرسم من أول يوم) #}
+    {% if g.bars %}
     <div class="chart-legend">
       <span><i class="sw bar"></i>{{ T.portal_home_legend_tryons }}</span>
       <span><i class="sw line"></i>{{ T.portal_home_legend_orders }}</span>
@@ -136,10 +136,14 @@
     <p class="empty"><span class="ico">🗂️</span>{{ T.portal_home_top_empty }}</p>
     {% endif %}
   </div>
-  {% endif %}
 {% endblock %}
 
 {% block extra_style %}
+  .empty-banner {
+    background: var(--accent-soft); color: var(--text); border-radius: 12px; padding: 12px 16px;
+    font-size: 13.5px; line-height: 1.7; margin: 0 0 20px;
+  }
+  .empty-banner strong { color: var(--accent-dark); }
   .install-card h2 { margin-bottom: 10px; }
   .install-details { margin-top: 16px; border-top: 1px solid var(--border); padding-top: 14px; }
   .install-details summary { cursor: pointer; list-style: none; font-size: 14px; font-weight: 700; color: var(--accent); }

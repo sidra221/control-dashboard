@@ -242,4 +242,6 @@ class PortalEmptyTests(PortalBase):
         resp = self.get()
         self.assertTrue(resp.context["has_data"])
         self.assertEqual(resp.context["stats"]["totals"]["tryons"], 0)
-        self.assertIn("No try-ons in this period yet", resp.content.decode())
+        # الرسم بينرسم بأصفار (محاور وأيام) بدل رسالة "ما في تجارب"
+        self.assertIn('class="tryon-chart"', resp.content.decode())
+        self.assertNotIn("No try-ons in this period yet", resp.content.decode())

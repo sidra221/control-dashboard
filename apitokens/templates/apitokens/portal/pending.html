@@ -33,6 +33,7 @@
   .sub-stack.code-first { flex-direction: column-reverse; }
   .terms-check { display: grid; grid-template-columns: 20px 1fr; gap: 10px; align-items: start; font-size: 13px; color: var(--text); line-height: 1.6; cursor: pointer; }
   .field .terms-check input { width: 18px; height: 18px; margin: 2px 0 0; accent-color: var(--accent); padding: 0; }
+  .wait-note { margin: 10px 0 0; line-height: 1.7; text-align: center; }
   .terms-link { font-size: 12.5px; color: var(--accent); font-weight: 600; text-decoration: none; }
   .terms-link:hover { text-decoration: underline; }
   .sub-secondary { margin-top: 12px; }
@@ -146,6 +147,8 @@
         var left = Math.ceil((deadline - Date.now()) / 1000);
         if (left > 0) { btn.disabled = true; btn.textContent = tpl.replace("{n}", left); return true; }
         if (!submitted) { btn.disabled = false; btn.textContent = ready; }
+        var note = btn.form.querySelector(".wait-note");
+        if (note) note.hidden = true;  // خلص العدّاد: ما عاد في داعي للشرح
         return false;
       };
       if (render()) {

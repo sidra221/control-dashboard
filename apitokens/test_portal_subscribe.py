@@ -188,6 +188,7 @@ class SubscribeTests(PortalBase):
                                 consumed_at=timezone.now(), expires_at=timezone.now())
         html = self.client.get(URL).content.decode()
         self.assertRegex(html, r'data-countdown="[1-9]\d*"[^>]*data-ready="Request subscription code"[^>]*disabled')
+        self.assertIn("your verification message arrived a moment ago", html)  # ليش في مهلة
 
     @override_settings(PORTAL_MAX_TRIAL_STORES_PER_DAY=1)
     def test_daily_trial_cap_stops_sending_and_activation(self):
@@ -217,9 +218,14 @@ class SubscribeTests(PortalBase):
         self.assertIn("Install the assistant in your store", html)
         self.assertIn('<details class="install-details" open>', html)  # متجر جديد: خطوات التركيب مفتوحة
         self.assertLess(html.index("install-card"), html.index("No data yet"))  # التوكن أول شي
+        self.assertNotIn("your verification message arrived", html)
         self.assertIn(store.token, html)
         self.assertIn(f'&lt;script src="http://testserver/static/apitokens/embed.js" data-store-key="{store.token}"&gt;&lt;/script&gt;', html)
         self.assertIn("There are no products yet", html)
+        # لوحة كاملة بأصفار مش بطاقة فاضية بس
+        self.assertIn('class="tryon-chart"', html)  # الرسم بأصفار، مش رسالة "ما في تجارب"
+        for text in ("No data yet", "Total try-ons", "Daily try-ons and orders", "Most tried-on products", 'name="range"'):
+            self.assertIn(text, html)
 
     def test_install_card_collapses_once_the_store_has_data_and_counts_products(self):
         from .models import Conversation, Product

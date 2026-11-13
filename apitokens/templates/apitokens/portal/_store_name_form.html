@@ -15,4 +15,5 @@
   </div>
   <button type="submit" class="btn-primary block" data-countdown="{{ wait_seconds }}"
           data-label="{{ T.portal_otp_resend_in }}" data-ready="{{ T.portal_sub_request_button }}"{% if wait_seconds %} disabled{% endif %}>{% if wait_seconds %}{{ resend_in_label }}{% else %}{{ T.portal_sub_request_button }}{% endif %}</button>
+  {% if wait_seconds %}<p class="card-note wait-note">{{ T.portal_sub_wait_reason }}</p>{% endif %}
 </form>

@@ -268,6 +268,10 @@ PORTAL_TRANSLATIONS = {
         "en": "The message comes from our verification service; the 8-character code in it is your subscription code.",
     },
     "portal_sub_store_for": {"ar": "المتجر:", "en": "Store:"},
+    "portal_sub_wait_reason": {
+        "ar": "خدمة واتساب تسمح برسالة واحدة كل فترة لنفس الرقم، ووصلتك قبل قليل رسالة التحقق، لذلك يتاح الطلب بعد انتهاء العدّاد.",
+        "en": "WhatsApp allows one message per number every so often, and your verification message arrived a moment ago, so the request opens when the countdown ends.",
+    },
     "portal_sub_code_label": {"ar": "كود الاشتراك", "en": "Subscription code"},
     "portal_sub_code_hint": {"ar": "8 أحرف وأرقام، صالح 30 دقيقة", "en": "8 letters and digits, valid for 30 minutes"},
     "portal_sub_code_title": {"ar": "8 أحرف وأرقام", "en": "8 letters and digits"},
