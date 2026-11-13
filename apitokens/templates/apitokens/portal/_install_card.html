@@ -1,0 +1,26 @@
+{# تركيب المساعد: توكن المتجر وسطر السكربت مع زر نسخ. open=True: بطاقة مفتوحة (متجر جديد)، غير هيك مطوية. #}
+<details class="card install-card"{% if open %} open{% endif %}>
+  <summary><h2>{{ T.portal_install_title }}</h2></summary>
+  <ol class="install-steps">
+    <li>
+      <strong>{{ T.portal_install_step1 }}</strong>
+      <div class="copy-row">
+        <code dir="ltr" id="store-token">{{ merchant.token }}</code>
+        <button type="button" class="btn-ghost copy-btn" data-copy="store-token" data-done="{{ T.portal_install_copied }}">{{ T.portal_install_copy }}</button>
+      </div>
+    </li>
+    <li>
+      <strong>{{ T.portal_install_step2 }}</strong>
+      <div class="copy-row">
+        <code dir="ltr" id="install-snippet">&lt;script src="{{ widget_src }}" data-store-key="{{ merchant.token }}"&gt;&lt;/script&gt;</code>
+        <button type="button" class="btn-ghost copy-btn" data-copy="install-snippet" data-done="{{ T.portal_install_copied }}">{{ T.portal_install_copy }}</button>
+      </div>
+      <span class="card-note">{{ T.portal_install_step2_note }}</span>
+    </li>
+    <li>
+      <strong>{{ T.portal_install_step3 }}</strong>
+      <span class="card-note">{% if product_count %}{{ products_line }}{% else %}{{ T.portal_install_no_products }}{% endif %}{% if support_email %} <bdi dir="ltr"><a href="mailto:{{ support_email }}">{{ support_email }}</a></bdi>{% endif %}</span>
+    </li>
+  </ol>
+  <p class="card-note install-secret">{{ T.portal_install_token_note }}</p>
+</details>

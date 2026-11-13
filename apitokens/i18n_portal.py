@@ -196,6 +196,33 @@ PORTAL_TRANSLATIONS = {
         "en": "Registration is temporarily unavailable. Please try again later.",
     },
 
+    # ===== portal/_install_card.html — تركيب المساعد بالمتجر (توكن + سطر السكربت) =====
+    "portal_install_title": {"ar": "تركيب المساعد في متجرك", "en": "Install the assistant in your store"},
+    "portal_install_step1": {"ar": "توكن متجرك", "en": "Your store token"},
+    "portal_install_step2": {
+        "ar": "أضف هذا السطر إلى صفحات متجرك",
+        "en": "Add this line to your store pages",
+    },
+    "portal_install_step2_note": {
+        "ar": "ضعه في قسم الأكواد المخصّصة (HTML) في إعدادات متجرك، فيظهر زر المساعد في صفحات المتجر.",
+        "en": "Put it in the custom code (HTML) section of your store settings, and the assistant button appears on your store pages.",
+    },
+    "portal_install_step3": {"ar": "منتجات متجرك", "en": "Your products"},
+    "portal_install_products": {
+        "ar": "لدى المساعد {n} منتجاً من متجرك يقترح منها على زبائنك.",
+        "en": "The assistant has {n} products from your store to suggest to shoppers.",
+    },
+    "portal_install_no_products": {
+        "ar": "لا توجد منتجات بعد، والمساعد يقترح على زبائنك من منتجاتك فقط. تواصل معنا لربط متجرك على سلة أو زد أو Shopify أو لرفع منتجاتك.",
+        "en": "There are no products yet, and the assistant only suggests your own products. Contact us to connect your Salla, Zid or Shopify store or to upload your products.",
+    },
+    "portal_install_token_note": {
+        "ar": "التوكن خاص بمتجرك، فلا تضعه في متجر آخر.",
+        "en": "This token belongs to your store; do not use it on another store.",
+    },
+    "portal_install_copy": {"ar": "نسخ", "en": "Copy"},
+    "portal_install_copied": {"ar": "تم النسخ ✓", "en": "Copied ✓"},
+
     # ===== portal/pending.html — صفحة الاشتراك (حساب موثّق بلا متجر) =====
     "portal_pending_title": {"ar": "فعّل اشتراكك", "en": "Activate your subscription"},
     "portal_pending_sub": {"ar": "خطوة أخيرة لتشغيل الخدمة في متجرك", "en": "One last step to run the service in your store"},

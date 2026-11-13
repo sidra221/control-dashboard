@@ -6,6 +6,7 @@ from datetime import timedelta
 from django.conf import settings
 from django.db.models import Count, Q, Sum
 from django.shortcuts import redirect, render
+from django.templatetags.static import static
 from django.utils import timezone
 from django.views.decorators.http import require_http_methods, require_POST
 
@@ -51,6 +52,8 @@ def home(request):
         TryOnEvent.objects.filter(merchant=merchant, success=True).exists()
         or Conversation.objects.filter(merchant=merchant).exists()
     )
+    product_count = merchant.products.count()
+    lang = _lang(request)
     return render(
         request,
         "apitokens/portal/home.html",
@@ -62,6 +65,11 @@ def home(request):
             "window_days": window_days,
             "currency": merchant.currency,
             "has_data": has_data,
+            # تركيب المساعد: سطر السكربت بتوكن المتجر، وعدد منتجاته (بلا منتجات المساعد ما عنده شي يقترحه)
+            "widget_src": request.build_absolute_uri(static("apitokens/embed.js")),
+            "product_count": product_count,
+            "products_line": t("portal_install_products", lang).replace("{n}", str(product_count)),
+            "support_email": settings.SUPPORT_EMAIL,
         },
     )
 

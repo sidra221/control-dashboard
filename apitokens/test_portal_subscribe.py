@@ -6,7 +6,7 @@ from django.test import Client, override_settings
 from django.urls import reverse
 from django.utils import timezone
 
-from . import portal_otp
+from . import portal_auth, portal_otp
 from .models import ApiToken, MerchantAccount, PhoneOtp
 from .portal_testing import _put_session, login_pending, patch_otp_send, sent_codes
 from .services import lightotp
@@ -183,6 +183,30 @@ class SubscribeTests(PortalBase):
         # الستاف (created_by) ما بينحسب بالسقف، والقديم من 24 ساعة كمان
         ApiToken.objects.filter(pk=other.merchant.pk).update(created_at=timezone.now() - timedelta(hours=25))
         self.assertRedirects(self.activate(code), reverse("portal:home"), fetch_redirect_response=False)
+
+    def test_new_store_dashboard_shows_token_and_install_line(self):
+        self.request_code()
+        self.activate(sent_codes(self.sender)[-1])
+        self.client.post(reverse("portal:accept"), {"agree": "1"})
+        store = MerchantAccount.objects.get(pk=self.account.pk).merchant
+        html = self.client.get(reverse("portal:home")).content.decode()
+        self.assertIn("Install the assistant in your store", html)
+        self.assertIn('<details class="card install-card" open>', html)  # متجر جديد: مفتوحة فوق
+        self.assertIn(store.token, html)
+        self.assertIn(f'&lt;script src="http://testserver/static/apitokens/embed.js" data-store-key="{store.token}"&gt;&lt;/script&gt;', html)
+        self.assertIn("There are no products yet", html)
+
+    def test_install_card_collapses_once_the_store_has_data_and_counts_products(self):
+        from .models import Conversation, Product
+        from .portal_testing import login_portal
+
+        store = ApiToken.objects.create(label="B", image_quota=20, terms_accepted_version=portal_auth.PORTAL_TERMS_VERSION)
+        Product.objects.create(merchant=store, sku="S1", title="فستان", price=100, image_url="https://e.com/a.png")
+        Conversation.objects.create(merchant=store, session_id="s1")
+        login_portal(self.client, store, phone="+966500000777")
+        html = self.client.get(reverse("portal:home")).content.decode()
+        self.assertIn('<details class="card install-card">', html)
+        self.assertIn("The assistant has 1 products", html)
 
     def test_arabic_page(self):
         self.set_lang("ar")

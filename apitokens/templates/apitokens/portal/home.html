@@ -13,6 +13,7 @@
 
 {% block content %}
   {% if not has_data %}
+  {% include "apitokens/portal/_install_card.html" with open=True %}
   <div class="card">
     <p class="empty"><span class="ico">👗</span><strong>{{ T.portal_home_empty_title }}</strong>{{ T.portal_home_empty_text }}</p>
   </div>
@@ -135,10 +136,28 @@
     <p class="empty"><span class="ico">🗂️</span>{{ T.portal_home_top_empty }}</p>
     {% endif %}
   </div>
+  {% include "apitokens/portal/_install_card.html" with open=False %}
   {% endif %}
 {% endblock %}
 
 {% block extra_style %}
+  .install-card summary { cursor: pointer; list-style: none; }
+  .install-card summary::-webkit-details-marker { display: none; }
+  .install-card summary h2 { display: inline; margin: 0; }
+  .install-card summary::after { content: "▾"; color: var(--muted); margin-inline-start: 8px; }
+  .install-card[open] summary::after { content: "▴"; }
+  .install-card[open] summary { margin-bottom: 14px; }
+  .install-steps { margin: 0; padding-inline-start: 22px; display: flex; flex-direction: column; gap: 16px; }
+  .install-steps li > strong { display: block; font-size: 14px; margin-bottom: 8px; }
+  .install-steps li > .card-note { display: block; margin-top: 6px; line-height: 1.7; }
+  .copy-row { display: flex; gap: 8px; align-items: stretch; min-width: 0; }
+  .copy-row code {
+    flex: 1; min-width: 0; overflow-x: auto; white-space: nowrap; font-size: 12.5px;
+    background: var(--bg); border: 1px solid var(--border); border-radius: 8px; padding: 9px 12px;
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace; text-align: left;
+  }
+  .copy-btn { flex: none; padding: 8px 14px; }
+  .install-secret { margin: 14px 0 0; }
   .filters { display: flex; flex-wrap: wrap; gap: 14px; align-items: end; }
   .filters .field select { min-width: 160px; }
   .range-note { margin: 14px 0 0; }
@@ -162,4 +181,30 @@
     .filters .btn-primary { flex: 1 1 100%; }
     .hint { display: block; margin: 4px 0 0; }
   }
+{% endblock %}
+
+{% block scripts %}
+<script>
+  (function () {
+    // نسخ التوكن أو سطر التركيب بضغطة
+    document.querySelectorAll(".copy-btn").forEach(function (btn) {
+      var label = btn.textContent;
+      btn.addEventListener("click", function () {
+        var text = document.getElementById(btn.getAttribute("data-copy")).textContent;
+        var done = function () {
+          btn.textContent = btn.getAttribute("data-done");
+          setTimeout(function () { btn.textContent = label; }, 1800);
+        };
+        if (navigator.clipboard && window.isSecureContext) {
+          navigator.clipboard.writeText(text).then(done);
+        } else {
+          var area = document.createElement("textarea");
+          area.value = text; document.body.appendChild(area); area.select();
+          try { document.execCommand("copy"); done(); } catch (e) {}
+          document.body.removeChild(area);
+        }
+      });
+    });
+  })();
+</script>
 {% endblock %}
