@@ -135,6 +135,66 @@ WEARABLE_PATTERN = re.compile(
 )
 
 
+class MerchantAccount(models.Model):
+    """حساب دخول التاجر لبوابته: رقم هاتف + كلمة مرور (مشفّرة). بيتسجّل برابط دعوة من الإدارة
+    (ApiToken.portal_key_hash) أو بالتسجيل العام؛ وحساب واحد لكل متجر. merchant=None يعني حساب
+    معلّق: لسا الإدارة ما ربطته بمتجر. phone_verified = التاجر أدخل كود OTP اللي انبعت لواتساب رقمه
+    (PhoneOtp)؛ بدونه الحساب ما بيدخل أي صفحة غير صفحة التحقق."""
+
+    merchant = models.OneToOneField(
+        ApiToken, on_delete=models.CASCADE, related_name="portal_account", null=True, blank=True
+    )
+    name = models.CharField(max_length=120)
+    # رقم دولي منظّم بصيغة +9665xxxxxxxx (مفرد بين الحسابات)
+    phone = models.CharField(max_length=20, unique=True)
+    password = models.CharField(max_length=128, editable=False)
+    is_active = models.BooleanField(default=True)
+    phone_verified = models.BooleanField(default=False)
+    phone_verified_at = models.DateTimeField(null=True, blank=True)
+    failed_logins = models.PositiveSmallIntegerField(default=0)
+    locked_until = models.DateTimeField(null=True, blank=True)
+    last_login_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        verbose_name = "حساب تاجر"
+        verbose_name_plural = "حسابات التجار"
+
+    def __str__(self):
+        store = self.merchant.label if self.merchant_id else "—"
+        return f"{self.name} ({self.phone}) → {store}"
+
+
+class PhoneOtp(models.Model):
+    """كود تحقق واتساب لحساب تاجر. الكود نفسه ما بينخزّن أبداً: بس HMAC-SHA256 (مفتاحه SECRET_KEY)
+    على `<pk>:<code>`. صالح 10 دقايق و5 محاولات غلط بالكتير. consumed_at مليان = مستخدم أو
+    مبطّل (أو إرسال فاشل: send_error مليان بدون message_id). message_id/status من LightOTP."""
+
+    account = models.ForeignKey(MerchantAccount, on_delete=models.CASCADE, related_name="otps")
+    # رقم الحساب وقت الإرسال: التهدئة بتنحسب لكل رقم، وتغيّر الرقم بيبطل الكود القديم
+    phone = models.CharField(max_length=20)
+    code_hash = models.CharField(max_length=64, editable=False)
+    created_at = models.DateTimeField(auto_now_add=True)
+    expires_at = models.DateTimeField()
+    attempts = models.PositiveSmallIntegerField(default=0)
+    consumed_at = models.DateTimeField(null=True, blank=True)
+    message_id = models.CharField(max_length=64, blank=True)
+    # Pending / Sent / Delivered / Read / Failed / Deleted
+    message_status = models.CharField(max_length=20, blank=True)
+    send_error = models.CharField(max_length=200, blank=True)
+
+    class Meta:
+        verbose_name = "رمز تحقق"
+        verbose_name_plural = "رموز التحقق"
+        indexes = [
+            models.Index(fields=["phone", "created_at"]),
+            models.Index(fields=["created_at"]),
+        ]
+
+    def __str__(self):
+        return f"OTP #{self.pk} ({self.message_status or 'unsent'})"
+
+
 class Product(models.Model):
     """منتج واحد من كتالوج التاجر (ApiToken). لو التاجر بيرفع CSV يدوي، رفع
     ملف جديد بيعوّض كل منتجاته. لو مربوط بـ Shopify (انظر ShopifyConnection)،

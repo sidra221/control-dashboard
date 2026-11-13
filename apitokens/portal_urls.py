@@ -6,7 +6,11 @@ app_name = "portal"
 
 urlpatterns = [
     path("enter/<str:key>/", portal_auth.enter, name="enter"),
-    path("expired/", portal_auth.expired, name="expired"),
+    path("login/", portal_auth.login, name="login"),
+    path("register/", portal_auth.register, name="register"),
+    path("verify/", portal_views.verify, name="verify"),
+    path("verify/resend/", portal_views.verify_resend, name="verify_resend"),
+    path("pending/", portal_views.pending, name="pending"),
     path("logout/", portal_auth.logout, name="logout"),
     path("accept/", portal_views.accept, name="accept"),
     path("", portal_views.home, name="home"),

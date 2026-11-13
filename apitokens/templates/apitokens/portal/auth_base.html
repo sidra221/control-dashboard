@@ -1,0 +1,86 @@
+{% extends "apitokens/portal/base.html" %}
+{# تخطيط صفحات الدخول والتسجيل: موسّط، بدون هيدر لوحة التحكم #}
+
+{% block body_class %}auth{% endblock %}
+
+{% block extra_style %}
+  html { min-height: 100%; }
+  body.auth {
+    min-height: 100vh; min-height: 100dvh;
+    display: flex; align-items: center; justify-content: center;
+    padding: 40px 16px;
+    background:
+      radial-gradient(900px 520px at 50% 0, var(--bg-soft), transparent),
+      var(--bg);
+    background-attachment: fixed;
+  }
+  body.auth .wrap { width: 100%; max-width: 420px; margin: 0 auto; }
+  .auth-brand { text-align: center; margin-bottom: 24px; }
+  .auth-brand h1 { font-size: 22px; font-weight: 800; margin: 0; }
+  .auth-brand .sub { font-size: 13.5px; color: var(--muted); margin: 4px 0 0; }
+  body.auth .auth-card { max-width: none; width: 100%; padding: 26px 24px; margin: 0; border-radius: 18px; box-shadow: var(--shadow), 0 24px 48px -28px rgba(20, 20, 50, 0.25); }
+  body.auth .auth-card form { gap: 18px; }
+  .input-wrap { position: relative; display: flex; align-items: center; }
+  .input-wrap input { padding-inline-end: 44px; }
+  .input-wrap input:not([type=password]) { padding-inline-end: 14px; }
+  .pw-toggle {
+    position: absolute; inset-inline-end: 6px; top: 50%; transform: translateY(-50%);
+    width: 34px; height: 34px; border: none; background: transparent; color: var(--muted);
+    border-radius: 8px; cursor: pointer; display: flex; align-items: center; justify-content: center;
+  }
+  .pw-toggle:hover { color: var(--accent); background: var(--accent-soft); }
+  .pw-toggle:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+  .pw-toggle svg { width: 20px; height: 20px; }
+  .pw-toggle .eye-off { display: none; }
+  .pw-toggle[aria-pressed=true] .eye { display: none; }
+  .pw-toggle[aria-pressed=true] .eye-off { display: block; }
+  html[dir=rtl] .field input[dir=ltr] { text-align: right; }
+  .field input::placeholder { color: var(--muted); opacity: .55; }
+  .btn-primary.block { padding: 13px 22px; font-size: 15px; transition: transform .1s ease, opacity .15s ease; }
+  .btn-primary.block:hover { opacity: .94; }
+  .btn-primary.block:active { transform: translateY(1px); }
+  .btn-primary.block:disabled { opacity: .6; cursor: progress; }
+  .hp { position: absolute; inset-inline-start: -10000px; top: auto; width: 1px; height: 1px; overflow: hidden; }
+  .auth-alt { text-align: center; font-size: 13.5px; margin: 16px 0 0; color: var(--muted); }
+  .auth-alt a { color: var(--accent); font-weight: 600; text-decoration: none; }
+  .auth-alt a:hover { text-decoration: underline; }
+  .auth-foot { text-align: center; color: var(--muted); font-size: 12px; margin-top: 18px; }
+  @media (max-width: 480px) {
+    body.auth { align-items: flex-start; padding-top: 56px; }
+    body.auth .auth-card { padding: 22px 18px; }
+  }
+{% endblock %}
+
+{% block header %}
+  <div class="auth-brand">
+    <h1>{% block page_title %}{% endblock %}</h1>
+    <p class="sub">{% block page_sub %}{% endblock %}</p>
+  </div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  (function () {
+    document.querySelectorAll(".pw-toggle").forEach(function (btn) {
+      btn.addEventListener("click", function () {
+        var input = document.getElementById(btn.getAttribute("data-for"));
+        if (!input) return;
+        var show = input.type === "password";
+        input.type = show ? "text" : "password";
+        btn.setAttribute("aria-pressed", show ? "true" : "false");
+        btn.setAttribute("aria-label", btn.getAttribute(show ? "data-hide" : "data-show"));
+      });
+    });
+    // منع الضغط المزدوج على الزر؛ وبنرجّعه لو رجع الزبون بزر "رجوع" المتصفح.
+    document.querySelectorAll("form.auth-form").forEach(function (form) {
+      form.addEventListener("submit", function () {
+        var b = form.querySelector("button[type=submit]");
+        if (b) setTimeout(function () { b.disabled = true; }, 0);
+      });
+    });
+    window.addEventListener("pageshow", function () {
+      document.querySelectorAll("form.auth-form button[type=submit]").forEach(function (b) { b.disabled = false; });
+    });
+  })();
+</script>
+{% endblock %}

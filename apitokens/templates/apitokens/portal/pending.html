@@ -1,0 +1,17 @@
+{% extends "apitokens/portal/auth_base.html" %}
+
+{% block title %}{{ T.portal_pending_title }}{% endblock %}
+{% block page_title %}{{ T.portal_pending_title }}{% endblock %}
+{% block page_sub %}{{ T.portal_pending_sub }}{% endblock %}
+
+{% block content %}
+  <div class="card auth-card">
+    <p style="margin-top:0"><strong>{{ T.portal_pending_hello }} <bdi>{{ account.name }}</bdi></strong></p>
+    <p>{{ T.portal_pending_text }}</p>
+    <p class="card-note">{{ T.portal_pending_phone_note }} <bdi dir="ltr">{{ account.phone }}</bdi></p>
+    <form method="post" action="{% url 'portal:logout' %}" style="margin-top:18px">
+      {% csrf_token %}
+      <button type="submit" class="btn-ghost" style="width:100%;padding:12px 14px">{{ T.portal_home_logout }}</button>
+    </form>
+  </div>
+{% endblock %}

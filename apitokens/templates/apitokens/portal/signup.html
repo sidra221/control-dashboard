@@ -1,0 +1,25 @@
+{% extends "apitokens/portal/auth_base.html" %}
+
+{% block title %}{{ T.portal_signup_title }}{% endblock %}
+{% block page_title %}{{ T.portal_signup_title }}{% endblock %}
+{% block page_sub %}{{ T.portal_signup_sub }}{% endblock %}
+
+{% block content %}
+  <div class="card auth-card">
+    <form method="post" action="{% url 'portal:register' %}" class="auth-form">
+      {% csrf_token %}
+      {% if form_error %}<p class="alert-error" role="alert">{{ form_error }}</p>{% endif %}
+      {# honeypot: مخفي بالـ CSS، لازم يضل فاضي #}
+      <div class="hp" aria-hidden="true">
+        <label>Website <input type="text" name="{{ honeypot }}" value="" tabindex="-1" autocomplete="off"></label>
+      </div>
+      {% include "apitokens/portal/_field.html" with id="name" name="name" label=T.portal_register_name value=values.name autocomplete="name" maxlength="120" error=errors.name autofocus=True %}
+      {% include "apitokens/portal/_field.html" with id="phone" name="phone" type="tel" label=T.portal_register_wa_phone value=values.phone autocomplete="tel" inputmode="tel" dir="ltr" maxlength="40" hint=T.portal_register_wa_phone_hint error=errors.phone placeholder="+966 50 123 4567" %}
+      {% include "apitokens/portal/_field.html" with id="password" name="password" type="password" label=T.portal_register_password autocomplete="new-password" maxlength="128" hint=T.portal_register_password_hint error=errors.password %}
+      {% include "apitokens/portal/_field.html" with id="password_confirm" name="password_confirm" type="password" label=T.portal_register_password_confirm autocomplete="new-password" maxlength="128" error=errors.password_confirm %}
+      <button type="submit" class="btn-primary block">{{ T.portal_register_button }}</button>
+    </form>
+    <p class="card-note" style="margin-top:16px">{{ T.portal_signup_note }}</p>
+    <p class="auth-alt"><a href="{% url 'portal:login' %}">{{ T.portal_signup_have_account }}</a></p>
+  </div>
+{% endblock %}

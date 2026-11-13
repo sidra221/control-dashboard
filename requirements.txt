@@ -6,3 +6,4 @@ anthropic>=0.40
 openai>=1.66  # Responses API + reasoning (gpt-5+/luna)
 requests>=2.31
 google-genai>=0.3
+phonenumbers>=8.13  # التحقق من أرقام الهاتف وتحويلها E.164 (LightOTP)

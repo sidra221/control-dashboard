@@ -1,4 +1,4 @@
-"""نصوص صفحة بوابة التاجر (portal/home.html). كل المفاتيح بتبدأ بـ portal_home_."""
+"""نصوص بوابة التاجر: portal_home_ (الرئيسية)، portal_accept_ (الموافقة)، portal_login_ و portal_register_ و portal_signup_ (الدخول والتسجيل)، portal_otp_ (تحقق الواتساب)، portal_pending_ (بانتظار الربط)."""
 
 PORTAL_TRANSLATIONS = {
     "portal_home_title": {"ar": "لوحة المتجر", "en": "Store dashboard"},
@@ -104,4 +104,153 @@ PORTAL_TRANSLATIONS = {
     "portal_accept_button": {"ar": "أوافق وأتابع", "en": "I agree and continue"},
     "portal_accept_error": {"ar": "يجب تعليم خانة الموافقة للمتابعة.", "en": "Please tick the agreement box to continue."},
     "portal_accept_version": {"ar": "نسخة السياسة", "en": "Policy version"},
+
+    # ===== portal/login.html — دخول التاجر برقم الهاتف وكلمة المرور =====
+    "portal_login_title": {"ar": "تسجيل الدخول", "en": "Sign in"},
+    "portal_login_sub": {"ar": "لوحة المتجر", "en": "Store dashboard"},
+    "portal_login_phone": {"ar": "رقم الهاتف", "en": "Phone number"},
+    "portal_login_phone_hint": {"ar": "مع رمز الدولة، مثلاً ⁦+966501234567⁩", "en": "With country code, e.g. +966501234567"},
+    "portal_login_password": {"ar": "كلمة المرور", "en": "Password"},
+    "portal_login_button": {"ar": "دخول", "en": "Sign in"},
+    "portal_login_forgot": {
+        "ar": "نسيت كلمة المرور؟ اطلب من مزوّد المتجر رابط تسجيل جديد.",
+        "en": "Forgot your password? Ask the store provider for a new registration link.",
+    },
+    "portal_login_create_account": {"ar": "إنشاء حساب جديد", "en": "Create an account"},
+    "portal_login_err_generic": {
+        "ar": "رقم الهاتف أو كلمة المرور غير صحيحة.",
+        "en": "The phone number or password is incorrect.",
+    },
+    "portal_login_err_locked": {
+        "ar": "محاولات كتير. جرّب مرة تانية بعد شوي.",
+        "en": "Too many attempts. Please try again later.",
+    },
+
+    # ===== portal/register.html — إنشاء الحساب برابط الدعوة =====
+    "portal_register_title": {"ar": "إنشاء حساب", "en": "Create your account"},
+    "portal_register_sub": {"ar": "خطوة وحدة وبتوصل للوحة متجرك", "en": "One step to reach your store dashboard"},
+    "portal_register_intro_prefix": {"ar": "رح تنشئ الحساب لمتجر «", "en": "You are creating the account for the store \u201c"},
+    "portal_register_intro_suffix": {
+        "ar": "». رقم الهاتف هو اللي بتسجّل فيه دخولك، ورح نبعتلك عليه كود تحقق على واتساب.",
+        "en": "\u201d. Your phone number is what you use to sign in, and we will send you a verification code on WhatsApp.",
+    },
+    "portal_register_reset_note": {
+        "ar": "هالمتجر إله حساب أصلاً. إذا كملت، الاسم والرقم وكلمة المرور القديمة بتنستبدل بالجديدة، وإذا تغيّر الرقم لازم تتحقق منه من جديد.",
+        "en": "This store already has an account. If you continue, its name, phone and password are replaced by the new ones, and a changed number must be verified again.",
+    },
+    "portal_register_name": {"ar": "اسمك", "en": "Your name"},
+    "portal_register_wa_phone": {"ar": "رقم الواتساب", "en": "WhatsApp number"},
+    "portal_register_wa_phone_hint": {
+        "ar": "لازم يكون رقم واتساب شغّال، مع رمز الدولة، مثلاً ⁦+966501234567⁩",
+        "en": "Must be a WhatsApp number, with country code, e.g. +966501234567",
+    },
+    "portal_register_password": {"ar": "كلمة المرور", "en": "Password"},
+    "portal_register_password_hint": {
+        "ar": "8 أحرف على الأقل، وما تكون سهلة التخمين",
+        "en": "At least 8 characters, and not easy to guess",
+    },
+    "portal_register_password_confirm": {"ar": "تأكيد كلمة المرور", "en": "Confirm password"},
+    "portal_register_button": {"ar": "إنشاء الحساب", "en": "Create account"},
+    "portal_register_err_name": {"ar": "اكتب اسمك.", "en": "Please enter your name."},
+    "portal_register_err_name_long": {"ar": "الاسم طويل كتير.", "en": "That name is too long."},
+    "portal_register_err_phone": {
+        "ar": "اكتب الرقم مع رمز الدولة، مثلاً ⁦+966501234567⁩.",
+        "en": "Enter the number with its country code, e.g. +966501234567.",
+    },
+    "portal_register_err_phone_taken": {
+        "ar": "هالرقم مستخدم بحساب تاني. جرّب رقم غيره.",
+        "en": "This number is already used by another account. Try a different number.",
+    },
+    "portal_register_err_pw_short": {
+        "ar": "كلمة المرور قصيرة. لازم 8 أحرف على الأقل.",
+        "en": "Password is too short. Use at least 8 characters.",
+    },
+    "portal_register_err_pw_long": {"ar": "كلمة المرور طويلة كتير.", "en": "Password is too long."},
+    "portal_register_err_pw_common": {
+        "ar": "كلمة المرور شائعة وسهلة التخمين. اختار غيرها.",
+        "en": "This password is too common and easy to guess. Choose another one.",
+    },
+    "portal_register_err_pw_weak": {
+        "ar": "كلمة المرور ضعيفة. اخلطها بأحرف وأرقام.",
+        "en": "This password is too weak. Mix letters and numbers.",
+    },
+    "portal_register_err_mismatch": {"ar": "كلمتا المرور مو متطابقتين.", "en": "The passwords do not match."},
+    "portal_auth_show_password": {"ar": "إظهار كلمة المرور", "en": "Show password"},
+    "portal_auth_hide_password": {"ar": "إخفاء كلمة المرور", "en": "Hide password"},
+    "portal_auth_secure_note": {"ar": "اتصال آمن ومشفّر", "en": "Secure, encrypted connection"},
+
+    # ===== portal/signup.html — التسجيل العام (حساب معلّق بدون متجر) =====
+    "portal_signup_title": {"ar": "إنشاء حساب", "en": "Create your account"},
+    "portal_signup_sub": {"ar": "سجّل بياناتك وبنربط حسابك بمتجرك", "en": "Register and we will link your account to your store"},
+    "portal_signup_note": {
+        "ar": "بعد التسجيل بنبعتلك كود تحقق على الواتساب، وبعدها بنربط حسابك بمتجرك وبنتواصل معك.",
+        "en": "After you register we send you a verification code on WhatsApp, then we link your account to your store and contact you.",
+    },
+    "portal_signup_have_account": {"ar": "عندك حساب؟ سجّل دخولك", "en": "Already have an account? Sign in"},
+    "portal_signup_err_phone_registered": {
+        "ar": "هالرقم مسجّل من قبل. جرّب تسجّل دخولك.",
+        "en": "This phone number is already registered. Try signing in.",
+    },
+    "portal_signup_err_closed": {
+        "ar": "التسجيل غير متاح حالياً. جرّب مرة تانية بعد شوي.",
+        "en": "Registration is temporarily unavailable. Please try again later.",
+    },
+
+    # ===== portal/pending.html — حساب بانتظار الربط بمتجر =====
+    "portal_pending_title": {"ar": "تم إنشاء حسابك", "en": "Your account was created"},
+    "portal_pending_sub": {"ar": "بانتظار ربطه بمتجرك", "en": "Waiting to be linked to your store"},
+    "portal_pending_hello": {"ar": "أهلاً", "en": "Welcome,"},
+    "portal_pending_text": {
+        "ar": "تم إنشاء حسابك. رح نربطه بمتجرك ونتواصل معك. بعد الربط بتقدر تدخل للوحة المتجر بنفس رقمك وكلمة مرورك.",
+        "en": "Your account was created. We will link it to your store and contact you. Once linked, you can open the store dashboard with the same phone number and password.",
+    },
+    "portal_pending_phone_note": {"ar": "رقم التواصل:", "en": "Contact number:"},
+
+    # ===== portal/verify.html — تحقق الواتساب (OTP) =====
+    "portal_otp_title": {"ar": "تأكيد رقم الواتساب", "en": "Verify your WhatsApp number"},
+    "portal_otp_sub": {"ar": "أدخل الكود اللي وصلك على واتساب", "en": "Enter the code we sent on WhatsApp"},
+    "portal_otp_sent_to": {
+        "ar": "بعتنا كود من 6 أرقام على واتساب الرقم",
+        "en": "We sent a 6-digit code on WhatsApp to",
+    },
+    "portal_otp_code_label": {"ar": "كود التحقق", "en": "Verification code"},
+    "portal_otp_code_hint": {"ar": "6 أرقام، صالح 10 دقايق", "en": "6 digits, valid for 10 minutes"},
+    "portal_otp_code_title": {"ar": "6 أرقام", "en": "6 digits"},
+    "portal_otp_verify_button": {"ar": "تحقّق", "en": "Verify"},
+    "portal_otp_resend": {"ar": "إعادة إرسال الكود", "en": "Resend code"},
+    "portal_otp_resend_in": {"ar": "إعادة الإرسال بعد {n} ث", "en": "Resend in {n} s"},
+    "portal_otp_change_number": {"ar": "استخدم رقم تاني / تسجيل الخروج", "en": "Use a different number / log out"},
+    "portal_otp_sent": {"ar": "بعتنالك كود جديد على واتساب.", "en": "We sent you a new code on WhatsApp."},
+    "portal_otp_wait": {
+        "ar": "استنى {n} ثانية قبل ما تطلب كود جديد.",
+        "en": "Please wait {n} seconds before requesting a new code.",
+    },
+    "portal_otp_unavailable": {
+        "ar": "خدمة التحقق مو متاحة مؤقتاً. جرّب مرة تانية بعد شوي.",
+        "en": "Verification is temporarily unavailable. Please try again later.",
+    },
+    "portal_otp_throttled": {
+        "ar": "طلبات كتير. جرّب مرة تانية بعد شوي.",
+        "en": "Too many requests. Please try again later.",
+    },
+    "portal_otp_err_wrong": {
+        "ar": "الكود غير صحيح. تأكد منه وجرّب مرة تانية.",
+        "en": "That code is incorrect. Check it and try again.",
+    },
+    "portal_otp_err_expired": {
+        "ar": "انتهت صلاحية الكود. اطلب كود جديد.",
+        "en": "This code has expired. Request a new one.",
+    },
+    "portal_otp_err_exhausted": {
+        "ar": "محاولات غلط كتير. اطلب كود جديد.",
+        "en": "Too many incorrect attempts. Request a new code.",
+    },
+    "portal_otp_err_none": {
+        "ar": "ما في كود فعّال. اطلب كود جديد.",
+        "en": "There is no active code. Request a new one.",
+    },
+    "portal_otp_no_active": {
+        "ar": "اضغط «إعادة إرسال الكود» لتوصلك رسالة جديدة.",
+        "en": "Tap \u201cResend code\u201d to get a new message.",
+    },
 }

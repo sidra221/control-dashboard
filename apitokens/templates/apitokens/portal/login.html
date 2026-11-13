@@ -1,0 +1,19 @@
+{% extends "apitokens/portal/auth_base.html" %}
+
+{% block title %}{{ T.portal_login_title }}{% endblock %}
+{% block page_title %}{{ T.portal_login_title }}{% endblock %}
+{% block page_sub %}{{ T.portal_login_sub }}{% endblock %}
+
+{% block content %}
+  <div class="card auth-card">
+    <form method="post" action="{% url 'portal:login' %}" class="auth-form">
+      {% csrf_token %}
+      {% if form_error %}<p class="alert-error" role="alert">{{ form_error }}</p>{% endif %}
+      {% include "apitokens/portal/_field.html" with id="phone" name="phone" type="tel" label=T.portal_login_phone value=phone autocomplete="tel" inputmode="tel" dir="ltr" maxlength="40" hint=T.portal_login_phone_hint placeholder="+966 50 123 4567" autofocus=True %}
+      {% include "apitokens/portal/_field.html" with id="password" name="password" type="password" label=T.portal_login_password autocomplete="current-password" maxlength="1024" %}
+      <button type="submit" class="btn-primary block">{{ T.portal_login_button }}</button>
+    </form>
+    <p class="card-note" style="margin-top:16px">{{ T.portal_login_forgot }}</p>
+    <p class="auth-alt"><a href="{% url 'portal:register' %}">{{ T.portal_login_create_account }}</a></p>
+  </div>
+{% endblock %}
