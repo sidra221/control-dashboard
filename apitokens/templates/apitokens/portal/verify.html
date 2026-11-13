@@ -1,0 +1,89 @@
+{% extends "apitokens/portal/auth_base.html" %}
+
+{% block title %}{{ T.portal_otp_title }}{% endblock %}
+{% block page_title %}{{ T.portal_otp_title }}{% endblock %}
+{% block page_sub %}{{ T.portal_otp_sub }}{% endblock %}
+
+{% block extra_style %}{{ block.super }}
+  .otp-input { text-align: center; font-size: 26px; font-weight: 700; letter-spacing: .5em; padding-inline-start: calc(14px + .5em); }
+  .otp-input::placeholder { letter-spacing: .5em; }
+  .alert-ok { background: var(--success-bg); color: var(--success-text); border-radius: 10px; padding: 10px 14px; font-size: 13.5px; margin: 0; }
+  .masked-phone { font-weight: 700; unicode-bidi: isolate; }
+  .resend-form { margin-top: 14px; }
+  .resend-form .btn-ghost { width: 100%; padding: 12px 14px; }
+  .resend-form .btn-ghost:disabled { opacity: .6; cursor: not-allowed; }
+  .otp-alt { margin-top: 10px; }
+  .otp-alt .btn-ghost { width: 100%; padding: 10px 14px; border-color: transparent; font-size: 13.5px; }
+{% endblock %}
+
+{% block content %}
+  <div class="card auth-card">
+    <p style="margin-top:0">{{ T.portal_otp_sent_to }} <bdi dir="ltr" class="masked-phone">{{ masked_phone }}</bdi></p>
+    {% if info %}<p class="alert-ok" role="status">{{ info }}</p>{% endif %}
+    {% if form_error %}<p class="alert-error" role="alert">{{ form_error }}</p>{% endif %}
+    {% if hint %}<p class="note" role="status">{{ hint }}</p>{% endif %}
+    <form method="post" action="{% url 'portal:verify' %}" class="auth-form" style="margin-top:16px">
+      {% csrf_token %}
+      <div class="field{% if code_error %} has-error{% endif %}">
+        <label for="code">{{ T.portal_otp_code_label }}</label>
+        <div class="input-wrap">
+          <input type="text" id="code" name="code" class="otp-input" value="" dir="ltr"
+                 inputmode="numeric" autocomplete="one-time-code" maxlength="6" pattern="[0-9٠-٩۰-۹]{6}"
+                 title="{{ T.portal_otp_code_title }}" placeholder="••••••" required autofocus
+                 autocapitalize="none" autocorrect="off" spellcheck="false"
+                 {% if code_error %}aria-invalid="true" {% endif %}aria-describedby="code-msg">
+        </div>
+        <span id="code-msg">
+          {% if code_error %}<span class="field-error" role="alert">{{ code_error }}</span>{% else %}<span class="field-hint">{{ T.portal_otp_code_hint }}</span>{% endif %}
+        </span>
+      </div>
+      <button type="submit" class="btn-primary block">{{ T.portal_otp_verify_button }}</button>
+    </form>
+    {# زر الإعادة: معطّل بعدّاد حي من ثواني السيرفر، وبيتعطّل فوراً بأول ضغطة #}
+    <form method="post" action="{% url 'portal:verify_resend' %}" class="resend-form" id="resend-form">
+      {% csrf_token %}
+      <button type="submit" class="btn-ghost" id="resend-btn" data-seconds="{{ wait_seconds }}"
+              data-label="{{ T.portal_otp_resend_in }}" data-ready="{{ T.portal_otp_resend }}"{% if wait_seconds %} disabled{% endif %}>{% if wait_seconds %}{{ resend_in_label }}{% else %}{{ T.portal_otp_resend }}{% endif %}</button>
+    </form>
+    <form method="post" action="{% url 'portal:logout' %}" class="otp-alt">
+      {% csrf_token %}
+      <button type="submit" class="btn-ghost">{{ T.portal_otp_change_number }}</button>
+    </form>
+  </div>
+{% endblock %}
+
+{% block scripts %}{{ block.super }}
+<script>
+  (function () {
+    var btn = document.getElementById("resend-btn");
+    if (!btn) return;
+    var seconds = parseInt(btn.getAttribute("data-seconds"), 10) || 0;
+    var tpl = btn.getAttribute("data-label"), ready = btn.getAttribute("data-ready");
+    var deadline = Date.now() + seconds * 1000, timer = null, submitted = false;
+    function render() {
+      var left = Math.ceil((deadline - Date.now()) / 1000);
+      if (left > 0) { btn.disabled = true; btn.textContent = tpl.replace("{n}", left); return true; }
+      if (!submitted) { btn.disabled = false; btn.textContent = ready; }
+      return false;
+    }
+    if (render()) {
+      timer = setInterval(function () { if (!render()) { clearInterval(timer); timer = null; } }, 250);
+    }
+    document.getElementById("resend-form").addEventListener("submit", function (e) {
+      if (submitted || btn.disabled) { e.preventDefault(); return; }
+      submitted = true;
+      btn.disabled = true;
+    });
+    // لصق كود فيه مسافات ("058 069"): maxlength بيقصّه، فننظّفه قبل (السيرفر بيقبل المسافات كمان)
+    var code = document.getElementById("code");
+    code.addEventListener("paste", function (e) {
+      var text = (e.clipboardData || window.clipboardData).getData("text");
+      if (!text) return;
+      e.preventDefault();
+      code.value = text.replace(/[\s\u200b-\u200f\u202a-\u202e\u2066-\u2069]/g, "").slice(0, 6);
+    });
+    // رجوع بزر المتصفح: الصفحة المخزّنة عندها عدّاد قديم، فنجيب نسخة جديدة من السيرفر
+    window.addEventListener("pageshow", function (ev) { if (ev.persisted) window.location.reload(); });
+  })();
+</script>
+{% endblock %}

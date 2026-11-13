@@ -195,5 +195,16 @@ ZID_PLAN_QUOTAS = json.loads(
 SUPPORT_EMAIL = os.environ.get("SUPPORT_EMAIL", "").strip()
 # هيدر عنوان الزبون الحقيقي لحد محاولات دخول التاجر (مثلاً HTTP_X_REAL_IP خلف nginx). فاضي = REMOTE_ADDR.
 PORTAL_CLIENT_IP_HEADER = os.environ.get("PORTAL_CLIENT_IP_HEADER", "").strip()
+
+# LightOTP: كود التحقق بيروح عبر /SendMessage (قالب LightOTP نفسه، بدون templateId) — المفتاح من البيئة فقط.
+LIGHTOTP_API_KEY = os.environ.get("LIGHTOTP_API_KEY", "").strip()
+# اختياري: بس لرسائل الخدمة بقوالبنا (SendUtilityMessage). مو مطلوب للـ OTP.
+LIGHTOTP_TEMPLATE_ID = os.environ.get("LIGHTOTP_TEMPLATE_ID", "").strip()
+# رمز البلد الافتراضي لمكتبة phonenumbers (الأرقام المحلية بدون +)
+LIGHTOTP_DEFAULT_REGION = os.environ.get("LIGHTOTP_DEFAULT_REGION", "").strip() or "SA"
+# قناة إرسال كود التحقق: "lightotp" (الافتراضي) أو "console" (تطوير محلي بس: بيسجّل الكود بالـ log وما
+# بيرسل شي، ومرفوض لو DEBUG=False). سقف عام لعدد الرسائل بالساعة لحماية الرصيد.
+PORTAL_OTP_BACKEND = os.environ.get("PORTAL_OTP_BACKEND", "").strip().lower() or "lightotp"
+PORTAL_OTP_MAX_SENDS_PER_HOUR = int(os.environ.get("PORTAL_OTP_MAX_SENDS_PER_HOUR", "120"))
 # سقف الحسابات المعلّقة (بدون متجر) من التسجيل العام: فوقه بنرفض التسجيل الجديد.
 PORTAL_MAX_PENDING_ACCOUNTS = int(os.environ.get("PORTAL_MAX_PENDING_ACCOUNTS", "500"))

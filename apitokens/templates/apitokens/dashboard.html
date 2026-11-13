@@ -90,10 +90,19 @@
           <td><bdi>{{ acc.name }}</bdi></td>
           <td><bdi dir="ltr">{{ acc.phone }}</bdi></td>
           <td>{{ acc.created_at|date:"Y-m-d H:i" }}</td>
-          <td>{% if acc.phone_verified %}OK{% else %}<span class="badge inactive">{{ T.portal_admin_pending_not_verified }}</span>{% endif %}</td>
+          <td>
+            {% if acc.phone_verified %}<span class="badge active">{{ T.portal_admin_pending_verified_on }} {{ acc.phone_verified_at|date:"Y-m-d" }}</span>{% else %}<span class="badge inactive">{{ T.portal_admin_pending_not_verified }}</span>{% endif %}
+            <small style="display:block;margin-top:4px;color:var(--muted)">{{ T.portal_admin_pending_otp_label }}
+              {% if not acc.last_otp %}{{ T.portal_admin_pending_otp_none }}{% elif acc.last_otp.message_status %}<bdi dir="ltr">{{ acc.last_otp.message_status }}</bdi>{% elif acc.last_otp.send_error %}{{ T.portal_admin_pending_otp_failed }}{% else %}—{% endif %}
+              {% if acc.last_otp %}· {{ acc.last_otp.created_at|date:"Y-m-d H:i" }}{% endif %}
+            </small>
+            {% if acc.last_otp.send_error and not acc.phone_verified %}<small style="display:block;color:var(--muted)"><bdi dir="ltr">{{ acc.last_otp.send_error }}</bdi></small>{% endif %}
+          </td>
           <td>
             <div class="token-cell">
-              {% if free_stores %}
+              {% if not acc.phone_verified %}
+              <small style="color:var(--muted)">{{ T.portal_admin_pending_needs_verify }}</small>
+              {% elif free_stores %}
               <form method="post" action="{% url 'apitokens:portal-account-link' acc.pk %}" class="token-cell">
                 {% csrf_token %}
                 <select name="merchant" required aria-label="{{ T.portal_admin_pending_choose }}">

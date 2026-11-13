@@ -20,7 +20,7 @@ from . import portal_auth
 from .i18n import TRANSLATIONS
 from .models import ApiToken, MerchantAccount
 from .portal_auth import normalize_phone
-from .portal_testing import DEFAULT_PASSWORD, FAST_HASHERS, login_portal, make_account
+from .portal_testing import DEFAULT_PASSWORD, FAST_HASHERS, login_portal, make_account, patch_otp_send, sent_codes
 
 PORTAL_HEADERS = {
     "Referrer-Policy": "same-origin",
@@ -52,6 +52,7 @@ class PortalBase(TestCase):
         self.b = ApiToken.objects.create(label="B", image_quota=100)
         self.staff = get_user_model().objects.create_user("staff", password="x", is_staff=True)
         self.set_lang("en")  # الافتراضي عربي؛ الاختبارات بتفحص النص الإنجليزي إلا لما تقول غير هيك
+        self.sender = patch_otp_send(self)  # ما في شبكة: الإرسال mock (التسجيل بيرسل OTP)
 
     def invite(self, merchant):
         return portal_auth.generate_portal_key(merchant)
@@ -85,6 +86,16 @@ class PortalBase(TestCase):
 
     def account_a(self, **kw):
         return make_account(self.a, name="Ahmad", phone=GOOD_PHONE, password=PW, **kw)
+
+    def verify_last_code(self, client=None):
+        """بيدخل آخر كود انبعت (mock) بصفحة التحقق، متل ما بيعمل التاجر."""
+        return (client or self.client).post(reverse("portal:verify"), {"code": sent_codes(self.sender)[-1]})
+
+    def session_account_valid(self, client):
+        """الجلسة صالحة (حساب فعّال + بصمة) حتى لو الرقم لسا غير موثّق."""
+        req = RequestFactory().get("/x/")
+        req.session = client.session
+        return portal_auth._session_account(req) is not None
 
     def portal_session_valid(self, client, merchant):
         req = RequestFactory().get("/x/")
@@ -232,12 +243,12 @@ class RegistrationSuccessTests(PortalBase):
     def test_success_creates_account_consumes_invite_logs_in_and_redirects(self):
         key = self.invite(self.a)
         resp = self.register(key)
-        self.assertRedirects(resp, reverse("portal:home"), fetch_redirect_response=False)
+        self.assertRedirects(resp, reverse("portal:verify"), fetch_redirect_response=False)
         self.assert_headers(resp)
         account = MerchantAccount.objects.get(merchant=self.a)
         self.assertEqual((account.name, account.phone), ("Ahmad", GOOD_PHONE))
         self.assertTrue(account.is_active)
-        self.assertFalse(account.phone_verified)
+        self.assertFalse(account.phone_verified)  # لحد ما يدخل الكود (portal:verify)
         self.assertIsNotNone(account.last_login_at)
         self.a.refresh_from_db()
         self.assertEqual(self.a.portal_key_hash, "")
@@ -247,6 +258,10 @@ class RegistrationSuccessTests(PortalBase):
         self.assertEqual(session[portal_auth.SESSION_FINGERPRINT], portal_auth.session_fingerprint(account))
         # والبيت ما بيعرف كلمة المرور بالجلسة
         self.assertNotIn(PW, str(dict(session)))
+        self.assertTrue(self.session_account_valid(self.client))
+        # وبعد الكود الصحيح بس بتفتح صفحات المتجر
+        self.assertFalse(self.portal_session_valid(self.client, self.a))
+        self.assertRedirects(self.verify_last_code(), reverse("portal:home"), fetch_redirect_response=False)
         self.assertTrue(self.portal_session_valid(self.client, self.a))
 
     def test_invite_is_single_use(self):
@@ -260,6 +275,7 @@ class RegistrationSuccessTests(PortalBase):
 
     def test_then_home_goes_to_consent_screen(self):
         self.register(self.invite(self.a))
+        self.verify_last_code()
         resp = self.client.get(reverse("portal:home"))
         self.assertRedirects(resp, reverse("portal:accept"), fetch_redirect_response=False)
 
@@ -316,8 +332,9 @@ class PhoneNormalizationTests(TestCase):
             "+٩٦٦٥٠١٢٣٤٥٦٧": "+966501234567",
             "+۹۶۶۵۰۱۲۳۴۵۶۷": "+966501234567",
             "‎+966 501 234 567‏": "+966501234567",
-            "+12345678": "+12345678",
-            "+123456789012345": "+123456789012345",
+            "+14155552671": "+14155552671",
+            "+201001234567": "+201001234567",
+            "+9660501234567": "+966501234567",  # phonenumbers بيشيل صفر الاتصال المحلي
         }
         for raw, expected in cases.items():
             self.assertEqual(normalize_phone(raw), expected, raw)
@@ -327,6 +344,8 @@ class PhoneNormalizationTests(TestCase):
             "", " ", "0501234567", "501234567", "966501234567", "+0966501234567", "00", "+", "+966",
             "+1234567", "+1234567890123456", "abc", "+966 5x1234567", "+966+501234567", "++966501234567",
             "+９６６５０１２３４５６７", "٠٥٠١٢٣٤٥٦٧", None, 12345678, "+966\n501234567x",
+            # صيغة E.164 بس phonenumbers بيعتبرها غير صالحة فعلاً (رمز دولة غير موجود، طول غلط)
+            "+999999999999", "+12345678", "+123456789012345", "+966512345",
         ]:
             self.assertIsNone(normalize_phone(raw), repr(raw))
 
@@ -438,14 +457,14 @@ class ResetPathTests(PortalBase):
         self.assertEqual(account.pk, old_acc.pk)
         self.assertEqual((account.name, account.phone), ("Ahmad", GOOD_PHONE))
         self.assertTrue(account.is_active)
-        self.assertFalse(account.phone_verified)
+        self.assertFalse(account.phone_verified)  # رقم جديد → OTP من جديد
         self.assertEqual(account.failed_logins, 0)
         self.assertIsNone(account.locked_until)
         self.assertTrue(check_password(PW, account.password))
         self.assertFalse(check_password("Old-Password-77", account.password))
         # الجلسة القديمة ماتت، والجديدة شغّالة
-        self.assertFalse(self.portal_session_valid(old_client, self.a))
-        self.assertTrue(self.portal_session_valid(new_client, self.a))
+        self.assertFalse(self.session_account_valid(old_client))
+        self.assertTrue(self.session_account_valid(new_client))
         # ودخول بالقديم مرفوض، وبالجديد مقبول
         self.assertEqual(self.login_post("+966500000099", "Old-Password-77", client=self.client_class()).status_code, 400)
         self.assertEqual(self.login_post(client=self.client_class()).status_code, 302)
@@ -980,6 +999,7 @@ class BrowserCsrfTests(TestCase):
 
     def setUp(self):
         cache.clear()
+        self.sender = patch_otp_send(self)
         self.merchant = ApiToken.objects.create(label="A", image_quota=1)
         self.client = Client(enforce_csrf_checks=True)
 

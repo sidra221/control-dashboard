@@ -35,6 +35,14 @@ PORTAL_ADMIN_TRANSLATIONS = {
     "portal_admin_pending_th_created": {"ar": "تاريخ التسجيل", "en": "Registered"},
     "portal_admin_pending_th_verified": {"ar": "التحقق", "en": "Verification"},
     "portal_admin_pending_not_verified": {"ar": "غير موثّق", "en": "Not verified"},
+    "portal_admin_pending_verified_on": {"ar": "موثّق بتاريخ", "en": "Verified on"},
+    "portal_admin_pending_otp_label": {"ar": "آخر كود:", "en": "Last code:"},
+    "portal_admin_pending_otp_none": {"ar": "ما انبعت كود", "en": "No code sent"},
+    "portal_admin_pending_otp_failed": {"ar": "فشل الإرسال", "en": "Send failed"},
+    "portal_admin_pending_needs_verify": {
+        "ar": "بانتظار تحقق التاجر من رقمه — ما بينربط قبل.",
+        "en": "Waiting for the merchant to verify the number — it cannot be linked yet.",
+    },
     "portal_admin_pending_choose": {"ar": "اختر متجر", "en": "Choose a store"},
     "portal_admin_pending_no_stores": {"ar": "ما في متاجر بدون حساب", "en": "No stores without an account"},
     "portal_admin_pending_btn_link": {"ar": "ربط", "en": "Link"},
@@ -50,6 +58,10 @@ PORTAL_ADMIN_TRANSLATIONS = {
         "en": "This store already has an account.",
     },
     "portal_admin_pending_err_store_inactive": {"ar": "المتجر معطّل.", "en": "This store is disabled."},
+    "portal_admin_pending_err_not_verified": {
+        "ar": "الحساب ما وثّق رقمه بعد، فما بينربط بمتجر.",
+        "en": "This account has not verified its number yet, so it cannot be linked to a store.",
+    },
     "portal_admin_pending_err_not_pending": {
         "ar": "هالحساب مش معلّق (مربوط بمتجر أصلاً).",
         "en": "This account is not pending (it already has a store).",

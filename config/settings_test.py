@@ -12,3 +12,10 @@ DATABASES = {
         "NAME": ":memory:",
     }
 }
+
+# أمان: ما بنسمح للاختبارات تتكلم مع LightOTP الحقيقي مهما كانت قيم .env (الاختبارات بتعمل mock للإرسال
+# وبتحط مفاتيح وهمية بـ override_settings لما بدها)، وما بنسمح لـ .env يبدّل القناة.
+LIGHTOTP_API_KEY = ""
+LIGHTOTP_TEMPLATE_ID = ""
+PORTAL_OTP_BACKEND = "lightotp"
+PORTAL_OTP_MAX_SENDS_PER_HOUR = 120

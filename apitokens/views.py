@@ -18,7 +18,7 @@ from django.views.decorators.http import require_http_methods
 from . import portal_auth
 from .i18n import LANGUAGES, t
 from .models import (
-    ApiToken, Conversation, DiscountCode, MerchantAccount, Product, SallaConnection, ShopifyConnection, SizeChart, ZidConnection,
+    ApiToken, Conversation, DiscountCode, MerchantAccount, PhoneOtp, Product, SallaConnection, ShopifyConnection, SizeChart, ZidConnection,
     ZidSubscription,
 )
 from .services import catalog as catalog_service
@@ -80,10 +80,16 @@ def dashboard(request):
     for tok in tokens:
         tok.portal = portal_auth.portal_status(tok, now)
     pending_accounts = list(MerchantAccount.objects.filter(merchant__isnull=True).order_by("created_at"))
-    # المتاجر المتاحة للربط: فعّالة وما إلها حساب
+    # آخر كود تحقق لكل حساب معلّق (للستاف: حالة التسليم بس، ما في كود ولا hash)
+    last_otp = {}
+    for otp in PhoneOtp.objects.filter(account__in=pending_accounts).order_by("created_at", "pk"):
+        last_otp[otp.account_id] = otp
+    for acc in pending_accounts:
+        acc.last_otp = last_otp.get(acc.pk)
+    # المتاجر المتاحة للربط: فعّالة وما إلها حساب (بس الحسابات الموثّقة بتنربط)
     free_stores = (
         ApiToken.objects.filter(is_active=True, portal_account__isnull=True).order_by("label", "pk")
-        if pending_accounts else []
+        if any(acc.phone_verified for acc in pending_accounts) else []
     )
     stats = {
         "total": len(tokens),
@@ -152,6 +158,8 @@ def portal_account_link(request, pk):
                 raise Http404
             if account.merchant_id is not None:
                 error = "portal_admin_pending_err_not_pending"
+            elif not account.phone_verified:
+                error = "portal_admin_pending_err_not_verified"
             elif not merchant.is_active:
                 error = "portal_admin_pending_err_store_inactive"
             elif MerchantAccount.objects.filter(merchant=merchant).exists():

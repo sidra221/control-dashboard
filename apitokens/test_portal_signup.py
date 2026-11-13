@@ -8,7 +8,9 @@ from django.urls import reverse
 from . import portal_auth
 from .i18n import TRANSLATIONS
 from .models import ApiToken, MerchantAccount
-from .portal_testing import FAST_HASHERS, login_pending, login_portal, make_account, make_pending_account
+from .portal_testing import (
+    FAST_HASHERS, login_pending, login_portal, make_account, make_pending_account, patch_otp_send, sent_codes,
+)
 from .test_portal_auth import GOOD_PHONE, PW, PortalBase, csrf_token
 
 
@@ -87,9 +89,9 @@ class SignupPageTests(SignupBase):
 
 
 class SignupSuccessTests(SignupBase):
-    def test_creates_pending_account_logs_in_and_redirects_to_pending(self):
+    def test_creates_unverified_account_logs_in_and_redirects_to_verify(self):
         resp = self.signup()
-        self.assertRedirects(resp, reverse("portal:pending"), fetch_redirect_response=False)
+        self.assertRedirects(resp, reverse("portal:verify"), fetch_redirect_response=False)
         self.assert_headers(resp)
         acc = MerchantAccount.objects.get()
         self.assertIsNone(acc.merchant)
@@ -217,12 +219,13 @@ class SignupValidationTests(SignupBase):
 class HoneypotTests(SignupBase):
     def test_filled_honeypot_creates_nothing_but_looks_like_success(self):
         resp = self.signup(website="http://spam.example")
-        self.assertRedirects(resp, reverse("portal:pending"), fetch_redirect_response=False)
+        self.assertRedirects(resp, reverse("portal:verify"), fetch_redirect_response=False)
+        self.sender.assert_not_called()
         self.assert_headers(resp)
         self.assertFalse(MerchantAccount.objects.exists())
         self.assertNotIn(portal_auth.SESSION_ACCOUNT, self.client.session)
         # الصفحة التالية بتودي للدخول لأنه ما في جلسة
-        self.assertRedirects(self.client.get(reverse("portal:pending")), reverse("portal:login"), fetch_redirect_response=False)
+        self.assertRedirects(self.client.get(reverse("portal:verify")), reverse("portal:login"), fetch_redirect_response=False)
 
     def test_filled_honeypot_with_invalid_data_still_silent(self):
         resp = self.signup(website="x", name="", phone="bad")
@@ -315,6 +318,7 @@ class SignupCsrfTests(TestCase):
 
     def setUp(self):
         cache.clear()
+        self.sender = patch_otp_send(self)
         self.client = Client(enforce_csrf_checks=True)
 
     def post(self, data, token=None, origin=ORIGIN):
@@ -334,7 +338,7 @@ class SignupCsrfTests(TestCase):
         self.assertFalse(MerchantAccount.objects.exists())
         resp = self.post(data, token)
         self.assertEqual(resp.status_code, 302)
-        self.assertEqual(resp["Location"], reverse("portal:pending"))
+        self.assertEqual(resp["Location"], reverse("portal:verify"))
         self.assertTrue(MerchantAccount.objects.filter(merchant=None).exists())
 
     def test_csrf_rejected_posts_do_not_count_toward_throttle(self):
@@ -349,6 +353,13 @@ class SignupCsrfTests(TestCase):
         token = csrf_token(self.client.get(signup_url()).content.decode())
         self.assertEqual(self.client.get(signup_url())["Referrer-Policy"], "same-origin")
         self.post(data, token)
+        # الحساب غير موثّق: لازم الكود أول (صفحة الانتظار ما بتنفتح قبل)
+        verify_page = self.client.get(reverse("portal:verify"))
+        vtoken = csrf_token(verify_page.content.decode())
+        self.assertEqual(self.post_to(reverse("portal:verify"), {"code": sent_codes(self.sender)[-1]}).status_code, 403)
+        self.assertEqual(
+            self.post_to(reverse("portal:verify"), {"code": sent_codes(self.sender)[-1]}, vtoken).status_code, 302
+        )
         page = self.client.get(reverse("portal:pending"))
         self.assertEqual(page["Referrer-Policy"], "same-origin")
         token = csrf_token(page.content.decode())
@@ -493,6 +504,7 @@ class PendingAccessControlTests(SignupBase):
 
     def test_signup_then_logout_then_login_roundtrip(self):
         self.signup()
+        self.verify_last_code()
         self.client.post(reverse("portal:logout"))
         resp = self.login_post()
         self.assertRedirects(resp, reverse("portal:pending"), fetch_redirect_response=False)
@@ -531,7 +543,7 @@ class StaffPendingTests(SignupBase):
         self.assertIn("Pending accounts", html)
         self.assertIn("Layla Pending", html)
         self.assertIn("+966500000009", html)
-        self.assertIn("Not verified", html)
+        self.assertIn("Verified on", html)
         self.assertIn(self.link_url(), html)
         self.assertIn(self.delete_url(), html)
         self.assertIn('<option value="%d">A (#%d)</option>' % (self.a.pk, self.a.pk), html)
@@ -556,7 +568,7 @@ class StaffPendingTests(SignupBase):
         self.set_lang("ar")
         html = self.dashboard()
         self.assertIn("حسابات بانتظار الربط", html)
-        self.assertIn("غير موثّق", html)
+        self.assertIn("موثّق بتاريخ", html)
 
     def test_never_leaks_hash_or_password(self):
         self.client.force_login(self.staff)
@@ -577,7 +589,7 @@ class StaffPendingTests(SignupBase):
         self.assertRedirects(resp, reverse("apitokens:dashboard"), fetch_redirect_response=False)
         self.pending.refresh_from_db()
         self.assertEqual(self.pending.merchant, self.a)
-        self.assertFalse(self.pending.phone_verified)
+        self.assertTrue(self.pending.phone_verified)
         html = self.client.get(reverse("apitokens:dashboard")).content.decode()
         self.assertIn("Account linked to the store", html)
         self.assertNotIn("Pending accounts", html)
@@ -765,10 +777,11 @@ class InviteFlowWithPendingTests(SignupBase):
     def test_invite_binds_directly_and_still_works(self):
         key = self.invite(self.a)
         resp = self.register(key)
-        self.assertRedirects(resp, reverse("portal:home"), fetch_redirect_response=False)
+        self.assertRedirects(resp, reverse("portal:verify"), fetch_redirect_response=False)
         acc = MerchantAccount.objects.get()
         self.assertEqual(acc.merchant, self.a)
         self.assertFalse(acc.phone_verified)
+        self.assertRedirects(self.verify_last_code(), reverse("portal:home"), fetch_redirect_response=False)
 
     def test_invite_cannot_take_phone_of_a_pending_account(self):
         pending = make_pending_account(phone=GOOD_PHONE, password="Other-Secret-9911")
