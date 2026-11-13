@@ -135,6 +135,34 @@ WEARABLE_PATTERN = re.compile(
 )
 
 
+class MerchantAccount(models.Model):
+    """حساب دخول التاجر لبوابته: رقم هاتف + كلمة مرور (مشفّرة). بيتسجّل برابط دعوة من الإدارة
+    (ApiToken.portal_key_hash) أو بالتسجيل العام؛ وحساب واحد لكل متجر. merchant=None يعني حساب
+    معلّق: لسا الإدارة ما ربطته بمتجر. phone_verified محجوز لـ OTP واتساب لاحقاً — حالياً دايماً False."""
+
+    merchant = models.OneToOneField(
+        ApiToken, on_delete=models.CASCADE, related_name="portal_account", null=True, blank=True
+    )
+    name = models.CharField(max_length=120)
+    # رقم دولي منظّم بصيغة +9665xxxxxxxx (مفرد بين الحسابات)
+    phone = models.CharField(max_length=20, unique=True)
+    password = models.CharField(max_length=128, editable=False)
+    is_active = models.BooleanField(default=True)
+    phone_verified = models.BooleanField(default=False)
+    failed_logins = models.PositiveSmallIntegerField(default=0)
+    locked_until = models.DateTimeField(null=True, blank=True)
+    last_login_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        verbose_name = "حساب تاجر"
+        verbose_name_plural = "حسابات التجار"
+
+    def __str__(self):
+        store = self.merchant.label if self.merchant_id else "—"
+        return f"{self.name} ({self.phone}) → {store}"
+
+
 class Product(models.Model):
     """منتج واحد من كتالوج التاجر (ApiToken). لو التاجر بيرفع CSV يدوي، رفع
     ملف جديد بيعوّض كل منتجاته. لو مربوط بـ Shopify (انظر ShopifyConnection)،

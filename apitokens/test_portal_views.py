@@ -1,7 +1,6 @@
 """اختبارات صفحة بوابة التاجر (portal_views.home): العزل بين التجار، المحتوى الممنوع،
-الفلاتر، الحالة الفاضية، واللغتين. الدخول بالاختبار عبر الجلسة مباشرة (متل `enter`)."""
+الفلاتر، الحالة الفاضية، واللغتين. الدخول بالاختبار عبر portal_testing.login_portal."""
 
-import hashlib
 from datetime import timedelta
 from decimal import Decimal
 
@@ -12,15 +11,15 @@ from django.utils import timezone
 from .i18n import TRANSLATIONS
 from .i18n_portal import PORTAL_TRANSLATIONS
 from .models import ApiToken, Conversation, Product, TryOnEvent
+from . import portal_auth
 from .portal_auth import PORTAL_TERMS_VERSION
+from .portal_testing import FAST_HASHERS, login_portal, make_account
 
 
-def make_merchant(label, key, **kw):
+def make_merchant(label, **kw):
     # التجار بهالاختبارات وافقوا على السياسة (بوابة الموافقة مختبرة بـ test_portal_consent).
     kw.setdefault("terms_accepted_version", PORTAL_TERMS_VERSION)
-    return ApiToken.objects.create(
-        label=label, image_quota=100, portal_key_hash=hashlib.sha256(key.encode()).hexdigest(), **kw,
-    )
+    return ApiToken.objects.create(label=label, image_quota=100, **kw)
 
 
 def tryon(merchant, sku, session, hours_ago=2, success=True, error=""):
@@ -35,12 +34,10 @@ def order(merchant, session, total, order_id, hours_ago=1):
     )
 
 
+@FAST_HASHERS
 class PortalBase(TestCase):
-    def login(self, merchant, key):
-        session = self.client.session
-        session["portal_merchant_id"] = merchant.pk
-        session["portal_key_hash"] = hashlib.sha256(key.encode()).hexdigest()
-        session.save()
+    def login(self, merchant):
+        return login_portal(self.client, merchant)
 
     def get(self, lang="en", **params):
         session = self.client.session
@@ -50,22 +47,22 @@ class PortalBase(TestCase):
 
 
 class PortalAuthGateTests(PortalBase):
-    def test_unauthenticated_redirects_to_expired(self):
+    def test_unauthenticated_redirects_to_login(self):
         resp = self.client.get(reverse("portal:home"))
-        self.assertRedirects(resp, reverse("portal:expired"), fetch_redirect_response=False)
+        self.assertRedirects(resp, reverse("portal:login"), fetch_redirect_response=False)
 
-    def test_revoked_key_redirects(self):
-        merchant = make_merchant("Shop A", "key-a")
-        self.login(merchant, "key-a")
-        ApiToken.objects.filter(pk=merchant.pk).update(portal_key_hash="")
+    def test_revoked_account_redirects(self):
+        merchant = make_merchant("Shop A")
+        self.login(merchant)
+        portal_auth.revoke_portal_key(merchant)
         resp = self.client.get(reverse("portal:home"))
-        self.assertEqual(resp.status_code, 302)
+        self.assertRedirects(resp, reverse("portal:login"), fetch_redirect_response=False)
 
 
 class PortalIsolationTests(PortalBase):
     def setUp(self):
-        self.a = make_merchant("Alpha Boutique", "key-a", currency="SAR")
-        self.b = make_merchant("Bravo Fashion", "key-b", currency="USD")
+        self.a = make_merchant("Alpha Boutique", currency="SAR")
+        self.b = make_merchant("Bravo Fashion", currency="USD")
         Product.objects.create(merchant=self.a, sku="SKU-ALPHA", title="Alpha Dress", price=10, image_url="http://x/a.jpg")
         Product.objects.create(merchant=self.b, sku="SKU-BRAVO", title="Bravo Jacket", price=10, image_url="http://x/b.jpg")
         for i in range(2):
@@ -77,7 +74,7 @@ class PortalIsolationTests(PortalBase):
         order(self.b, "bravo-sess-1", "432.10", "ob2")
 
     def test_a_sees_only_own_data(self):
-        self.login(self.a, "key-a")
+        self.login(self.a)
         resp = self.get()
         self.assertEqual(resp.status_code, 200)
         html = resp.content.decode()
@@ -90,7 +87,7 @@ class PortalIsolationTests(PortalBase):
         self.assertEqual(resp.context["conv"]["orders"], 1)
 
     def test_b_sees_only_own_data(self):
-        self.login(self.b, "key-b")
+        self.login(self.b)
         html = self.get().content.decode()
         self.assertIn("Bravo Jacket", html)
         self.assertEqual(self.get().context["stats"]["totals"]["tryons"], 7)
@@ -98,26 +95,28 @@ class PortalIsolationTests(PortalBase):
             self.assertNotIn(leaked, html)
 
     def test_other_merchant_id_in_query_is_ignored(self):
-        self.login(self.a, "key-a")
+        self.login(self.a)
         resp = self.get(pk=self.b.pk, merchant=self.b.pk, merchant_id=self.b.pk, sku="SKU-BRAVO")
         html = resp.content.decode()
         self.assertIn("Alpha Boutique", html)
         self.assertNotIn("Bravo", html)
         self.assertEqual(resp.context["merchant"].pk, self.a.pk)
 
-    def test_session_with_wrong_hash_is_rejected(self):
+    def test_session_with_other_accounts_fingerprint_is_rejected(self):
+        acc_a = make_account(self.a)
+        acc_b = make_account(self.b)
         session = self.client.session
-        session["portal_merchant_id"] = self.b.pk
-        session["portal_key_hash"] = hashlib.sha256(b"key-a").hexdigest()  # مفتاح التاجر A مع id تاجر B
+        session[portal_auth.SESSION_ACCOUNT] = acc_b.pk
+        session[portal_auth.SESSION_FINGERPRINT] = portal_auth.session_fingerprint(acc_a)  # بصمة A مع id حساب B
         session.save()
         resp = self.client.get(reverse("portal:home"))
-        self.assertRedirects(resp, reverse("portal:expired"), fetch_redirect_response=False)
+        self.assertRedirects(resp, reverse("portal:login"), fetch_redirect_response=False)
 
 
 class PortalContentTests(PortalBase):
     def setUp(self):
-        self.m = make_merchant("Gamma Store", "key-g", currency="AED")
-        self.login(self.m, "key-g")
+        self.m = make_merchant("Gamma Store", currency="AED")
+        self.login(self.m)
         Product.objects.create(merchant=self.m, sku="G-1", title="Gamma Coat", price=5, image_url="http://x/g.jpg")
         # 3 تجارب بدون طلب → شارة "بلا طلبات"
         for i in range(3):
@@ -183,8 +182,8 @@ class PortalContentTests(PortalBase):
 
 class PortalFilterTests(PortalBase):
     def setUp(self):
-        self.m = make_merchant("Delta", "key-d")
-        self.login(self.m, "key-d")
+        self.m = make_merchant("Delta")
+        self.login(self.m)
         tryon(self.m, "D-1", "s-1")
 
     def test_junk_params_fall_back_to_defaults(self):
@@ -218,8 +217,8 @@ class PortalFilterTests(PortalBase):
 
 class PortalEmptyTests(PortalBase):
     def test_empty_merchant_renders_empty_state(self):
-        m = make_merchant("Empty Shop", "key-e")
-        self.login(m, "key-e")
+        m = make_merchant("Empty Shop")
+        self.login(m)
         for lang in ("en", "ar"):
             resp = self.get(lang)
             self.assertEqual(resp.status_code, 200)
@@ -228,16 +227,16 @@ class PortalEmptyTests(PortalBase):
             self.assertIn("Empty Shop", resp.content.decode())
 
     def test_only_failed_tryons_counts_as_empty(self):
-        m = make_merchant("Fail Shop", "key-f")
-        self.login(m, "key-f")
+        m = make_merchant("Fail Shop")
+        self.login(m)
         tryon(m, "F-1", "s", success=False, error="boom-text")
         resp = self.get()
         self.assertFalse(resp.context["has_data"])
         self.assertNotIn("boom-text", resp.content.decode())
 
     def test_data_outside_range_still_shows_dashboard_with_zeros(self):
-        m = make_merchant("Old Shop", "key-o")
-        self.login(m, "key-o")
+        m = make_merchant("Old Shop")
+        self.login(m)
         tryon(m, "O-1", "s", hours_ago=24 * 90)
         resp = self.get()
         self.assertTrue(resp.context["has_data"])

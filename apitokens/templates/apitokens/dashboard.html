@@ -70,6 +70,55 @@
     </form>
   </div>
 
+  {% if pending_accounts %}
+  <div class="card" id="pending-accounts">
+    <h2>{{ T.portal_admin_pending_title }} ({{ pending_accounts|length }})</h2>
+    <div class="table-scroll">
+    <table>
+      <thead>
+        <tr>
+          <th>{{ T.portal_admin_pending_th_name }}</th>
+          <th>{{ T.portal_admin_pending_th_phone }}</th>
+          <th>{{ T.portal_admin_pending_th_created }}</th>
+          <th>{{ T.portal_admin_pending_th_verified }}</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for acc in pending_accounts %}
+        <tr>
+          <td><bdi>{{ acc.name }}</bdi></td>
+          <td><bdi dir="ltr">{{ acc.phone }}</bdi></td>
+          <td>{{ acc.created_at|date:"Y-m-d H:i" }}</td>
+          <td>{% if acc.phone_verified %}OK{% else %}<span class="badge inactive">{{ T.portal_admin_pending_not_verified }}</span>{% endif %}</td>
+          <td>
+            <div class="token-cell">
+              {% if free_stores %}
+              <form method="post" action="{% url 'apitokens:portal-account-link' acc.pk %}" class="token-cell">
+                {% csrf_token %}
+                <select name="merchant" required aria-label="{{ T.portal_admin_pending_choose }}">
+                  <option value="">{{ T.portal_admin_pending_choose }}</option>
+                  {% for store in free_stores %}<option value="{{ store.pk }}">{{ store.label }} (#{{ store.pk }})</option>{% endfor %}
+                </select>
+                <button type="submit" class="btn-toggle">{{ T.portal_admin_pending_btn_link }}</button>
+              </form>
+              {% else %}
+              <small style="color:var(--muted)">{{ T.portal_admin_pending_no_stores }}</small>
+              {% endif %}
+              <form method="post" action="{% url 'apitokens:portal-account-delete' acc.pk %}" onsubmit="return confirm('{{ T.portal_admin_pending_delete_confirm|escapejs }}')">
+                {% csrf_token %}
+                <button type="submit" class="btn-toggle">{{ T.portal_admin_pending_btn_delete }}</button>
+              </form>
+            </div>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    </div>
+  </div>
+  {% endif %}
+
   <div class="card">
     <h2>{{ T.current_tokens }}</h2>
     {% if tokens %}
@@ -115,12 +164,12 @@
           <td>{{ t.created_at|date:"Y-m-d H:i" }}</td>
           <td>
             <div class="token-cell">
-              <form method="post" action="{% url 'apitokens:portal-link' t.pk %}"{% if t.portal_key_hash %} onsubmit="return confirm('{{ T.portal_admin_regenerate_confirm|escapejs }}')"{% endif %}>
+              <form method="post" action="{% url 'apitokens:portal-link' t.pk %}"{% if t.portal.invite == 'pending' %} onsubmit="return confirm('{{ T.portal_admin_regenerate_confirm|escapejs }}')"{% endif %}>
                 {% csrf_token %}
                 <input type="hidden" name="action" value="generate">
-                <button type="submit" class="btn-toggle">{% if t.portal_key_hash %}{{ T.portal_admin_btn_regenerate }}{% else %}{{ T.portal_admin_btn_link }}{% endif %}</button>
+                <button type="submit" class="btn-toggle">{% if t.portal.invite != 'none' or t.portal.account %}{{ T.portal_admin_btn_regenerate }}{% else %}{{ T.portal_admin_btn_link }}{% endif %}</button>
               </form>
-              {% if t.portal_key_hash %}
+              {% if t.portal.invite != 'none' or t.portal.account.is_active %}
               <form method="post" action="{% url 'apitokens:portal-link' t.pk %}" onsubmit="return confirm('{{ T.portal_admin_revoke_confirm|escapejs }}')">
                 {% csrf_token %}
                 <input type="hidden" name="action" value="revoke">
@@ -128,8 +177,11 @@
               </form>
               {% endif %}
             </div>
-            <small style="display:block;margin-top:4px;color:var(--muted)">{% if t.portal_key_hash %}{{ T.portal_admin_status_active_since }} {{ t.portal_key_created_at|date:"Y-m-d" }}{% else %}{{ T.portal_admin_status_none }}{% endif %}</small>
-            {% if t.portal_key_hash %}<small style="display:block;color:var(--muted)">{% if t.terms_accepted_at %}{{ T.portal_admin_terms_accepted }} {{ t.terms_accepted_at|date:"Y-m-d" }} ({{ t.terms_accepted_version }}){% else %}{{ T.portal_admin_terms_pending }}{% endif %}</small>{% endif %}
+            <small style="display:block;margin-top:4px;color:var(--muted)">{% if t.portal.invite == 'pending' %}{{ T.portal_admin_invite_pending }} {{ t.portal.invite_until|date:"Y-m-d" }}){% elif t.portal.invite == 'expired' %}{{ T.portal_admin_invite_expired }}{% else %}{{ T.portal_admin_invite_none }}{% endif %}</small>
+            {% if t.portal.account %}
+            <small style="display:block;color:var(--muted)">{% if t.portal.account.is_active %}{{ T.portal_admin_account }} <bdi>{{ t.portal.account.name }}</bdi> · <bdi dir="ltr">{{ t.portal.account.phone }}</bdi>, {{ T.portal_admin_account_last_login }} {% if t.portal.account.last_login_at %}{{ t.portal.account.last_login_at|date:"Y-m-d" }}{% else %}{{ T.portal_admin_account_never_logged_in }}{% endif %}{% else %}{{ T.portal_admin_account_disabled }}: <bdi>{{ t.portal.account.name }}</bdi> · <bdi dir="ltr">{{ t.portal.account.phone }}</bdi>{% endif %}</small>
+            <small style="display:block;color:var(--muted)">{% if t.terms_accepted_at %}{{ T.portal_admin_terms_accepted }} {{ t.terms_accepted_at|date:"Y-m-d" }} ({{ t.terms_accepted_version }}){% else %}{{ T.portal_admin_terms_pending }}{% endif %}</small>
+            {% endif %}
           </td>
           <td>
             <a class="btn-toggle" href="{% url 'apitokens:catalog' t.pk %}">{{ T.th_catalog }} ({{ t.product_count }})</a>

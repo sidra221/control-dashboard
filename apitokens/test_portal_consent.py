@@ -1,26 +1,21 @@
 """موافقة التاجر على سياسة الخصوصية: بوابة قبل لوحة المتجر، وتسجيل النسخة والوقت."""
 
-import hashlib
-
 from django.test import Client, TestCase
 from django.urls import reverse
 
 from .models import ApiToken
 from .portal_auth import PORTAL_TERMS_VERSION
+from .portal_testing import FAST_HASHERS, login_portal, make_account
 
 
-def make(label="Shop", key="k", **kw):
-    return ApiToken.objects.create(
-        label=label, image_quota=10, portal_key_hash=hashlib.sha256(key.encode()).hexdigest(), **kw,
-    )
+def make(label="Shop", **kw):
+    return ApiToken.objects.create(label=label, image_quota=10, **kw)
 
 
+@FAST_HASHERS
 class ConsentBase(TestCase):
-    def login(self, merchant, key="k"):
-        session = self.client.session
-        session["portal_merchant_id"] = merchant.pk
-        session["portal_key_hash"] = hashlib.sha256(key.encode()).hexdigest()
-        session.save()
+    def login(self, merchant):
+        return login_portal(self.client, merchant)
 
 
 class ConsentGateTests(ConsentBase):
@@ -54,9 +49,9 @@ class ConsentGateTests(ConsentBase):
 
     def test_accept_requires_a_session(self):
         r = self.client.get(reverse("portal:accept"))
-        self.assertRedirects(r, reverse("portal:expired"), fetch_redirect_response=False)
+        self.assertRedirects(r, reverse("portal:login"), fetch_redirect_response=False)
         r = self.client.post(reverse("portal:accept"), {"agree": "1"})
-        self.assertRedirects(r, reverse("portal:expired"), fetch_redirect_response=False)
+        self.assertRedirects(r, reverse("portal:login"), fetch_redirect_response=False)
 
 
 class AcceptTests(ConsentBase):
@@ -87,8 +82,8 @@ class AcceptTests(ConsentBase):
         self.assertRedirects(r, reverse("portal:home"), fetch_redirect_response=False)
 
     def test_acceptance_is_per_merchant(self):
-        a, b = make("A", "ka"), make("B", "kb")
-        self.login(a, "ka")
+        a, b = make("A"), make("B")
+        self.login(a)
         self.client.post(reverse("portal:accept"), {"agree": "1"})
         a.refresh_from_db(); b.refresh_from_db()
         self.assertEqual(a.terms_accepted_version, PORTAL_TERMS_VERSION)
@@ -107,29 +102,29 @@ class AcceptTests(ConsentBase):
         self.assertTrue(m.terms_accepted_at)
 
 
+@FAST_HASHERS
 class StaffVisibilityTests(TestCase):
     def test_staff_dashboard_shows_acceptance_status(self):
         from django.contrib.auth import get_user_model
 
         staff = get_user_model().objects.create_superuser("s", "s@example.com", "pw-12345-x")
         self.client.force_login(staff)
-        make("Pending", "k1")
-        make("Done", "k2", terms_accepted_version=PORTAL_TERMS_VERSION)
+        make_account(make("Pending"))
+        done = make("Done", terms_accepted_version=PORTAL_TERMS_VERSION)
+        make_account(done)
         ApiToken.objects.filter(label="Done").update(terms_accepted_at="2026-11-09T10:00:00Z")
         html = self.client.get(reverse("apitokens:dashboard")).content.decode()
         self.assertIn("ما وافق على السياسة بعد", html)
         self.assertIn("وافق على السياسة بتاريخ 2026-11-09", html)
 
 
+@FAST_HASHERS
 class BrowserCsrfRegressionTests(TestCase):
     """المتصفح بيبعت Origin بكل POST. مع Referrer-Policy: no-referrer بيصير `null` وجانغو بيرفض."""
 
-    def _session_client(self, merchant, key="k"):
+    def _session_client(self, merchant):
         client = Client(enforce_csrf_checks=True)
-        session = client.session
-        session["portal_merchant_id"] = merchant.pk
-        session["portal_key_hash"] = hashlib.sha256(key.encode()).hexdigest()
-        session.save()
+        login_portal(client, merchant)
         return client
 
     def _csrf_token(self, client):
@@ -158,5 +153,5 @@ class BrowserCsrfRegressionTests(TestCase):
 
     def test_portal_pages_never_send_no_referrer(self):
         client = self._session_client(make())
-        for url in (reverse("portal:accept"), reverse("portal:expired")):
+        for url in (reverse("portal:accept"), reverse("portal:login")):
             self.assertNotEqual(client.get(url)["Referrer-Policy"], "no-referrer")

@@ -8,7 +8,9 @@ from django.shortcuts import redirect, render
 from django.utils import timezone
 
 from .models import Conversation, TryOnEvent
-from .portal_auth import PORTAL_TERMS_VERSION, accept_terms, portal_required, terms_accepted_required
+from .portal_auth import (
+    PORTAL_TERMS_VERSION, accept_terms, portal_account_required, portal_required, terms_accepted_required,
+)
 from .services import tryon_stats as tryon_stats_service
 
 
@@ -77,3 +79,12 @@ def accept(request):
         {"merchant": merchant, "version": PORTAL_TERMS_VERSION, "error": error},
         status=400 if error else 200,
     )
+
+
+@portal_account_required
+def pending(request):
+    """حساب اتسجّل بس لسا ما انربط بمتجر. لو انربط → عالرئيسية (وهناك الموافقة على السياسة أول)."""
+    account = request.portal_account
+    if account.merchant_id is not None:
+        return redirect("portal:home")
+    return render(request, "apitokens/portal/pending.html", {"account": account})

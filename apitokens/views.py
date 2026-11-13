@@ -6,9 +6,9 @@ from decimal import Decimal, InvalidOperation
 from django.conf import settings
 from django.contrib import messages
 from django.contrib.admin.views.decorators import staff_member_required
-from django.db import transaction
+from django.db import IntegrityError, transaction
 from django.db.models import Count, Q, Sum
-from django.http import HttpResponseBadRequest, HttpResponseRedirect
+from django.http import Http404, HttpResponseBadRequest, HttpResponseRedirect
 from django.urls import reverse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.utils import timezone
@@ -18,7 +18,7 @@ from django.views.decorators.http import require_http_methods
 from . import portal_auth
 from .i18n import LANGUAGES, t
 from .models import (
-    ApiToken, Conversation, DiscountCode, Product, SallaConnection, ShopifyConnection, SizeChart, ZidConnection,
+    ApiToken, Conversation, DiscountCode, MerchantAccount, Product, SallaConnection, ShopifyConnection, SizeChart, ZidConnection,
     ZidSubscription,
 )
 from .services import catalog as catalog_service
@@ -74,7 +74,16 @@ def dashboard(request):
             messages.success(request, t("msg_token_created", lang))
 
     tokens = ApiToken.objects.annotate(product_count=Count("products")).select_related(
-        "shopify_connection"
+        "shopify_connection", "portal_account"
+    )
+    now = timezone.now()
+    for tok in tokens:
+        tok.portal = portal_auth.portal_status(tok, now)
+    pending_accounts = list(MerchantAccount.objects.filter(merchant__isnull=True).order_by("created_at"))
+    # المتاجر المتاحة للربط: فعّالة وما إلها حساب
+    free_stores = (
+        ApiToken.objects.filter(is_active=True, portal_account__isnull=True).order_by("label", "pk")
+        if pending_accounts else []
     )
     stats = {
         "total": len(tokens),
@@ -89,6 +98,8 @@ def dashboard(request):
             "tokens": tokens,
             "new_token": new_token,
             "new_portal_link": new_portal_link,
+            "pending_accounts": pending_accounts,
+            "free_stores": free_stores,
             "periods": periods,
             "stats": stats,
         },
@@ -122,6 +133,54 @@ def portal_link(request, pk):
         messages.success(request, t("portal_admin_msg_revoked", lang))
     else:
         return HttpResponseBadRequest("invalid action")
+    return redirect("apitokens:dashboard")
+
+
+@staff_member_required
+@require_http_methods(["POST"])
+def portal_account_link(request, pk):
+    """بيربط حساب معلّق (سجّل بنفسه) بمتجر. الـ unique على merchant هو الحماية الأخيرة من السباق."""
+    lang = request.session.get("lang", "ar")
+    raw = request.POST.get("merchant", "")
+    if not (raw.isascii() and raw.isdigit()):
+        return HttpResponseBadRequest("invalid merchant")
+    try:
+        with transaction.atomic():
+            account = MerchantAccount.objects.select_for_update().filter(pk=pk).first()
+            merchant = ApiToken.objects.select_for_update().filter(pk=int(raw)).first()
+            if account is None or merchant is None:
+                raise Http404
+            if account.merchant_id is not None:
+                error = "portal_admin_pending_err_not_pending"
+            elif not merchant.is_active:
+                error = "portal_admin_pending_err_store_inactive"
+            elif MerchantAccount.objects.filter(merchant=merchant).exists():
+                error = "portal_admin_pending_err_store_taken"
+            else:
+                error = None
+                account.merchant = merchant
+                account.save(update_fields=["merchant"])
+    except IntegrityError:  # سباق: متجر انربط بحساب تاني بنفس اللحظة
+        error = "portal_admin_pending_err_store_taken"
+    if error:
+        messages.error(request, t(error, lang))
+    else:
+        messages.success(request, t("portal_admin_pending_msg_linked", lang))
+    return redirect("apitokens:dashboard")
+
+
+@staff_member_required
+@require_http_methods(["POST"])
+def portal_account_delete(request, pk):
+    """حذف نهائي لحساب معلّق بس. الحذف مشروط (merchant null) بنفس الاستعلام فما في سباق مع الربط."""
+    lang = request.session.get("lang", "ar")
+    deleted, _ = MerchantAccount.objects.filter(pk=pk, merchant__isnull=True).delete()
+    if deleted:
+        messages.success(request, t("portal_admin_pending_msg_deleted", lang))
+    elif MerchantAccount.objects.filter(pk=pk).exists():
+        messages.error(request, t("portal_admin_pending_err_not_pending", lang))
+    else:
+        raise Http404
     return redirect("apitokens:dashboard")
 
 

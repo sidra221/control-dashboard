@@ -24,6 +24,8 @@
     --success-text: #047857;
     --warn-bg: #fffbeb;
     --warn-text: #b45309;
+    --error-bg: #fef2f2;
+    --error-text: #b91c1c;
     --chart-orders: #059669;
     --shadow: 0 1px 2px rgba(20, 20, 50, 0.04), 0 8px 24px -12px rgba(20, 20, 50, 0.10);
   }
@@ -43,6 +45,8 @@
       --success-text: #34d399;
       --warn-bg: #3a2a08;
       --warn-text: #fbbf24;
+      --error-bg: #3b1212;
+      --error-text: #fca5a5;
       --chart-orders: #34d399;
       --shadow: 0 1px 2px rgba(0, 0, 0, 0.3), 0 8px 24px -12px rgba(0, 0, 0, 0.5);
     }
@@ -123,6 +127,23 @@
     background: linear-gradient(135deg, var(--accent), var(--accent-dark));
   }
 
+  .auth-card { max-width: 440px; margin: 0 auto; }
+  .auth-card form { display: flex; flex-direction: column; gap: 16px; }
+  .field input {
+    padding: 11px 14px; border-radius: 10px; border: 1px solid var(--border);
+    font-size: 16px; font-family: inherit; background: var(--bg); color: var(--text); width: 100%;
+  }
+  .field input:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+  .field.has-error input { border-color: var(--error-text); }
+  .field-hint { font-size: 12px; color: var(--muted); }
+  .field-error { font-size: 12.5px; color: var(--error-text); font-weight: 600; }
+  .alert-error {
+    background: var(--error-bg); color: var(--error-text); border-radius: 10px;
+    padding: 10px 14px; font-size: 13.5px; font-weight: 600; margin: 0;
+  }
+  .note { background: var(--warn-bg); color: var(--warn-text); border-radius: 10px; padding: 10px 14px; font-size: 13px; margin: 0; }
+  .btn-primary.block { width: 100%; }
+
   .table-scroll { overflow-x: auto; }
   table { width: 100%; border-collapse: collapse; font-size: 13.5px; }
   th, td { text-align: start; padding: 10px 8px; vertical-align: top; }
@@ -157,9 +178,9 @@
   }
 </style>
 </head>
-<body>
+<body class="{% block body_class %}{% endblock %}">
 <div class="wrap">
-  <header>
+  {% block header %}<header>
     <div class="brand">
       <div class="brand-mark">C</div>
       <div>
@@ -176,9 +197,10 @@
       </form>
       {% block header_actions %}{% endblock %}
     </div>
-  </header>
+  </header>{% endblock %}
 
   {% block content %}{% endblock %}
 </div>
+{% block scripts %}{% endblock %}
 </body>
 </html>
