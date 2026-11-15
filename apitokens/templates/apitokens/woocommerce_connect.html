@@ -1,0 +1,75 @@
+{% extends "apitokens/base.html" %}
+
+{% block title %}{{ T.woo_page_title_prefix }}{{ merchant.label }} — Control{% endblock %}
+{% block page_title %}{{ T.woo_page_title_prefix }}{{ merchant.label }}{% endblock %}
+{% block page_sub %}{{ T.woo_page_sub }}{% endblock %}
+{% block header_links %}
+  <a class="back" href="{% url 'apitokens:catalog' merchant.pk %}">{{ T.manual_catalog_link }}</a>
+  <a class="back" href="{% url 'apitokens:discount-codes' merchant.pk %}">{{ T.discounts_link_short }}</a>
+  <a class="back" href="{% url 'apitokens:conversations' merchant.pk %}">{{ T.conversations_link_short }}</a>
+  <a class="back" href="{% url 'apitokens:dashboard' %}">{{ T.back_to_tokens }}</a>
+{% endblock %}
+
+{% block content %}
+
+  {% if connection %}
+  <div class="card">
+    <h2>{{ T.current_status }}</h2>
+    <div class="woo-status">
+      <span class="badge {% if connection.is_active %}active{% else %}inactive{% endif %}">
+        {% if connection.is_active %}{{ T.status_connected }}{% else %}{{ T.status_inactive }}{% endif %}
+      </span>
+      <code>{{ connection.site_url }}</code>
+    </div>
+    <p class="card-note">
+      {{ T.last_sync_prefix }}
+      {% if connection.last_synced_at %}{{ connection.last_synced_at|date:"Y-m-d H:i" }}{% else %}{{ T.never_synced }}{% endif %}
+      {{ T.synced_products_count_prefix }}{{ merchant.products.count }}
+    </p>
+    <div class="woo-actions">
+      <form method="post">
+        {% csrf_token %}
+        <input type="hidden" name="action" value="resync">
+        <button type="submit" class="btn-primary">{{ T.sync_now }}</button>
+      </form>
+      <form method="post" onsubmit="return confirm('{{ T.disconnect_confirm|escapejs }}');">
+        {% csrf_token %}
+        <input type="hidden" name="action" value="disconnect">
+        <button type="submit" class="btn-toggle">{{ T.disconnect }}</button>
+      </form>
+    </div>
+  </div>
+  {% endif %}
+
+  <div class="card">
+    <h2>{% if connection %}{{ T.update_connection }}{% else %}{{ T.connect_woo_store }}{% endif %}</h2>
+    <p class="card-note">
+      {{ T.woo_setup_note|safe }}
+    </p>
+    <form class="woo-form" method="post">
+      {% csrf_token %}
+      <input type="hidden" name="action" value="connect">
+      <div class="field">
+        <label for="site_url">{{ T.woo_site_url_label }}</label>
+        <input type="text" id="site_url" name="site_url" placeholder="https://my-store.com" dir="ltr"
+               value="{{ connection.site_url|default:'' }}" required>
+      </div>
+      <div class="field">
+        <label for="consumer_key">{{ T.woo_consumer_key_label }}</label>
+        <input type="text" id="consumer_key" name="consumer_key" placeholder="ck_xxxxxxxx" dir="ltr" autocomplete="off" required>
+      </div>
+      <div class="field">
+        <label for="consumer_secret">{{ T.woo_consumer_secret_label }}</label>
+        <input type="password" id="consumer_secret" name="consumer_secret" placeholder="cs_xxxxxxxx" dir="ltr" autocomplete="off" required>
+      </div>
+      <button type="submit" class="btn-primary">{% if connection %}{{ T.update_resync_btn }}{% else %}{{ T.connect_sync_btn }}{% endif %}</button>
+    </form>
+  </div>
+
+{% endblock %}
+
+{% block extra_style %}
+  .woo-status { display: flex; align-items: center; gap: 10px; margin-bottom: 6px; }
+  .woo-actions { display: flex; gap: 10px; margin-top: 16px; }
+  form.woo-form { display: flex; flex-direction: column; gap: 14px; max-width: 420px; }
+{% endblock %}

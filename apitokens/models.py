@@ -386,6 +386,43 @@ class ShopifyConnection(models.Model):
         return f"{self.shop_domain} ({self.merchant.label})"
 
 
+def generate_webhook_secret():
+    return secrets.token_urlsafe(32)
+
+
+class WooCommerceConnection(models.Model):
+    """ربط تاجر (ApiToken) بمتجر WooCommerce (ووردبريس) عبر مفاتيح REST API
+    (Consumer key/secret) بصلاحية Read/Write. الكتالوج بيتزامن أول مرة بالكامل،
+    وبعدها بيتحدّث عبر webhooks المنتجات والطلبات اللي منسجّلها بالمتجر.
+
+    webhook_secret منولّده نحن (مش مفتاح التاجر) وبيتبعت لـ WooCommerce كـ secret
+    الـ webhooks — منه بنتحقق من توقيع كل إشعار.
+    """
+
+    merchant = models.OneToOneField(
+        ApiToken, on_delete=models.CASCADE, related_name="woocommerce_connection",
+    )
+    site_url = models.CharField(
+        "رابط المتجر", max_length=255,
+        help_text="مثال: https://my-store.com (لازم https)",
+    )
+    consumer_key = models.CharField("Consumer key", max_length=255)
+    consumer_secret = models.CharField("Consumer secret", max_length=255)
+    webhook_secret = models.CharField(
+        max_length=64, default=generate_webhook_secret, editable=False,
+    )
+    is_active = models.BooleanField("فعّال", default=True)
+    last_synced_at = models.DateTimeField("آخر مزامنة", null=True, blank=True)
+    created_at = models.DateTimeField("تاريخ الربط", auto_now_add=True)
+
+    class Meta:
+        verbose_name = "ربط WooCommerce"
+        verbose_name_plural = "ربط WooCommerce"
+
+    def __str__(self):
+        return f"{self.site_url} ({self.merchant.label})"
+
+
 class DiscountCode(models.Model):
     """كود خصم يقدر المساعد الذكي يعرضه على زبون حاسم إنه رح يشتري —
     إدارته يدوية بالداشبورد، وصلاحيته الفعلية (نسبة الخصم، تاريخ الانتهاء...)
@@ -423,6 +460,8 @@ class Conversation(models.Model):
     session_id = models.CharField(max_length=64, db_index=True)
     messages = models.JSONField(default=list)
     recommended_skus = models.JSONField(default=list)
+    # منتجات ضغط عليها الزبون (سلة/شراء) من أي كرت، حتى كرت صفحة المنتج اللي مش من توصيات الشات.
+    acted_skus = models.JSONField(default=list, blank=True)
     discount_code = models.CharField(max_length=64, blank=True, default="")
     tryons = models.PositiveIntegerField(default=0)
     buy_clicks = models.PositiveIntegerField(default=0)

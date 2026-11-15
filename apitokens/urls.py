@@ -13,6 +13,7 @@ urlpatterns = [
     path("portal-accounts/<int:pk>/delete/", views.portal_account_delete, name="portal-account-delete"),
     path("<int:pk>/catalog/", views.catalog, name="catalog"),
     path("<int:pk>/shopify/", views.shopify_connect, name="shopify-connect"),
+    path("<int:pk>/woocommerce/", views.woocommerce_connect, name="woocommerce-connect"),
     path("<int:pk>/discounts/", views.discount_codes, name="discount-codes"),
     path("<int:pk>/conversations/", views.conversations, name="conversations"),
     path("<int:pk>/tryon-stats/", views.tryon_stats, name="tryon-stats"),

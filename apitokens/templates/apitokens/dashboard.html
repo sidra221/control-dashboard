@@ -200,10 +200,13 @@
             <a class="btn-toggle" href="{% url 'apitokens:salla' %}">{{ T.salla_connected }}</a>
             {% elif t.zid_connection %}
             <a class="btn-toggle" href="{% url 'apitokens:zid' %}">{{ T.zid_connected }}</a>
+            {% elif t.woocommerce_connection %}
+            <a class="btn-toggle" href="{% url 'apitokens:woocommerce-connect' t.pk %}">{{ T.woocommerce_connected }}</a>
             {% else %}
             <a class="btn-toggle" href="{% url 'apitokens:shopify-connect' t.pk %}">
               {% if t.shopify_connection %}{{ T.shopify_connected }}{% else %}{{ T.shopify_connect_link }}{% endif %}
             </a>
+            <a class="btn-toggle" href="{% url 'apitokens:woocommerce-connect' t.pk %}">{{ T.woocommerce_connect_link }}</a>
             {% endif %}
           </td>
           <td>
