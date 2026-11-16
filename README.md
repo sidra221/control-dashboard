@@ -54,7 +54,7 @@ python manage.py runserver
 ## تدفق العمل
 
 1. **Staff** يولّد توكن لتاجر جديد من الداشبورد (سقف صور + فترة تجديد).
-2. التاجر يرفع كتالوجه (CSV) **أو** يربط متجر Shopify حقيقي من صفحة "ربط Shopify" —
+2. التاجر يرفع كتالوجه (CSV) **أو** يربط متجر Shopify / WooCommerce حقيقي من صفحة "ربط Shopify" / "ربط WooCommerce" —
    بعدها الكتالوج يتزامن ويتحدّث لحاله تلقائياً عبر webhooks.
 3. التاجر يضيف سطر `<script>` الودجت لموقعه، بالـ `data-store-key` تبع توكنه.
 4. الزبون يحكي مع الودجت، يحصل ترشيح، وممكن يجرّب شكله بالمنتج بصورته.
@@ -82,6 +82,32 @@ python manage.py runserver
   (`_sw_conversation`) حتى ينربط الطلب بالمحادثة.
 - مزامنة دورية للمخزون (cron كل ساعة مثلاً): `python manage.py sync_shopify`
 
+## ربط WooCommerce (ووردبريس)
+
+التاجر (أو الستاف) بيسوّي مفاتيح REST API من لوحة ووردبريس، وبنلصقها بصفحة "ربط WooCommerce":
+
+1. `WooCommerce ← الإعدادات ← متقدم ← REST API ← إضافة مفتاح`.
+2. الصلاحيات **قراءة/كتابة (Read/Write)** — الكتابة بس لتسجيل الـ webhooks؛ بدونها الكتالوج بيتزامن
+   والربط بيتحفظ، بس التحديث اللحظي وقياس الطلبات بيوقفوا (وبتطلع رسالة تحذير).
+3. بصفحة الربط حط رابط المتجر (لازم `https`) + **Consumer key** + **Consumer secret**.
+
+شروط على المتجر: `https`، Permalinks مش على Plain، وجدار الحماية (Cloudflare/Wordfence) ما يحجب سيرفرنا.
+
+- المزامنة عبر REST API v3. webhooks لحظية للمنتجات (`product.created|updated|deleted`) والطلبات
+  (`order.created|updated`) — موقّعة بسر بيولّده الداشبورد لكل متجر (مش مفتاح التاجر).
+- بس المنتجات **المنشورة والظاهرة** من نوع simple وvariable. المجمّعة (grouped) والخارجية (external)
+  ما بتوصل للمساعد. توافر المنتج المتغيّر والمقاسات/الألوان المتوفرة بتنحسب من النسخ (variations).
+- ما في سياسات شحن/إرجاع تلقائية (WooCommerce ما عنده API لها): التاجر بيكتبها بخانة "معلومات المتجر".
+- الودجت بيكتشف WooCommerce لحاله (وسم `generator`) وبيضيف المنتج البسيط للسلة بالـ Store API.
+  المنتج بمقاسات/ألوان بيفتح صفحة المنتج (متل سلة وزد).
+- **ربط الطلبات بالمحادثات تقريبي:** WooCommerce ما بيسمح بوسم السلة من المتصفح (متل `_sw_conversation`
+  بـ Shopify)، فبنربط الطلب (حالته processing/completed/on-hold بس، مش pending) بأحدث محادثة
+  ضغط زبونها "أضف للسلة" أو "اشتري" على منتج من الطلب خلال 24 ساعة. الودجت بيبعت SKU المنتج مع
+  كل ضغطة (بيتسجّل بـ `acted_skus`) فبينحسب حتى كرت صفحة المنتج مش بس توصيات الشات. الحدث بيتسجّل
+  بس لمحادثة موجودة، يعني الزبون لازم يكتب للمساعد رسالة وحدة على الأقل. ممكن ينسب طلب لمحادثة
+  مش هي اللي جابته بمتجر عليه ضغط عالي. للدقة الكاملة لازم plugin صغير بيوسم السلة (مش مبني لسا).
+- مزامنة دورية للمخزون والنسخ (cron كل ساعة مثلاً): `python manage.py sync_woocommerce`
+
 ## تقييم أداء البيع
 
 ```bash
@@ -98,17 +124,20 @@ python manage.py eval_sales --model gpt-6-luna --effort medium
 
 ```
 apitokens/
-  models.py            ApiToken, Product, ShopifyConnection, Conversation
+  models.py            ApiToken, Product, ShopifyConnection, WooCommerceConnection, Conversation
   views.py             لوحة التحكم (توكنات، كتالوج، ربط Shopify، المحادثات والمبيعات)
   widget_views.py       نقاط API العامة للودجت (chat, tryon, event)
   shopify_webhooks.py    استقبال تحديثات Shopify اللحظية
+  woocommerce_webhooks.py  استقبال تحديثات WooCommerce اللحظية + ربط الطلبات بالمحادثات
   services/
     llm.py              طبقة LLM عامة (anthropic/openai/gemini/groq)
     kieai.py             تكامل تجربة اللبس
     shopify.py           GraphQL Admin API + تجديد التوكن + تحقق webhooks
+    woocommerce.py       REST API v3 + تسجيل webhooks + تحويل المنتجات
     catalog.py           مزامنة Shopify + اختيار المنتجات الأقرب للزبون
   management/commands/
     sync_shopify.py      مزامنة دورية لكل المتاجر
+    sync_woocommerce.py  مزامنة دورية لمتاجر WooCommerce
     eval_sales.py        تقييم آلي لأداء المساعد بالبيع
   static/apitokens/
     embed.js             الودجت القابل للتضمين

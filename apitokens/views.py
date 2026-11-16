@@ -18,7 +18,7 @@ from django.views.decorators.http import require_http_methods
 from . import portal_auth
 from .i18n import LANGUAGES, t
 from .models import (
-    ApiToken, Conversation, DiscountCode, MerchantAccount, PhoneOtp, Product, SallaConnection, ShopifyConnection, SizeChart, ZidConnection,
+    ApiToken, Conversation, DiscountCode, LlmUsage, MerchantAccount, PhoneOtp, Product, SallaConnection, ShopifyConnection, SizeChart, WooCommerceConnection, ZidConnection,
     ZidSubscription,
 )
 from .services import catalog as catalog_service
@@ -26,6 +26,7 @@ from .services import salla as salla_service
 from .services import sizing
 from .services import tryon_stats as tryon_stats_service
 from .services import shopify as shopify_service
+from .services import woocommerce as woocommerce_service
 from .services import zid as zid_service
 
 REQUIRED_COLUMNS = {"sku", "title", "price", "image_url"}
@@ -74,11 +75,13 @@ def dashboard(request):
             messages.success(request, t("msg_token_created", lang))
 
     tokens = ApiToken.objects.annotate(product_count=Count("products")).select_related(
-        "shopify_connection", "portal_account"
+        "shopify_connection", "woocommerce_connection", "salla_connection", "zid_connection", "portal_account"
     )
     now = timezone.now()
+    chat = _chat_usage_by_store(now)
     for tok in tokens:
         tok.portal = portal_auth.portal_status(tok, now)
+        tok.quota = _staff_quota(tok, chat.get(tok.pk), now, lang)
     pending_accounts = list(MerchantAccount.objects.filter(merchant__isnull=True).order_by("created_at"))
     # آخر كود تحقق لكل حساب معلّق (للستاف: حالة التسليم بس، ما في كود ولا hash)
     last_otp = {}
@@ -110,6 +113,53 @@ def dashboard(request):
             "stats": stats,
         },
     )
+
+
+CHAT_USAGE_DAYS = 30
+
+
+def _fill(text, **values):
+    for key, value in values.items():
+        text = text.replace("{" + key + "}", str(value))
+    return text
+
+
+def _chat_usage_by_store(now):
+    """استهلاك الشات آخر 30 يوم لكل المتاجر بنداء واحد: {merchant_id: {calls, tokens}}."""
+    since = timezone.localdate(now) - timedelta(days=CHAT_USAGE_DAYS - 1)
+    rows = (
+        LlmUsage.objects.filter(day__gte=since).values("merchant_id")
+        .annotate(calls=Sum("calls"), input_tokens=Sum("input_tokens"), output_tokens=Sum("output_tokens"))
+    )
+    return {
+        r["merchant_id"]: {"calls": r["calls"] or 0, "tokens": (r["input_tokens"] or 0) + (r["output_tokens"] or 0)}
+        for r in rows
+    }
+
+
+def _staff_quota(tok, chat, now, lang):
+    """رصيد المتجر للستاف من حقول التوكن مباشرة (بدون استعلام لكل متجر). الفترة بتتجدّد بكسل عند أول
+    استهلاك بعد انتهائها، فإذا انتهت بنحسب المستهلك 0. المتبقي هون = الرصيد − المستهلك (بدون الحجوزات
+    اللحظية قيد التوليد، عكس بوابة التاجر)."""
+    resets_at = tok.period_start + timedelta(days=tok.period_days)
+    expired = now >= resets_at
+    used = 0 if expired else tok.images_used
+    remaining = max(tok.image_quota - used, 0)
+    limit = tok.tryons_per_shopper
+    chat = chat or {"calls": 0, "tokens": 0}
+    return {
+        "used_line": _fill(t("portal_admin_quota_used_of", lang), used=used, total=tok.image_quota),
+        "remaining_line": _fill(t("portal_admin_quota_remaining", lang), n=remaining),
+        "resets_at": resets_at,
+        "renews_next_use": expired,
+        "per_shopper_line": (
+            t("portal_admin_quota_unlimited", lang) if limit == 0
+            else _fill(t("portal_admin_quota_per_shopper_value", lang), n=limit)
+        ),
+        "has_chat": bool(chat["calls"] or chat["tokens"]),
+        "chat_calls_line": _fill(t("portal_admin_quota_chat_calls", lang), n=chat["calls"]),
+        "chat_tokens_line": _fill(t("portal_admin_quota_chat_tokens", lang), n=chat["tokens"]) if chat["tokens"] else "",
+    }
 
 
 def _pop_portal_link(request):
@@ -383,6 +433,91 @@ def shopify_connect(request, pk):
     return render(
         request,
         "apitokens/shopify_connect.html",
+        {"merchant": merchant, "connection": connection},
+    )
+
+
+@staff_member_required
+def woocommerce_connect(request, pk):
+    merchant = get_object_or_404(ApiToken, pk=pk)
+    connection = getattr(merchant, "woocommerce_connection", None)
+    lang = request.session.get("lang", "ar")
+
+    if request.method == "POST":
+        action = request.POST.get("action", "connect")
+
+        if action == "disconnect":
+            if connection:
+                connection.delete()
+                messages.success(request, t("msg_woo_disconnected", lang))
+            return redirect("apitokens:woocommerce-connect", pk=pk)
+
+        if action == "resync":
+            if not connection:
+                messages.error(request, t("err_no_connection_to_resync", lang))
+            else:
+                try:
+                    catalog_service.sync_woocommerce(merchant, connection)
+                    messages.success(request, t("msg_resync_success", lang))
+                except woocommerce_service.WooCommerceError as exc:
+                    messages.error(request, str(exc))
+            return redirect("apitokens:woocommerce-connect", pk=pk)
+
+        raw_url = request.POST.get("site_url", "")
+        consumer_key = request.POST.get("consumer_key", "").strip()
+        consumer_secret = request.POST.get("consumer_secret", "").strip()
+        if not raw_url.strip() or not consumer_key or not consumer_secret:
+            messages.error(request, t("err_woo_missing_fields", lang))
+            return redirect("apitokens:woocommerce-connect", pk=pk)
+        site_url = woocommerce_service.normalize_site_url(raw_url)
+        if not site_url:
+            messages.error(request, t("err_woo_https", lang))
+            return redirect("apitokens:woocommerce-connect", pk=pk)
+
+        candidate = WooCommerceConnection(
+            merchant=merchant, site_url=site_url,
+            consumer_key=consumer_key, consumer_secret=consumer_secret,
+        )
+        try:
+            woocommerce_service.get_store_info(candidate)
+        except woocommerce_service.WooCommerceError as exc:
+            messages.error(request, str(exc))
+            return redirect("apitokens:woocommerce-connect", pk=pk)
+
+        # webhook_secret ما بنمرّره: لو في ربط قديم بيضل سرّه، وإلا بينولّد جديد.
+        connection, _ = WooCommerceConnection.objects.update_or_create(
+            merchant=merchant,
+            defaults={
+                "site_url": site_url,
+                "consumer_key": consumer_key,
+                "consumer_secret": consumer_secret,
+                "is_active": True,
+            },
+        )
+
+        # المزامنة أول شي: لو تسجيل الـ webhooks فشل (مفاتيح Read بس مثلاً) الكتالوج يضل جاهز.
+        try:
+            catalog_service.sync_woocommerce(merchant, connection)
+        except woocommerce_service.WooCommerceError as exc:
+            messages.error(request, t("err_connect_sync_partial", lang) % {"exc": exc})
+            return redirect("apitokens:woocommerce-connect", pk=pk)
+
+        callback_url = f"{settings.SITE_BASE_URL}/webhooks/woocommerce/{merchant.token}/"
+        try:
+            orders_ok = woocommerce_service.register_webhooks(connection, callback_url)
+        except woocommerce_service.WooCommerceError as exc:
+            messages.success(request, t("msg_woo_synced_only", lang))
+            messages.warning(request, t("warn_woo_webhooks_failed", lang) % {"exc": exc})
+        else:
+            messages.success(request, t("msg_connect_sync_success", lang))
+            if not orders_ok:
+                messages.warning(request, t("warn_woo_no_order_webhooks", lang))
+
+        return redirect("apitokens:woocommerce-connect", pk=pk)
+
+    return render(
+        request,
+        "apitokens/woocommerce_connect.html",
         {"merchant": merchant, "connection": connection},
     )
 

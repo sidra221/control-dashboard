@@ -15,7 +15,7 @@ from .models import (
     ApiToken, Conversation, Product, SallaConnection, SizeChart, TryOnEvent, ZidConnection,
 )
 from .services import catalog as catalog_service
-from .services import discounts, kieai, llm, saudi, sizing
+from .services import discounts, kieai, llm, quota, ratelimit, saudi, sizing
 
 logger = logging.getLogger(__name__)
 
@@ -24,6 +24,7 @@ MAX_PHOTO_BYTES = 8 * 1024 * 1024
 MAX_MESSAGE_CHARS = 2000
 MAX_RECOMMENDATIONS_PER_TURN = 3
 MAX_SHOWN_SKUS = 50
+CHAT_DAY_SECONDS = 24 * 3600
 SESSION_ID_PATTERN = re.compile(r"^[A-Za-z0-9_-]{8,64}$")
 WIDGET_EVENTS = {"buy_click": "buy_clicks", "add_to_cart": "add_to_carts"}
 
@@ -614,9 +615,10 @@ def _process_tool_calls(
     return recommendations[:MAX_RECOMMENDATIONS_PER_TURN], discount_offer, blocked_reason
 
 
-def _text_for_silent_card(provider, system_prompt, messages, tools, card, lang):
+def _text_for_silent_card(provider, system_prompt, messages, tools, card, lang, merchant=None):
     try:
-        result = llm.chat_with_retry(
+        result = _llm_chat(
+            merchant,
             provider,
             system_prompt + (
                 "\n\nCORRECTION — your previous reply showed the product " + card["sku"] + " (" + card["title"]
@@ -1086,6 +1088,34 @@ def _save_conversation(merchant, session_id, messages, reply_text, recommendatio
     conversation.save()
 
 
+def _llm_chat(merchant, *args, **kwargs):
+    """استدعاء الـ LLM + قياس الاستهلاك (LlmUsage) — كل استدعاء ناجح (بما فيه إعادات التصحيح والأداة
+    الإجبارية). القياس best-effort: ما بيكسر الرد أبداً."""
+    result = llm.chat_with_retry(*args, **kwargs)
+    if merchant is not None:
+        usage = getattr(result, "usage", None)
+        quota.record_llm_usage(
+            merchant, getattr(usage, "input_tokens", None), getattr(usage, "output_tokens", None),
+        )
+    return result
+
+
+def _rate_limited(retry_after):
+    return _cors_response(
+        {"ok": False, "error": "rate_limited", "retry_after_seconds": retry_after}, status=429,
+    )
+
+
+def _throttle(request, *names_and_idents):
+    """بيطبّق حدود الطلبات بالترتيب؛ بيرجّع response 429 جاهز عند أول حد مرفوض أو None.
+    names_and_idents: أزواج (اسم الحد، المعرّف) أو (اسم الحد, None) = IP الطلب."""
+    for name, ident in names_and_idents:
+        allowed, retry_after = ratelimit.hit(name, ratelimit.client_ip(request) if ident is None else ident)
+        if not allowed:
+            return _rate_limited(retry_after)
+    return None
+
+
 def _authenticate(request):
     """برجّع (merchant, None) أو (None, response) جاهز للرجوع."""
     token_value = request.headers.get("X-Api-Token", "").strip()
@@ -1105,9 +1135,15 @@ def chat(request):
     if request.method == "OPTIONS":
         return _cors_response({}, status=200)
 
+    limited = _throttle(request, ("chat_ip", None), ("chat_ip_hour", None))
+    if limited:
+        return limited
     merchant, error_response = _authenticate(request)
     if error_response:
         return error_response
+    limited = _throttle(request, ("chat_token", merchant.token))
+    if limited:
+        return limited
 
     try:
         body = json.loads(request.body or "{}")
@@ -1132,6 +1168,16 @@ def chat(request):
         return _cors_response({"ok": False, "error": "last_message_must_be_user"}, status=400)
 
     session_id = _clean_session_id(body.get("session_id"))
+    # حد عادل لكل زبون باليوم (الشات ما بيستهلك من الرصيد بس إله كلفة): بمعرّف الزبون، وبدونه بالـIP.
+    shopper_id = quota.clean_shopper_id(body.get("shopper_id"))
+    who = shopper_id or "ip-" + (ratelimit.ip_hash(request) or "unknown")
+    allowed, retry_after = ratelimit.hit_key(
+        f"chatday:{merchant.pk}:{who}", settings.CHAT_MAX_MESSAGES_PER_SHOPPER_DAY, CHAT_DAY_SECONDS,
+    )
+    if not allowed:
+        return _cors_response(
+            {"ok": False, "error": "chat_limit_reached", "retry_after_seconds": retry_after}, status=429,
+        )
     raw_shown = body.get("shown_skus") if isinstance(body.get("shown_skus"), list) else []
     shown_skus = [str(s)[:64] for s in raw_shown if isinstance(s, (str, int))][:MAX_SHOWN_SKUS]
 
@@ -1210,13 +1256,13 @@ def chat(request):
     )
 
     try:
-        result = llm.chat_with_retry(provider, system_prompt, clean_messages, tools)
+        result = _llm_chat(merchant, provider, system_prompt, clean_messages, tools)
     except llm.LLMError:
         return _cors_response({"ok": False, "error": "assistant_unavailable"}, status=502)
     if not result.reply_text and not result.tool_calls:
         # الموديل رجّع ولا شي (بيصير نادراً، خصوصاً بعد timeout): محاولة وحدة كمان قبل أي رد احتياطي.
         try:
-            result = llm.chat_with_retry(provider, system_prompt, clean_messages, tools)
+            result = _llm_chat(merchant, provider, system_prompt, clean_messages, tools)
         except llm.LLMError:
             pass
 
@@ -1273,7 +1319,8 @@ def chat(request):
             forced_messages = clean_messages + (
                 [{"role": "assistant", "content": original_reply_text}] if original_reply_text else []
             )
-            forced_result = llm.chat_with_retry(
+            forced_result = _llm_chat(
+                merchant,
                 provider,
                 system_prompt + (
                     "\n\nThe customer's latest message is: "
@@ -1316,7 +1363,7 @@ def chat(request):
             "a genuine alternative, instead."
         )
         try:
-            corrected = llm.chat_with_retry(provider, corrected_system_prompt, clean_messages, tools)
+            corrected = _llm_chat(merchant, provider, corrected_system_prompt, clean_messages, tools)
             recommendations, discount_offer, blocked_reason = _process_tool_calls(
                 corrected.tool_calls, products, discount_codes, lang, blocked_skus, merchant.currency
             )
@@ -1340,7 +1387,9 @@ def chat(request):
             reply_text = next(r["reason"] for r in recommendations if r["reason"].strip())
         elif recommendations:
             # كرت بلا نص ولا سبب: منطلب من الموديل نص الرد مرة وحدة، وإلا جملة ثابتة.
-            reply_text = _text_for_silent_card(provider, system_prompt, clean_messages, tools, recommendations[0], lang)
+            reply_text = _text_for_silent_card(
+                provider, system_prompt, clean_messages, tools, recommendations[0], lang, merchant=merchant,
+            )
             recommendations[0]["reason"] = reply_text
         elif blocked_reason:
             reply_text = blocked_reason
@@ -1363,7 +1412,7 @@ def chat(request):
             "that exact language and script (Saudi dialect if it's Arabic) — including every tool `reason`."
         )
         try:
-            corrected = llm.chat_with_retry(provider, corrected_system_prompt, clean_messages, tools)
+            corrected = _llm_chat(merchant, provider, corrected_system_prompt, clean_messages, tools)
             new_recs, new_offer, new_blocked_reason = _process_tool_calls(
                 corrected.tool_calls, products, discount_codes, lang, blocked_skus, merchant.currency
             )
@@ -1386,7 +1435,7 @@ def chat(request):
             "the message the customer should read, in their language, nothing else."
         )
         try:
-            corrected = llm.chat_with_retry(provider, corrected_system_prompt, clean_messages, tools)
+            corrected = _llm_chat(merchant, provider, corrected_system_prompt, clean_messages, tools)
             new_recs, new_offer, new_blocked_reason = _process_tool_calls(
                 corrected.tool_calls, products, discount_codes, lang, blocked_skus, merchant.currency
             )
@@ -1415,7 +1464,7 @@ def chat(request):
             "sentence, and ask ONE short question — would they like to see something cheaper?"
         )
         try:
-            corrected = llm.chat_with_retry(provider, corrected_system_prompt, clean_messages, tools)
+            corrected = _llm_chat(merchant, provider, corrected_system_prompt, clean_messages, tools)
             new_reply = (corrected.reply_text or "").strip()
         except llm.LLMError:
             new_reply = ""
@@ -1441,7 +1490,7 @@ def chat(request):
                 "items, or if nothing fits say so briefly and ask whether it's a gift (rule 2b)."
             )
             try:
-                corrected = llm.chat_with_retry(provider, corrected_system_prompt, clean_messages, tools)
+                corrected = _llm_chat(merchant, provider, corrected_system_prompt, clean_messages, tools)
                 new_recs, new_offer, new_blocked_reason = _process_tool_calls(
                     corrected.tool_calls, products, discount_codes, lang, blocked_skus, merchant.currency
                 )
@@ -1465,7 +1514,7 @@ def chat(request):
                 "question asking whether they want men's or women's."
             )
             try:
-                corrected = llm.chat_with_retry(provider, corrected_system_prompt, clean_messages, tools)
+                corrected = _llm_chat(merchant, provider, corrected_system_prompt, clean_messages, tools)
                 new_reply = (corrected.reply_text or "").strip()
             except llm.LLMError:
                 new_reply = ""
@@ -1487,7 +1536,7 @@ def chat(request):
                 "Saudi dialect, addressing the customer in the masculine/neutral form."
             )
             try:
-                corrected = llm.chat_with_retry(provider, corrected_system_prompt, clean_messages, tools)
+                corrected = _llm_chat(merchant, provider, corrected_system_prompt, clean_messages, tools)
                 new_recs, new_offer, new_blocked_reason = _process_tool_calls(
                     corrected.tool_calls, products, discount_codes, lang, blocked_skus, merchant.currency
                 )
@@ -1652,6 +1701,9 @@ def event(request):
     """أحداث من الودجت لقياس البيع: ضغطة شراء، إضافة للسلة."""
     if request.method == "OPTIONS":
         return _cors_response({}, status=200)
+    limited = _throttle(request, ("event_ip", None))
+    if limited:
+        return limited
     merchant, error_response = _authenticate(request)
     if error_response:
         return error_response
@@ -1671,6 +1723,11 @@ def event(request):
         if cart_id:
             conversation.platform_cart_id = cart_id
             update_fields.append("platform_cart_id")
+        sku = str(body.get("sku") or "").strip()[:64]
+        # بس SKU من كتالوج هالتاجر — حتى ما يكتب الودجت (علني) قيم عشوائية بالمحادثة.
+        if sku and sku not in conversation.acted_skus and merchant.products.filter(sku=sku).exists():
+            conversation.acted_skus = [*conversation.acted_skus, sku]
+            update_fields.append("acted_skus")
         conversation.save(update_fields=update_fields)
     return _cors_response({"ok": True})
 
@@ -1772,9 +1829,12 @@ def _find_page_product(merchant, page_url):
 @require_http_methods(["POST", "OPTIONS"])
 def page_product(request):
     """الودجت بيسأل عند التحميل: هالصفحة صفحة منتج من الكتالوج؟ لو إيه
-    منرجّع كرته حتى يفتح المحادثة عليه مباشرة."""
+    منرجّع كرته حتى يفتح المحادثة عليه مباشرة. وكمان هل التجربة متاحة لهالزبون (رصيد، سقف يومي، حده)."""
     if request.method == "OPTIONS":
         return _cors_response({}, status=200)
+    limited = _throttle(request, ("pageproduct_ip", None))
+    if limited:
+        return limited
     merchant, error_response = _authenticate(request)
     if error_response:
         return error_response
@@ -1783,9 +1843,17 @@ def page_product(request):
     except json.JSONDecodeError:
         return _cors_response({"ok": False, "error": "invalid_json"}, status=400)
     page_url = str(body.get("page_url") or "")[:2000]
+    availability = quota.availability(
+        merchant, quota.clean_shopper_id(body.get("shopper_id")), ratelimit.ip_hash(request),
+    )
+    tryon_state = {
+        "shopper_tryons_left": availability["shopper_tryons_left"],
+        "tryon_available": availability["tryon_available"],
+        "tryon_retry_after_seconds": availability["retry_after_seconds"],
+    }
     product = _find_page_product(merchant, page_url)
     if product is None:
-        return _cors_response({"ok": True, "product": None})
+        return _cors_response({"ok": True, "product": None, **tryon_state})
     return _cors_response(
         {
             "ok": True,
@@ -1794,6 +1862,7 @@ def page_product(request):
                 "tryon_supported": product.supports_tryon,
                 "tryon_button_label": TRYON_BUTTON_LABELS["ar"]["self"],
             },
+            **tryon_state,
         }
     )
 
@@ -1811,16 +1880,26 @@ TRYON_PROMPT = (
 )
 
 
-def _record_tryon_event(merchant, session_id, product, sku, success, error=""):
+def _record_tryon_event(merchant, session_id, product, sku, success, error="", shopper_id="", ip_hash=""):
     """بنسجّل محاولة التجربة للإحصائيات — أي خطأ بالتسجيل ما لازم يكسر الرد."""
     try:
         with transaction.atomic():
             TryOnEvent.objects.create(
-                merchant=merchant, session_id=session_id or "", product=product,
-                sku=sku[:64], success=success, error=error,
+                merchant=merchant, session_id=session_id or "", shopper_id=shopper_id or "",
+                ip_hash=ip_hash or "", product=product, sku=sku[:64], success=success, error=error,
             )
     except Exception:
         logger.exception("tryon_event_record_failed merchant=%s sku=%s", merchant.pk, sku)
+
+
+def _notify_quota_alerts(merchant):
+    """تنبيه التاجر بالرصيد بعد تجربة ناجحة — ما لازم يكسر الرد أبداً."""
+    try:
+        from .services import quota_alerts
+
+        quota_alerts.maybe_send_quota_alerts(merchant)
+    except Exception:
+        logger.exception("quota_alert_failed merchant=%s", merchant.pk)
 
 
 @csrf_exempt
@@ -1828,6 +1907,11 @@ def _record_tryon_event(merchant, session_id, product, sku, success, error=""):
 def tryon(request):
     if request.method == "OPTIONS":
         return _cors_response({}, status=200)
+
+    # حد الـIP قبل أي شغل تقيل (رفع الصورة واستعلامات القاعدة).
+    limited = _throttle(request, ("tryon_ip", None))
+    if limited:
+        return limited
 
     token_value = request.headers.get("X-Api-Token", "").strip()
     if not token_value:
@@ -1843,56 +1927,88 @@ def tryon(request):
     if not settings.KIEAI_API_KEY:
         return _cors_response({"ok": False, "error": "tryon_not_configured"}, status=503)
 
-    with transaction.atomic():
-        merchant = (
-            ApiToken.objects.select_for_update().filter(token=token_value).first()
-        )
-        if merchant is None:
-            return _cors_response({"ok": False, "error": "invalid_token"}, status=401)
-        if not merchant.is_active:
-            return _cors_response({"ok": False, "error": "token_disabled"}, status=403)
-        period_end = merchant.period_start + timedelta(days=merchant.period_days)
-        images_used = 0 if timezone.now() >= period_end else merchant.images_used
-        if images_used >= merchant.image_quota:
-            return _cors_response(
-                {"ok": False, "error": "quota_exceeded", "remaining": 0}, status=200
-            )
+    merchant = ApiToken.objects.filter(token=token_value).first()
+    if merchant is None:
+        return _cors_response({"ok": False, "error": "invalid_token"}, status=401)
+    if not merchant.is_active:
+        return _cors_response({"ok": False, "error": "token_disabled"}, status=403)
+    limited = _throttle(request, ("tryon_token", merchant.token))
+    if limited:
+        return limited
 
     product = Product.objects.filter(merchant=merchant, sku=sku).first()
     if product is None:
         return _cors_response({"ok": False, "error": "product_not_found"}, status=404)
 
-    try:
-        image_url = kieai.generate_tryon(
-            api_key=settings.KIEAI_API_KEY,
-            person_photo=photo,
-            person_filename=photo.name,
-            product_image_url=product.image_url,
-            prompt=TRYON_PROMPT,
-        )
-    except kieai.TryOnError as exc:
-        _record_tryon_event(
-            merchant, _clean_session_id(request.POST.get("session_id")), product, sku,
-            success=False, error=str(exc)[:120],
-        )
-        return _cors_response({"ok": False, "error": str(exc)}, status=502)
-
-    with transaction.atomic():
-        merchant = ApiToken.objects.select_for_update().get(pk=merchant.pk)
-        result = merchant.consume_quota(1)
-
     session_id = _clean_session_id(request.POST.get("session_id"))
-    _record_tryon_event(merchant, session_id, product, sku, success=True)
+    shopper_id = quota.clean_shopper_id(request.POST.get("shopper_id"))
+    ip_hash = ratelimit.ip_hash(request)
+
+    # حجز ذرّي من الحوض المشترك قبل التوليد (بيمنع تجاوز الرصيد مع الطلبات المتزامنة).
+    reserved = quota.reserve(merchant.pk, shopper_id, ip_hash)
+    if not reserved.ok:
+        if reserved.reason == quota.REASON_TOKEN_DISABLED:
+            return _cors_response({"ok": False, "error": "token_disabled"}, status=403)
+        if reserved.reason == quota.REASON_INVALID_TOKEN:
+            return _cors_response({"ok": False, "error": "invalid_token"}, status=401)
+        if reserved.reason == quota.REASON_QUOTA_EXCEEDED:
+            return _cors_response({"ok": False, "error": "quota_exceeded", "remaining": 0}, status=200)
+        if reserved.reason == quota.REASON_STORE_DAILY_LIMIT:
+            return _cors_response(
+                {"ok": False, "error": "store_daily_limit", "retry_after_seconds": reserved.retry_after_seconds},
+                status=200,
+            )
+        return _cors_response(
+            {
+                "ok": False, "error": "shopper_limit_reached", "shopper_remaining": 0,
+                "retry_after_seconds": reserved.retry_after_seconds,
+            },
+            status=200,
+        )
+
+    try:
+        try:
+            image_url = kieai.generate_tryon(
+                api_key=settings.KIEAI_API_KEY,
+                person_photo=photo,
+                person_filename=photo.name,
+                product_image_url=product.image_url,
+                prompt=TRYON_PROMPT,
+            )
+        except kieai.TryOnError as exc:
+            quota.release(reserved.reservation)
+            _record_tryon_event(
+                merchant, session_id, product, sku, success=False, error=str(exc)[:120],
+                shopper_id=shopper_id, ip_hash=ip_hash,
+            )
+            return _cors_response({"ok": False, "error": str(exc)}, status=502)
+
+        # الحجز بيتحوّل لخصم فعلي بمعاملة وحدة مع تسجيل التجربة الناجحة.
+        merchant, _consume = quota.finalize_success(
+            merchant.pk, reserved.reservation, shopper_id, ip_hash, session_id, sku, product,
+        )
+    except Exception:
+        logger.exception("tryon_failed merchant=%s sku=%s", merchant.pk, sku)
+        quota.release(reserved.reservation)
+        _record_tryon_event(
+            merchant, session_id, product, sku, success=False, error="internal_error",
+            shopper_id=shopper_id, ip_hash=ip_hash,
+        )
+        return _cors_response({"ok": False, "error": "tryon_failed"}, status=502)
+
     if session_id:
         conversation = Conversation.objects.filter(merchant=merchant, session_id=session_id).first()
         if conversation is not None:
             conversation.tryons += 1
             conversation.save(update_fields=["tryons", "updated_at"])
 
+    _notify_quota_alerts(merchant)
+
     return _cors_response(
         {
             "ok": True,
             "image_url": image_url,
-            "remaining": result.get("remaining"),
+            "remaining": quota.quota_status(merchant)["remaining"],
+            "shopper_remaining": quota.shopper_status(merchant, shopper_id, ip_hash)["remaining"],
         }
     )

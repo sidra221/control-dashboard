@@ -1,0 +1,37 @@
+{# رصيد التاجر + حد التجارب لكل زبون. الأرقام جاهزة من portal_views._quota_card. #}
+<section class="card quota-card" aria-labelledby="quota-title">
+  <h2 id="quota-title">{{ T.portal_quota_title }}</h2>
+  <div class="quota-main">
+    <div class="quota-n"><bdi>{{ quota.remaining }}</bdi><span class="quota-of"> / <bdi>{{ quota.quota }}</bdi></span></div>
+    <div class="quota-l">{{ T.portal_quota_left_label }}</div>
+  </div>
+  <div class="quota-bar {{ quota.level }}" role="progressbar" aria-label="{{ T.portal_quota_aria }}" aria-valuemin="0" aria-valuemax="100" aria-valuenow="{{ quota.percent }}">
+    <span class="quota-fill" style="width: {{ quota.percent }}%"></span>
+  </div>
+  <ul class="quota-facts">
+    <li id="quota-used">{{ quota.used_line }}</li>
+    <li id="quota-renews">{% if quota.status.period_expired %}{{ T.portal_quota_renews_next_use }}{% else %}{{ T.portal_quota_renews_on }} <bdi dir="ltr">{{ quota.status.resets_at|date:"Y-m-d" }}</bdi>{% endif %}</li>
+    {% if quota.daily %}<li id="quota-daily">{{ quota.daily_line }}{% if quota.status.daily_exhausted %}<br><strong>{{ T.portal_quota_daily_reached }}</strong>{% endif %}</li>{% endif %}
+  </ul>
+  {% if quota.daily %}<p class="card-note">{{ T.portal_quota_daily_note }}</p>{% endif %}
+  <p class="card-note quota-explain">{{ T.portal_quota_shared_explain }}</p>
+</section>
+
+<section class="card shopper-card" aria-labelledby="shopper-title">
+  <h2 id="shopper-title">{{ T.portal_quota_set_title }}</h2>
+  {% if saved == "1" %}<p class="alert-ok" role="status" id="quota-saved">{{ T.portal_quota_set_saved }}</p>{% endif %}
+  {% if saved == "error" %}<p class="alert-error" role="alert" id="quota-save-error">{{ T.portal_quota_set_error }}</p>{% endif %}
+  <form class="shopper-form" method="post" action="{% url 'portal:settings' %}">
+    {% csrf_token %}
+    <div class="field">
+      <label for="f-per-shopper">{{ T.portal_quota_set_label }}</label>
+      <select id="f-per-shopper" name="tryons_per_shopper">
+        {% for c in shopper_choices %}
+        <option value="{{ c.value }}"{% if c.selected %} selected{% endif %}{% if c.disabled %} disabled{% endif %}>{{ c.label }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <button type="submit" class="btn-primary">{{ T.portal_quota_set_save }}</button>
+  </form>
+  <p class="card-note shopper-explain">{{ T.portal_quota_set_explain }}</p>
+</section>

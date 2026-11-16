@@ -7,17 +7,19 @@ from django.conf import settings
 from django.db.models import Count, Q, Sum
 from django.shortcuts import redirect, render
 from django.templatetags.static import static
+from django.urls import reverse
 from django.utils import timezone
 from django.views.decorators.http import require_http_methods, require_POST
 
 from . import portal_otp
 from .i18n import t
-from .models import Conversation, PhoneOtp, TryOnEvent
+from .models import ApiToken, Conversation, PhoneOtp, TryOnEvent
 from .portal_auth import (
     PORTAL_TERMS_VERSION, _client_ip, _landing, _lang, accept_terms, portal_account_required, portal_required,
     portal_session_required, terms_accepted_required, verify_throttled,
 )
 from .services import tryon_stats as tryon_stats_service
+from .services.quota import quota_status
 
 
 def _conversation_kpis(merchant):
@@ -38,6 +40,56 @@ def _conversation_kpis(merchant):
         "orders": agg["orders"],
         "revenue": agg["revenue"] or 0,
     }
+
+
+# حد التجارب لكل زبون: القيم المسموحة فقط (0 = بلا حد). نقارن النص حرفياً (ما منعمل int على مدخل خام).
+SHOPPER_LIMIT_CHOICES = (1, 3, 5, 10, 0)
+_SHOPPER_LIMIT_BY_TEXT = {str(n): n for n in SHOPPER_LIMIT_CHOICES}
+SAVED_OK, SAVED_ERROR = "1", "error"
+
+
+def _fill(text, **values):
+    for key, value in values.items():
+        text = text.replace("{" + key + "}", str(value))
+    return text
+
+
+def _quota_card(merchant, lang):
+    """أرقام بطاقة الرصيد للتاجر: رصيده هو بس (ما في أي رقم داخلي للستاف ولا لمتجر تاني)."""
+    st = quota_status(merchant)
+    low = st["percent_used"] >= 80
+    level = "exhausted" if st["exhausted"] else ("low" if low else "ok")
+    card = {
+        "status": st,
+        "level": level,
+        "remaining": st["remaining"],
+        "quota": st["quota"],
+        "percent": st["percent_used"],
+        "used_line": _fill(t("portal_quota_used_line", lang), used=st["used"], total=st["quota"], pct=st["percent_used"]),
+        "show_banner": level != "ok",
+        "daily": st["daily_cap"] is not None,
+    }
+    if card["daily"]:
+        card["daily_line"] = _fill(t("portal_quota_daily_line", lang), used=st["used_today"], cap=st["daily_cap"])
+    if level == "low":
+        card["banner_text"] = _fill(t("portal_quota_low_text", lang), pct=st["percent_used"], remaining=st["remaining"])
+    return card
+
+
+def _shopper_limit_choices(merchant, lang):
+    """خيارات السلكت، والقيمة الحالية محددة. لو الستاف حط قيمة خارج القائمة بتظهر معطّلة (مو مرسَلة)."""
+    current = merchant.tryons_per_shopper
+    choices = [
+        {
+            "value": n,
+            "label": t("portal_quota_set_unlimited", lang) if n == 0 else str(n),
+            "selected": n == current,
+        }
+        for n in SHOPPER_LIMIT_CHOICES
+    ]
+    if current not in SHOPPER_LIMIT_CHOICES:
+        choices.insert(0, {"value": current, "label": str(current), "selected": True, "disabled": True})
+    return choices
 
 
 @portal_required
@@ -71,8 +123,25 @@ def home(request):
             "product_count": product_count,
             "products_line": t("portal_install_products", lang).replace("{n}", str(product_count)),
             "support_email": settings.SUPPORT_EMAIL,
+            "quota": _quota_card(merchant, lang),
+            "shopper_choices": _shopper_limit_choices(merchant, lang),
+            "saved": request.GET.get("saved") if request.GET.get("saved") in (SAVED_OK, SAVED_ERROR) else "",
         },
     )
+
+
+@portal_required
+@terms_accepted_required
+@require_POST
+def quota_settings(request):
+    """حد التجارب لكل زبون. بيشتغل على request.portal_merchant بس (ما بنقرأ merchant/pk من الطلب)
+    وبيحدّث الحقل وحده (UPDATE) حتى ما يدوس على استهلاك الرصيد اللي بيتغيّر بنفس اللحظة."""
+    merchant = request.portal_merchant
+    value = _SHOPPER_LIMIT_BY_TEXT.get(request.POST.get("tryons_per_shopper", ""))
+    if value is None:
+        return redirect(reverse("portal:home") + "?saved=" + SAVED_ERROR)
+    ApiToken.objects.filter(pk=merchant.pk).update(tryons_per_shopper=value)
+    return redirect(reverse("portal:home") + "?saved=" + SAVED_OK)
 
 
 @portal_required
