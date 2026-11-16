@@ -63,6 +63,11 @@ class ApiToken(models.Model):
     # موافقة التاجر على سياسة الخصوصية: أي نسخة ومتى — بنطلبها من جديد لما ننزّل نسخة جديدة.
     terms_accepted_at = models.DateTimeField(null=True, blank=True, editable=False)
     terms_accepted_version = models.CharField(max_length=16, blank=True, default="", editable=False)
+    # توزيع الرصيد بين زبائن التاجر: عدد التجارب الناجحة المسموحة لكل زبون كل 24 ساعة (0 = بلا حد).
+    tryons_per_shopper = models.PositiveSmallIntegerField(default=3)
+    # تنبيهات الرصيد: بنخزّن period_start اللي انرسل عنده التنبيه حتى ما نكرره بنفس الفترة.
+    quota_alert_80_period = models.DateTimeField(null=True, blank=True, editable=False)
+    quota_alert_100_period = models.DateTimeField(null=True, blank=True, editable=False)
 
     class Meta:
         verbose_name = "توكن API"
@@ -463,6 +468,9 @@ class TryOnEvent(models.Model):
         ApiToken, on_delete=models.CASCADE, related_name="tryon_events",
     )
     session_id = models.CharField(max_length=64, blank=True, default="", db_index=True)
+    # معرّف الزبون الثابت (من localStorage بالمتصفح) وبصمة IP (sha256 مملّح) — لحد التجارب لكل زبون.
+    shopper_id = models.CharField(max_length=64, blank=True, default="")
+    ip_hash = models.CharField(max_length=64, blank=True, default="")
     product = models.ForeignKey(
         "Product", null=True, blank=True, on_delete=models.SET_NULL, related_name="tryon_events",
     )
@@ -475,10 +483,57 @@ class TryOnEvent(models.Model):
         verbose_name = "تجربة افتراضية"
         verbose_name_plural = "التجارب الافتراضية"
         ordering = ["-created_at"]
-        indexes = [models.Index(fields=["merchant", "created_at"])]
+        indexes = [
+            models.Index(fields=["merchant", "created_at"]),
+            models.Index(fields=["merchant", "shopper_id", "created_at"]),
+            models.Index(fields=["merchant", "ip_hash", "created_at"]),
+        ]
 
     def __str__(self):
         return f"{self.merchant.label} — {self.sku} — {'ok' if self.success else 'fail'}"
+
+
+class QuotaReservation(models.Model):
+    """حجز مؤقت لتجربة لبس قيد التوليد: بيتحسب من رصيد المتجر ومن حد الزبون لحد ما تخلص أو تفشل،
+    فالتجارب المتزامنة ما بتتجاوز الرصيد. بينتهي لحاله (expires_at) لو انقطعت العملية."""
+
+    merchant = models.ForeignKey(ApiToken, on_delete=models.CASCADE, related_name="quota_reservations")
+    shopper_id = models.CharField(max_length=64, blank=True, default="")
+    ip_hash = models.CharField(max_length=64, blank=True, default="")
+    created_at = models.DateTimeField(auto_now_add=True)
+    expires_at = models.DateTimeField(db_index=True)
+
+    class Meta:
+        verbose_name = "حجز رصيد"
+        verbose_name_plural = "حجوزات الرصيد"
+        indexes = [models.Index(fields=["merchant", "expires_at"])]
+
+
+class RateBucket(models.Model):
+    """عدّاد حد طلبات بنافذة ثابتة، بقاعدة البيانات (مو بذاكرة العملية) فبيشتغل صح مع أكتر من worker."""
+
+    key = models.CharField(max_length=160, unique=True)
+    window_start = models.DateTimeField()
+    count = models.PositiveIntegerField(default=0)
+
+    class Meta:
+        verbose_name = "عدّاد حد طلبات"
+        verbose_name_plural = "عدّادات حد الطلبات"
+
+
+class LlmUsage(models.Model):
+    """استهلاك الشات (استدعاءات الـ LLM) لكل متجر باليوم — لنقيس كلفة الشات الفعلية."""
+
+    merchant = models.ForeignKey(ApiToken, on_delete=models.CASCADE, related_name="llm_usage")
+    day = models.DateField()
+    calls = models.PositiveIntegerField(default=0)
+    input_tokens = models.BigIntegerField(default=0)
+    output_tokens = models.BigIntegerField(default=0)
+
+    class Meta:
+        verbose_name = "استهلاك الشات"
+        verbose_name_plural = "استهلاك الشات"
+        constraints = [models.UniqueConstraint(fields=["merchant", "day"], name="unique_llm_usage_per_day")]
 
 
 class SizeChart(models.Model):

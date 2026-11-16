@@ -140,6 +140,8 @@
           <th>{{ T.th_quota }}</th>
           <th>{{ T.th_period }}</th>
           <th>{{ T.th_used }}</th>
+          <th>{{ T.portal_admin_quota_th }}</th>
+          <th>{{ T.portal_admin_quota_th_chat }}</th>
           <th>{{ T.th_status }}</th>
           <th>{{ T.th_created }}</th>
           <th>{{ T.portal_admin_th }}</th>
@@ -163,6 +165,14 @@
           <td>{{ t.image_quota }}</td>
           <td>{{ t.period|period_label:LANG }}</td>
           <td>{{ t.images_used }}</td>
+          <td class="quota-cell">
+            <div>{{ t.quota.used_line }} · <strong>{{ t.quota.remaining_line }}</strong></div>
+            <small style="display:block;color:var(--muted)">{% if t.quota.renews_next_use %}{{ T.portal_admin_quota_renews_next_use }}{% else %}{{ T.portal_admin_quota_resets }} <bdi dir="ltr">{{ t.quota.resets_at|date:"Y-m-d" }}</bdi>{% endif %}</small>
+            <small style="display:block;color:var(--muted)">{{ T.portal_admin_quota_per_shopper }}: {{ t.quota.per_shopper_line }}</small>
+          </td>
+          <td class="chat-cell">
+            {% if t.quota.has_chat %}<div>{{ t.quota.chat_calls_line }}</div>{% if t.quota.chat_tokens_line %}<small style="display:block;color:var(--muted)">{{ t.quota.chat_tokens_line }}</small>{% endif %}{% else %}<small style="color:var(--muted)">{{ T.portal_admin_quota_chat_none }}</small>{% endif %}
+          </td>
           <td>
             {% if t.is_active %}
               <span class="badge active">{{ T.status_active }}</span>

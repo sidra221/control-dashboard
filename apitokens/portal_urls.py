@@ -13,5 +13,6 @@ urlpatterns = [
     path("pending/", portal_views.pending, name="pending"),
     path("logout/", portal_auth.logout, name="logout"),
     path("accept/", portal_views.accept, name="accept"),
+    path("settings/", portal_views.quota_settings, name="settings"),
     path("", portal_views.home, name="home"),
 ]

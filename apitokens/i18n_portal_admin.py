@@ -66,4 +66,18 @@ PORTAL_ADMIN_TRANSLATIONS = {
         "ar": "هالحساب مش معلّق (مربوط بمتجر أصلاً).",
         "en": "This account is not pending (it already has a store).",
     },
+
+    # ===== رصيد المتجر واستهلاك الشات (portal_admin_quota_) =====
+    "portal_admin_quota_th": {"ar": "الرصيد", "en": "Credit"},
+    "portal_admin_quota_th_chat": {"ar": "الشات (آخر 30 يوم)", "en": "Chat (last 30 days)"},
+    "portal_admin_quota_used_of": {"ar": "مستهلك {used} من {total}", "en": "{used} of {total} used"},
+    "portal_admin_quota_remaining": {"ar": "متبقي {n}", "en": "{n} left"},
+    "portal_admin_quota_resets": {"ar": "يتجدد", "en": "Resets"},
+    "portal_admin_quota_renews_next_use": {"ar": "يتجدد مع أول استخدام", "en": "Renews on next use"},
+    "portal_admin_quota_per_shopper": {"ar": "حد الزبون", "en": "Per shopper"},
+    "portal_admin_quota_per_shopper_value": {"ar": "{n} باليوم", "en": "{n} / day"},
+    "portal_admin_quota_unlimited": {"ar": "بلا حد", "en": "Unlimited"},
+    "portal_admin_quota_chat_calls": {"ar": "{n} استدعاء", "en": "{n} calls"},
+    "portal_admin_quota_chat_tokens": {"ar": "{n} توكن", "en": "{n} tokens"},
+    "portal_admin_quota_chat_none": {"ar": "ما في استهلاك", "en": "No usage"},
 }

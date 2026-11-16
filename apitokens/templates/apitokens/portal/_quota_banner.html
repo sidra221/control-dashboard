@@ -1,0 +1,11 @@
+{# تحذير الرصيد: بيظهر فقط من 80% (قارب يخلص) أو لما يخلص. بدون أي بيانات داخلية. #}
+{% if quota.show_banner %}
+<div class="quota-banner {{ quota.level }}" role="{% if quota.level == 'exhausted' %}alert{% else %}status{% endif %}" id="quota-banner">
+  {% if quota.level == "exhausted" %}
+  <strong>{{ T.portal_quota_exhausted_title }}</strong> {{ T.portal_quota_exhausted_text }}
+  {% else %}
+  <strong>{{ T.portal_quota_low_title }}</strong> {{ quota.banner_text }}
+  {% endif %}
+  {% if support_email %}<bdi dir="ltr"><a href="mailto:{{ support_email }}">{{ support_email }}</a></bdi>{% endif %}
+</div>
+{% endif %}

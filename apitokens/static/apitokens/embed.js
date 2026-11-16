@@ -24,6 +24,32 @@
   var SESSION_ID = (window.crypto && crypto.randomUUID ? crypto.randomUUID() : String(Date.now()) + Math.random())
     .replace(/[^A-Za-z0-9_-]/g, "")
     .slice(0, 64);
+  // معرّف الزبون: ثابت بين الزيارات (localStorage) عشان السيرفر يحسب حدّ التجارب لكل زبون.
+  // لو التخزين مقفول (وضع خاص / حظر) منكمّل بمعرّف بالذاكرة بس.
+  var SHOPPER_ID_RE = /^[A-Za-z0-9_-]{8,64}$/;
+  function cleanId(raw) {
+    return String(raw || "").replace(/[^A-Za-z0-9_-]/g, "").slice(0, 64);
+  }
+  function newShopperId() {
+    var raw = window.crypto && crypto.randomUUID
+      ? crypto.randomUUID()
+      : String(Date.now()) + Math.random().toString(36).slice(2) + Math.random().toString(36).slice(2);
+    var id = cleanId(raw);
+    while (id.length < 8) id += Math.random().toString(36).slice(2, 3) || "x";
+    return id;
+  }
+  var SHOPPER_ID = (function () {
+    var key = "cw_shopper_" + cleanId(STORE_KEY).slice(0, 8);
+    try {
+      var saved = window.localStorage.getItem(key);
+      if (saved && SHOPPER_ID_RE.test(saved)) return saved;
+    } catch (e) {}
+    var fresh = newShopperId();
+    try {
+      window.localStorage.setItem(key, fresh);
+    } catch (e) {}
+    return fresh;
+  })();
   var shownSkus = [];
   // جوا متجر Shopify فعلي: منقدر نضيف للسلة مباشرة ونعلّم السلة بمعرّف المحادثة.
   var IS_SHOPIFY = !!(window.Shopify && window.Shopify.shop);
@@ -55,18 +81,44 @@
     return /[\u0600-\u06FF]/.test(lastUser) || !lastUser ? "ar" : "en";
   }
 
+  // الرد بيتقرا كـ JSON حتى لو الحالة 429 (السيرفر بيرجّع جسم JSON مع rate_limited).
+  function readJson(r) {
+    return r.json().catch(function () {
+      if (r.status === 429) return { ok: false, error: "rate_limited" };
+      throw new Error("bad_json");
+    });
+  }
+
+  function toCount(v) {
+    return typeof v === "number" && isFinite(v) ? Math.max(0, Math.floor(v)) : null;
+  }
+
+  // حالة تجربة اللبس عند الزبون: كم باقي له، وهل الخاصية متاحة، ومتى ترجع.
+  // أي مفتاح ناقص = متاحة.
+  var tryonState = { shopperLeft: null, available: true, retryAfter: null };
+  var tryonResetTimer = null;
+  var lastTryonNoteShown = false;
+
   // لو الزبون فاتح صفحة منتج من الكتالوج، منفتح المحادثة على هالمنتج نفسه.
   var pageProduct = null;
   var pageProductReady = fetch(API_BASE + "/widget/page-product/", {
     method: "POST",
     headers: { "Content-Type": "application/json", "X-Api-Token": STORE_KEY },
-    body: JSON.stringify({ page_url: window.location.href }),
+    body: JSON.stringify({ page_url: window.location.href, shopper_id: SHOPPER_ID }),
   })
-    .then(function (r) {
-      return r.json();
-    })
+    .then(readJson)
     .then(function (data) {
-      if (data && data.ok && data.product) pageProduct = data.product;
+      if (!data || !data.ok) return;
+      if (data.product) pageProduct = data.product;
+      var pick = function (key) {
+        if (data[key] !== undefined) return data[key];
+        return data.product ? data.product[key] : undefined;
+      };
+      updateTryonState({
+        shopperLeft: toCount(pick("shopper_tryons_left")),
+        available: pick("tryon_available") !== false,
+        retryAfter: toCount(pick("tryon_retry_after_seconds")),
+      });
     })
     .catch(function () {});
 
@@ -78,7 +130,12 @@
     fetch(API_BASE + "/widget/event/", {
       method: "POST",
       headers: { "Content-Type": "application/json", "X-Api-Token": STORE_KEY },
-      body: JSON.stringify({ type: type, session_id: SESSION_ID, cart_id: cartId ? String(cartId) : "" }),
+      body: JSON.stringify({
+        type: type,
+        session_id: SESSION_ID,
+        shopper_id: SHOPPER_ID,
+        cart_id: cartId ? String(cartId) : "",
+      }),
       keepalive: true,
     }).catch(function () {});
   }
@@ -207,6 +264,7 @@
     "  border: none; cursor: pointer; width: 100%; margin-top: 6px; font-family: inherit;",
     "}",
     ".card button.tryon { background: #eef0ff; color: #4f46e5; }",
+    ".card button.tryon:disabled { background: #f1f2f6; color: #8a8fa3; cursor: not-allowed; }",
     ".card a.buy, .card button.addcart { background: linear-gradient(135deg, #6366f1, #4f46e5); color: #fff; }",
     ".typing { align-self: flex-start; font-size: 12px; color: #9095ab; padding: 0 4px; }",
     ".msg.writing::after { content: '▍'; margin-inline-start: 1px; opacity: .6; animation: sw-blink 1s steps(1) infinite; }",
@@ -527,6 +585,8 @@
     tryBtn.className = "tryon";
     if (rec.tryon_supported === false) tryBtn.style.display = "none";
     tryBtn.textContent = rec.tryon_button_label || "جرّب شكلك فيه 📸";
+    // لو الزبون خلّص تجاربه أو الخاصية واقفة، الكرت الجديد بيطلع زره معطّل من البداية.
+    applyTryonButton(tryBtn);
     tryBtn.addEventListener("click", function () {
       if (savedPhoto) {
         runTryon(rec.sku, savedPhoto);
@@ -669,8 +729,139 @@
     photo_too_large: "الصورة كبيرة مرّة، جرّب صورة أصغر (أقل من 8 ميغا).",
   };
 
-  function friendlyError(code) {
-    return ERROR_MESSAGES[code] || "صار خطأ، جرّب مرة ثانية.";
+  // مدة بالثواني -> نص قصير ("5 ساعات و20 دقيقة" / "2 hours 20 min"). فاضي لو ما فيه مدة.
+  function arCount(n, one, two, few, many) {
+    if (n === 1) return one;
+    if (n === 2) return two;
+    return n + " " + (n >= 3 && n <= 10 ? few : many);
+  }
+  function formatWait(seconds, lang) {
+    var s = toCount(seconds);
+    if (!s) return "";
+    var ar = lang === "ar";
+    if (s < 60) return ar ? arCount(s, "ثانية", "ثانيتين", "ثواني", "ثانية") : s + (s === 1 ? " second" : " seconds");
+    var totalMin = Math.ceil(s / 60);
+    var h = Math.floor(totalMin / 60);
+    var m = totalMin % 60;
+    var parts = [];
+    if (ar) {
+      if (h) parts.push(arCount(h, "ساعة", "ساعتين", "ساعات", "ساعة"));
+      if (m) parts.push(arCount(m, "دقيقة", "دقيقتين", "دقائق", "دقيقة"));
+      return parts.join(" و");
+    }
+    if (h) parts.push(h + (h === 1 ? " hour" : " hours"));
+    if (m) parts.push(m + " min");
+    return parts.join(" ");
+  }
+
+  var ERROR_MESSAGES_EN = {
+    quota_exceeded: "The image allowance for this period has run out.",
+  };
+
+  function friendlyError(code, data) {
+    var lang = uiLang();
+    var ar = lang === "ar";
+    var wait = formatWait(data && data.retry_after_seconds, lang);
+    if (code === "shopper_limit_reached") {
+      if (ar) return "استخدمت كل تجاربك لهذا اليوم 🙏 " + (wait ? "تقدر تجرّب مرة ثانية بعد " + wait + "." : "تقدر تجرّب مرة ثانية بكرة.");
+      return "You've used all of today's try-ons. " + (wait ? "You can try again in " + wait + "." : "You can try again tomorrow.");
+    }
+    if (code === "store_daily_limit") {
+      return ar
+        ? "المتجر وصل حدّ التجارب لهذا اليوم، جرّب بكرة 🙏"
+        : "The store has reached today's try-on limit. Please try again tomorrow.";
+    }
+    if (code === "rate_limited") {
+      if (ar) return wait ? "طلباتك كثيرة، انتظر " + wait + " وجرّب مرة ثانية." : "طلباتك كثيرة، انتظر شوي وجرّب مرة ثانية.";
+      return wait ? "Too many requests. Please wait " + wait + " and try again." : "Too many requests. Please wait a moment and try again.";
+    }
+    if (code === "chat_limit_reached") {
+      if (ar) return "وصلت حدّ المحادثة لهذا اليوم 🙏 " + (wait ? "ترجع لك بعد " + wait + "." : "ترجع لك بكرة.");
+      return "You've reached today's chat limit. " + (wait ? "It comes back in " + wait + "." : "It comes back tomorrow.");
+    }
+    if (!ar && ERROR_MESSAGES_EN[code]) return ERROR_MESSAGES_EN[code];
+    return ERROR_MESSAGES[code] || (ar ? "صار خطأ، جرّب مرة ثانية." : "Something went wrong, please try again.");
+  }
+
+  // "shopper" = خلّص الزبون تجاربه، "store" = المتجر/الرصيد واقف، "" = متاحة.
+  function tryonBlockReason() {
+    if (tryonState.shopperLeft === 0) return "shopper";
+    if (!tryonState.available) return "store";
+    return "";
+  }
+
+  // بيعطّل/بيفعّل زر التجربة بكرت واحد حسب الحالة، وبيرجّع نصه الأصلي لما تتوفر التجربة.
+  function applyTryonButton(btn) {
+    if (btn._origLabel === undefined) btn._origLabel = btn.textContent;
+    var reason = tryonBlockReason();
+    if (!reason) {
+      btn.disabled = false;
+      btn.removeAttribute("aria-disabled");
+      btn.removeAttribute("title");
+      btn.textContent = btn._origLabel;
+      return;
+    }
+    var lang = uiLang();
+    var ar = lang === "ar";
+    btn.disabled = true;
+    btn.setAttribute("aria-disabled", "true");
+    if (reason === "shopper") {
+      btn.textContent = ar ? "خلصت تجاربك اليوم" : "No try-ons left today";
+      var wait = formatWait(tryonState.retryAfter, lang);
+      if (wait) btn.setAttribute("title", ar ? "تقدر تجرّب بعد " + wait : "You can try again in " + wait);
+      else btn.removeAttribute("title");
+    } else {
+      btn.textContent = ar ? "التجربة غير متاحة حالياً" : "Try-on unavailable right now";
+      btn.removeAttribute("title");
+    }
+  }
+
+  // يطبّق الحالة الحالية على كل أزرار التجربة الموجودة (والكروت اللي بتنضاف بعدين بتناديها بنفسها).
+  function setTryonAvailability() {
+    if (!root) return;
+    var btns = root.querySelectorAll("button.tryon");
+    for (var i = 0; i < btns.length; i++) applyTryonButton(btns[i]);
+  }
+
+  function updateTryonState(patch) {
+    if (patch.shopperLeft !== undefined) tryonState.shopperLeft = patch.shopperLeft;
+    if (patch.available !== undefined) tryonState.available = patch.available;
+    if (patch.retryAfter !== undefined) tryonState.retryAfter = patch.retryAfter;
+    if (tryonResetTimer) {
+      clearTimeout(tryonResetTimer);
+      tryonResetTimer = null;
+    }
+    // لو السيرفر قال متى ترجع التجربة، منفعّل الأزرار وقتها (والسيرفر هو اللي بيحسم لو لسا واقفة).
+    if (tryonBlockReason() && tryonState.retryAfter > 0) {
+      tryonResetTimer = setTimeout(function () {
+        tryonResetTimer = null;
+        tryonState.shopperLeft = null;
+        tryonState.available = true;
+        tryonState.retryAfter = null;
+        setTryonAvailability();
+      }, Math.min(tryonState.retryAfter * 1000 + 1000, 2147000000));
+    }
+    setTryonAvailability();
+  }
+
+  // من رد التجربة (نجاح أو خطأ) نحدّث الحالة. rate_limited مؤقت، ما نعطّل بسببه.
+  function applyTryonResponse(data) {
+    if (!data) return;
+    if (data.ok) {
+      if (data.shopper_remaining !== undefined) {
+        updateTryonState({
+          shopperLeft: toCount(data.shopper_remaining),
+          available: true,
+          retryAfter: toCount(data.retry_after_seconds),
+        });
+      }
+    } else if (data.error === "shopper_limit_reached") {
+      updateTryonState({ shopperLeft: 0, retryAfter: toCount(data.retry_after_seconds) });
+    } else if (data.error === "store_daily_limit") {
+      updateTryonState({ available: false, retryAfter: toCount(data.retry_after_seconds) });
+    } else if (data.error === "quota_exceeded") {
+      updateTryonState({ available: false, retryAfter: null });
+    }
   }
 
   function sendMessage() {
@@ -691,18 +882,17 @@
       body: JSON.stringify({
         messages: history,
         session_id: SESSION_ID,
+        shopper_id: SHOPPER_ID,
         shown_skus: shownSkus,
         page_url: window.location.href,
       }),
     })
-      .then(function (r) {
-        return r.json();
-      })
+      .then(readJson)
       .then(function (data) {
         typingEl.remove();
-        if (!data.ok) {
+        if (!data || !data.ok) {
           sendBtn.disabled = false;
-          addErrorMessage(friendlyError(data.error));
+          addErrorMessage(friendlyError(data && data.error, data));
           return;
         }
         // الكروت والخصم بيطلعوا بعد ما يخلص البوت كتابة الرد، متل محادثة حقيقية.
@@ -751,7 +941,22 @@
     if (e.key === "Enter") sendMessage();
   });
 
+  var tryonBusy = false;
+
   function runTryon(sku, photo) {
+    // طلب واحد بكل مرة، حتى ما تنحرق تجارب الزبون بضغطات مكررة.
+    if (tryonBusy) return;
+    var blocked = tryonBlockReason();
+    if (blocked) {
+      setTryonAvailability();
+      addErrorMessage(
+        friendlyError(blocked === "shopper" ? "shopper_limit_reached" : "store_daily_limit", {
+          retry_after_seconds: tryonState.retryAfter,
+        })
+      );
+      return;
+    }
+    tryonBusy = true;
     var loadingEl = document.createElement("div");
     loadingEl.className = "typing";
     loadingEl.textContent = "نجهّز إطلالتك... ممكن تاخذ كم ثانية ⏳";
@@ -762,26 +967,35 @@
     form.append("sku", sku);
     form.append("photo", photo);
     form.append("session_id", SESSION_ID);
+    form.append("shopper_id", SHOPPER_ID);
 
     fetch(API_BASE + "/widget/tryon/", {
       method: "POST",
       headers: { "X-Api-Token": STORE_KEY },
       body: form,
     })
-      .then(function (r) {
-        return r.json();
-      })
+      .then(readJson)
       .then(function (data) {
         loadingEl.remove();
-        if (!data.ok) {
-          addErrorMessage(friendlyError(data.error));
+        tryonBusy = false;
+        applyTryonResponse(data);
+        if (!data || !data.ok) {
+          addErrorMessage(friendlyError(data && data.error, data));
           return;
         }
         addTryonResultCard(data.image_url, null);
-        addBotMessage("وش رأيك؟ عجبتك الإطلالة؟ 😊");
+        // تلميح خفيف مرة وحدة بس لما تبقى للزبون تجربة وحدة.
+        var lastOne = toCount(data.shopper_remaining) === 1 && !lastTryonNoteShown;
+        if (lastOne) lastTryonNoteShown = true;
+        addBotMessage("وش رأيك؟ عجبتك الإطلالة؟ 😊", function () {
+          if (lastOne) {
+            addBotMessage(uiLang() === "ar" ? "باقي لك تجربة وحدة اليوم" : "You have one try-on left today");
+          }
+        });
       })
       .catch(function () {
         loadingEl.remove();
+        tryonBusy = false;
         addErrorMessage("صار خطأ وقت تجهيز الإطلالة، جرّب مرة ثانية.");
       });
   }

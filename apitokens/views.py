@@ -18,7 +18,7 @@ from django.views.decorators.http import require_http_methods
 from . import portal_auth
 from .i18n import LANGUAGES, t
 from .models import (
-    ApiToken, Conversation, DiscountCode, MerchantAccount, PhoneOtp, Product, SallaConnection, ShopifyConnection, SizeChart, ZidConnection,
+    ApiToken, Conversation, DiscountCode, LlmUsage, MerchantAccount, PhoneOtp, Product, SallaConnection, ShopifyConnection, SizeChart, ZidConnection,
     ZidSubscription,
 )
 from .services import catalog as catalog_service
@@ -74,11 +74,13 @@ def dashboard(request):
             messages.success(request, t("msg_token_created", lang))
 
     tokens = ApiToken.objects.annotate(product_count=Count("products")).select_related(
-        "shopify_connection", "portal_account"
+        "shopify_connection", "salla_connection", "zid_connection", "portal_account"
     )
     now = timezone.now()
+    chat = _chat_usage_by_store(now)
     for tok in tokens:
         tok.portal = portal_auth.portal_status(tok, now)
+        tok.quota = _staff_quota(tok, chat.get(tok.pk), now, lang)
     pending_accounts = list(MerchantAccount.objects.filter(merchant__isnull=True).order_by("created_at"))
     # آخر كود تحقق لكل حساب معلّق (للستاف: حالة التسليم بس، ما في كود ولا hash)
     last_otp = {}
@@ -110,6 +112,53 @@ def dashboard(request):
             "stats": stats,
         },
     )
+
+
+CHAT_USAGE_DAYS = 30
+
+
+def _fill(text, **values):
+    for key, value in values.items():
+        text = text.replace("{" + key + "}", str(value))
+    return text
+
+
+def _chat_usage_by_store(now):
+    """استهلاك الشات آخر 30 يوم لكل المتاجر بنداء واحد: {merchant_id: {calls, tokens}}."""
+    since = timezone.localdate(now) - timedelta(days=CHAT_USAGE_DAYS - 1)
+    rows = (
+        LlmUsage.objects.filter(day__gte=since).values("merchant_id")
+        .annotate(calls=Sum("calls"), input_tokens=Sum("input_tokens"), output_tokens=Sum("output_tokens"))
+    )
+    return {
+        r["merchant_id"]: {"calls": r["calls"] or 0, "tokens": (r["input_tokens"] or 0) + (r["output_tokens"] or 0)}
+        for r in rows
+    }
+
+
+def _staff_quota(tok, chat, now, lang):
+    """رصيد المتجر للستاف من حقول التوكن مباشرة (بدون استعلام لكل متجر). الفترة بتتجدّد بكسل عند أول
+    استهلاك بعد انتهائها، فإذا انتهت بنحسب المستهلك 0. المتبقي هون = الرصيد − المستهلك (بدون الحجوزات
+    اللحظية قيد التوليد، عكس بوابة التاجر)."""
+    resets_at = tok.period_start + timedelta(days=tok.period_days)
+    expired = now >= resets_at
+    used = 0 if expired else tok.images_used
+    remaining = max(tok.image_quota - used, 0)
+    limit = tok.tryons_per_shopper
+    chat = chat or {"calls": 0, "tokens": 0}
+    return {
+        "used_line": _fill(t("portal_admin_quota_used_of", lang), used=used, total=tok.image_quota),
+        "remaining_line": _fill(t("portal_admin_quota_remaining", lang), n=remaining),
+        "resets_at": resets_at,
+        "renews_next_use": expired,
+        "per_shopper_line": (
+            t("portal_admin_quota_unlimited", lang) if limit == 0
+            else _fill(t("portal_admin_quota_per_shopper_value", lang), n=limit)
+        ),
+        "has_chat": bool(chat["calls"] or chat["tokens"]),
+        "chat_calls_line": _fill(t("portal_admin_quota_chat_calls", lang), n=chat["calls"]),
+        "chat_tokens_line": _fill(t("portal_admin_quota_chat_tokens", lang), n=chat["tokens"]) if chat["tokens"] else "",
+    }
 
 
 def _pop_portal_link(request):
