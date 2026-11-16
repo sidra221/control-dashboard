@@ -1,6 +1,6 @@
 from django.contrib import admin
 
-from .models import ApiToken, Conversation, Product, ShopifyConnection
+from .models import ApiToken, Conversation, Product, ShopifyConnection, WooCommerceConnection
 
 
 @admin.register(ApiToken)
@@ -38,6 +38,15 @@ class ShopifyConnectionAdmin(admin.ModelAdmin):
     exclude = ("access_token", "token_expires_at")
     list_filter = ("is_active",)
     search_fields = ("shop_domain", "merchant__label")
+    readonly_fields = ("last_synced_at", "created_at")
+
+
+@admin.register(WooCommerceConnection)
+class WooCommerceConnectionAdmin(admin.ModelAdmin):
+    list_display = ("site_url", "merchant", "is_active", "last_synced_at", "created_at")
+    exclude = ("consumer_key", "consumer_secret")
+    list_filter = ("is_active",)
+    search_fields = ("site_url", "merchant__label")
     readonly_fields = ("last_synced_at", "created_at")
 
 

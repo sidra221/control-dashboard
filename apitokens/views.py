@@ -18,7 +18,7 @@ from django.views.decorators.http import require_http_methods
 from . import portal_auth
 from .i18n import LANGUAGES, t
 from .models import (
-    ApiToken, Conversation, DiscountCode, MerchantAccount, PhoneOtp, Product, SallaConnection, ShopifyConnection, SizeChart, ZidConnection,
+    ApiToken, Conversation, DiscountCode, MerchantAccount, PhoneOtp, Product, SallaConnection, ShopifyConnection, SizeChart, WooCommerceConnection, ZidConnection,
     ZidSubscription,
 )
 from .services import catalog as catalog_service
@@ -26,6 +26,7 @@ from .services import salla as salla_service
 from .services import sizing
 from .services import tryon_stats as tryon_stats_service
 from .services import shopify as shopify_service
+from .services import woocommerce as woocommerce_service
 from .services import zid as zid_service
 
 REQUIRED_COLUMNS = {"sku", "title", "price", "image_url"}
@@ -74,7 +75,7 @@ def dashboard(request):
             messages.success(request, t("msg_token_created", lang))
 
     tokens = ApiToken.objects.annotate(product_count=Count("products")).select_related(
-        "shopify_connection", "portal_account"
+        "shopify_connection", "woocommerce_connection", "portal_account"
     )
     now = timezone.now()
     for tok in tokens:
@@ -383,6 +384,91 @@ def shopify_connect(request, pk):
     return render(
         request,
         "apitokens/shopify_connect.html",
+        {"merchant": merchant, "connection": connection},
+    )
+
+
+@staff_member_required
+def woocommerce_connect(request, pk):
+    merchant = get_object_or_404(ApiToken, pk=pk)
+    connection = getattr(merchant, "woocommerce_connection", None)
+    lang = request.session.get("lang", "ar")
+
+    if request.method == "POST":
+        action = request.POST.get("action", "connect")
+
+        if action == "disconnect":
+            if connection:
+                connection.delete()
+                messages.success(request, t("msg_woo_disconnected", lang))
+            return redirect("apitokens:woocommerce-connect", pk=pk)
+
+        if action == "resync":
+            if not connection:
+                messages.error(request, t("err_no_connection_to_resync", lang))
+            else:
+                try:
+                    catalog_service.sync_woocommerce(merchant, connection)
+                    messages.success(request, t("msg_resync_success", lang))
+                except woocommerce_service.WooCommerceError as exc:
+                    messages.error(request, str(exc))
+            return redirect("apitokens:woocommerce-connect", pk=pk)
+
+        raw_url = request.POST.get("site_url", "")
+        consumer_key = request.POST.get("consumer_key", "").strip()
+        consumer_secret = request.POST.get("consumer_secret", "").strip()
+        if not raw_url.strip() or not consumer_key or not consumer_secret:
+            messages.error(request, t("err_woo_missing_fields", lang))
+            return redirect("apitokens:woocommerce-connect", pk=pk)
+        site_url = woocommerce_service.normalize_site_url(raw_url)
+        if not site_url:
+            messages.error(request, t("err_woo_https", lang))
+            return redirect("apitokens:woocommerce-connect", pk=pk)
+
+        candidate = WooCommerceConnection(
+            merchant=merchant, site_url=site_url,
+            consumer_key=consumer_key, consumer_secret=consumer_secret,
+        )
+        try:
+            woocommerce_service.get_store_info(candidate)
+        except woocommerce_service.WooCommerceError as exc:
+            messages.error(request, str(exc))
+            return redirect("apitokens:woocommerce-connect", pk=pk)
+
+        # webhook_secret ما بنمرّره: لو في ربط قديم بيضل سرّه، وإلا بينولّد جديد.
+        connection, _ = WooCommerceConnection.objects.update_or_create(
+            merchant=merchant,
+            defaults={
+                "site_url": site_url,
+                "consumer_key": consumer_key,
+                "consumer_secret": consumer_secret,
+                "is_active": True,
+            },
+        )
+
+        # المزامنة أول شي: لو تسجيل الـ webhooks فشل (مفاتيح Read بس مثلاً) الكتالوج يضل جاهز.
+        try:
+            catalog_service.sync_woocommerce(merchant, connection)
+        except woocommerce_service.WooCommerceError as exc:
+            messages.error(request, t("err_connect_sync_partial", lang) % {"exc": exc})
+            return redirect("apitokens:woocommerce-connect", pk=pk)
+
+        callback_url = f"{settings.SITE_BASE_URL}/webhooks/woocommerce/{merchant.token}/"
+        try:
+            orders_ok = woocommerce_service.register_webhooks(connection, callback_url)
+        except woocommerce_service.WooCommerceError as exc:
+            messages.success(request, t("msg_woo_synced_only", lang))
+            messages.warning(request, t("warn_woo_webhooks_failed", lang) % {"exc": exc})
+        else:
+            messages.success(request, t("msg_connect_sync_success", lang))
+            if not orders_ok:
+                messages.warning(request, t("warn_woo_no_order_webhooks", lang))
+
+        return redirect("apitokens:woocommerce-connect", pk=pk)
+
+    return render(
+        request,
+        "apitokens/woocommerce_connect.html",
         {"merchant": merchant, "connection": connection},
     )
 

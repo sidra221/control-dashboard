@@ -132,6 +132,38 @@ TRANSLATIONS = {
     "update_resync_btn": {"ar": "تحديث وإعادة مزامنة", "en": "Update and resync"},
     "connect_sync_btn": {"ar": "ربط ومزامنة", "en": "Connect and sync"},
 
+    # ===== woocommerce_connect.html =====
+    "woo_page_title_prefix": {"ar": "ربط WooCommerce — ", "en": "Connect WooCommerce — "},
+    "woo_page_sub": {"ar": "كتالوج حي يتحدّث لحاله من متجر WooCommerce (ووردبريس) الحقيقي", "en": "A live catalog that updates itself from the real WooCommerce (WordPress) store"},
+    "connect_woo_store": {"ar": "ربط متجر WooCommerce", "en": "Connect a WooCommerce store"},
+    "woo_setup_note": {
+        "ar": (
+            "<strong>مفاتيح الـ REST API (يسويها صاحب المتجر من لوحة ووردبريس):</strong><br>"
+            "1) روح على <code>WooCommerce ← الإعدادات ← متقدم ← REST API</code> واضغط <strong>إضافة مفتاح</strong>.<br>"
+            "2) الصلاحيات لازم تكون <strong>قراءة/كتابة (Read/Write)</strong> — الكتابة مطلوبة بس لتسجيل الـ webhooks "
+            "اللي بتحدّث الكتالوج لحظياً وبتقيس الطلبات؛ بدونها بتضل المزامنة بالـ cron بس.<br>"
+            "3) انسخ الـ <strong>Consumer key</strong> والـ <strong>Consumer secret</strong> وحطهم تحت (بيظهروا مرة وحدة).<br>"
+            "<strong>شروط:</strong> المتجر لازم يكون على <code>https</code>، والـ Permalinks بإعدادات ووردبريس مش على Plain، "
+            "وجدار الحماية (Cloudflare/Wordfence) ما يحجب سيرفرنا.<br>"
+            "<strong>الودجت:</strong> التاجر بيضيف سطر الـ <code>&lt;script&gt;</code> للموقع (مثلاً بإضافة WPCode أو من ملف footer الثيم)."
+        ),
+        "en": (
+            "<strong>REST API keys (created by the store owner in the WordPress admin):</strong><br>"
+            "1) Go to <code>WooCommerce → Settings → Advanced → REST API</code> and click <strong>Add key</strong>.<br>"
+            "2) Permissions must be <strong>Read/Write</strong> — write is only needed to register the webhooks "
+            "that keep the catalog live and measure orders; without it only the cron sync works.<br>"
+            "3) Copy the <strong>Consumer key</strong> and <strong>Consumer secret</strong> into the form below (shown only once).<br>"
+            "<strong>Requirements:</strong> the store must use <code>https</code>, Permalinks in WordPress must not be set to Plain, "
+            "and a firewall (Cloudflare/Wordfence) must not block our server.<br>"
+            "<strong>Widget:</strong> the merchant adds the <code>&lt;script&gt;</code> line to the site (e.g. with the WPCode plugin or the theme footer)."
+        ),
+    },
+    "woo_site_url_label": {"ar": "رابط المتجر", "en": "Store URL"},
+    "woo_consumer_key_label": {"ar": "Consumer key", "en": "Consumer key"},
+    "woo_consumer_secret_label": {"ar": "Consumer secret", "en": "Consumer secret"},
+    "woocommerce_connected": {"ar": "WooCommerce ✓", "en": "WooCommerce ✓"},
+    "woocommerce_connect_link": {"ar": "ربط WooCommerce", "en": "Connect WooCommerce"},
+
     # ===== salla.html =====
     "salla_page_title": {"ar": "تطبيق سلة", "en": "Salla app"},
     "salla_page_sub": {
@@ -227,7 +259,7 @@ TRANSLATIONS = {
     "stat_with_recommendation": {"ar": "انعرض فيها منتج", "en": "Showed a product"},
     "stat_tryons": {"ar": "تجربة لبس", "en": "Try-ons"},
     "stat_purchase_intent": {"ar": "ضغطة شراء / سلة", "en": "Buy / cart clicks"},
-    "stat_orders": {"ar": "طلب فعلي (Shopify)", "en": "Real orders (Shopify)"},
+    "stat_orders": {"ar": "طلب فعلي", "en": "Real orders"},
     "stat_revenue": {"ar": "مبيعات من المساعد", "en": "Sales from the assistant"},
     "recent_conversations": {"ar": "آخر المحادثات", "en": "Recent conversations"},
     "messages_count_suffix": {"ar": "رسالة", "en": "messages"},
@@ -309,6 +341,12 @@ TRANSLATIONS = {
     "err_row_bad_price": {"ar": "سطر %(row)s: السعر '%(price)s' مش رقم صحيح", "en": "Row %(row)s: price '%(price)s' is not a valid number"},
     "err_empty_csv": {"ar": "الملف ما فيه ولا صف منتج", "en": "The file has no product rows"},
     "msg_shopify_disconnected": {"ar": "تم فصل الربط مع Shopify", "en": "Disconnected from Shopify"},
+    "msg_woo_disconnected": {"ar": "تم فصل الربط مع WooCommerce", "en": "Disconnected from WooCommerce"},
+    "err_woo_missing_fields": {"ar": "لازم تعبي رابط المتجر والـ Consumer key والـ Consumer secret", "en": "Fill in the store URL, the Consumer key and the Consumer secret"},
+    "err_woo_https": {"ar": "رابط المتجر لازم يكون صحيح وبـ https (مفاتيح الـ API ما بتشتغل على http)", "en": "The store URL must be valid and use https (API keys don't work over http)"},
+    "msg_woo_synced_only": {"ar": "تم الربط والمزامنة الأولى — الكتالوج جاهز", "en": "Connected and synced — the catalog is ready"},
+    "warn_woo_webhooks_failed": {"ar": "ما قدرنا نسجّل الـ webhooks بالمتجر (الكتالوج مش رح يتحدّث لحظياً ولا رح نقيس الطلبات): %(exc)s", "en": "Couldn't register the webhooks on the store (the catalog won't update live and orders won't be measured): %(exc)s"},
+    "warn_woo_no_order_webhooks": {"ar": "الربط تم، بس ما قدرنا نسجّل webhooks الطلبات — ما رح نقدر نقيس الطلبات اللي جابها المساعد", "en": "Connected, but the order webhooks couldn't be registered — orders brought in by the assistant can't be measured"},
     "err_no_connection_to_resync": {"ar": "ما في ربط حالياً مشان نعيد المزامنة", "en": "No connection exists to resync"},
     "msg_resync_success": {"ar": "تمت إعادة المزامنة بنجاح", "en": "Resynced successfully"},
     "err_missing_connect_fields": {"ar": "لازم تعبي نطاق المتجر، الـ Secret، والـ Client ID (أو الـ Access Token لتطبيق قديم)", "en": "Fill in the shop domain, the secret, and the Client ID (or the Access Token for a legacy app)"},

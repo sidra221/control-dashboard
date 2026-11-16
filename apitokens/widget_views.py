@@ -1671,6 +1671,11 @@ def event(request):
         if cart_id:
             conversation.platform_cart_id = cart_id
             update_fields.append("platform_cart_id")
+        sku = str(body.get("sku") or "").strip()[:64]
+        # بس SKU من كتالوج هالتاجر — حتى ما يكتب الودجت (علني) قيم عشوائية بالمحادثة.
+        if sku and sku not in conversation.acted_skus and merchant.products.filter(sku=sku).exists():
+            conversation.acted_skus = [*conversation.acted_skus, sku]
+            update_fields.append("acted_skus")
         conversation.save(update_fields=update_fields)
     return _cors_response({"ok": True})
 

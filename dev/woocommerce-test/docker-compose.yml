@@ -1,0 +1,65 @@
+# متجر WooCommerce تجريبي لاختبار ربط الداشبورد. التشغيل: ./setup.sh
+# بورت المتجر 8088 (غيّره بـ WOO_PORT لو مشغول).
+name: woo-test
+
+services:
+  db:
+    image: mariadb:11
+    environment:
+      MARIADB_DATABASE: wordpress
+      MARIADB_USER: wp
+      MARIADB_PASSWORD: wp
+      MARIADB_ROOT_PASSWORD: root
+    volumes:
+      - db:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  wordpress:
+    image: wordpress:latest
+    depends_on:
+      db:
+        condition: service_healthy
+    ports:
+      - "${WOO_PORT:-8088}:80"
+    # للاختبار المحلي: يخلّي المتجر يوصل لداشبورد شغّال على جهازك (webhooks) عبر host.docker.internal
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    environment:
+      WORDPRESS_DB_HOST: db
+      WORDPRESS_DB_NAME: wordpress
+      WORDPRESS_DB_USER: wp
+      WORDPRESS_DB_PASSWORD: wp
+      # رابط الموقع بيتبع الدومين اللي انفتح منه (localhost أو رابط الـ tunnel)، وwp-config
+      # بيعتبر الطلب https لما الـ tunnel يبعت X-Forwarded-Proto — مفاتيح WooCommerce بتحتاج https.
+      # ($$ = $ حرفي بملف compose)
+      WORDPRESS_CONFIG_EXTRA: |
+        if (isset($$_SERVER['HTTP_X_FORWARDED_PROTO']) && $$_SERVER['HTTP_X_FORWARDED_PROTO'] === 'https') { $$_SERVER['HTTPS'] = 'on'; }
+        if (!empty($$_SERVER['HTTP_HOST'])) {
+          define('WP_HOME', (!empty($$_SERVER['HTTPS']) ? 'https' : 'http') . '://' . $$_SERVER['HTTP_HOST']);
+          define('WP_SITEURL', WP_HOME);
+        }
+    volumes:
+      - wp:/var/www/html
+
+  wpcli:
+    image: wordpress:cli
+    profiles: ["tools"]
+    user: "33:33"
+    depends_on:
+      - wordpress
+    environment:
+      WORDPRESS_DB_HOST: db
+      WORDPRESS_DB_NAME: wordpress
+      WORDPRESS_DB_USER: wp
+      WORDPRESS_DB_PASSWORD: wp
+      WP_CLI_CACHE_DIR: /tmp/wpcli-cache
+    volumes:
+      - wp:/var/www/html
+
+volumes:
+  db:
+  wp:

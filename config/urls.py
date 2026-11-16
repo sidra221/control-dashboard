@@ -2,7 +2,7 @@ from django.contrib import admin
 from django.urls import include, path
 
 from apitokens import demo_views
-from apitokens import salla_webhooks, shopify_webhooks, widget_views, zid_views, zid_webhooks
+from apitokens import salla_webhooks, shopify_webhooks, widget_views, woocommerce_webhooks, zid_views, zid_webhooks
 
 admin.site.site_header = "Control — kie.ai Tokens"
 admin.site.site_title = "Control"
@@ -21,6 +21,11 @@ urlpatterns = [
         "webhooks/shopify/<str:token>/",
         shopify_webhooks.product_webhook,
         name="shopify-webhook",
+    ),
+    path(
+        "webhooks/woocommerce/<str:token>/",
+        woocommerce_webhooks.webhook,
+        name="woocommerce-webhook",
     ),
     path("webhooks/salla/", salla_webhooks.webhook, name="salla-webhook"),
     path("zid/install/", zid_views.install, name="zid-install"),

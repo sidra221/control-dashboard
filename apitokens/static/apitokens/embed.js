@@ -32,6 +32,51 @@
   // زد: ثيمات Vitrin الجديدة (zid.cart) والقديمة (zid.store.cart).
   var ZID_CART = window.zid && (window.zid.cart || (window.zid.store && window.zid.store.cart));
   var IS_ZID = !!(ZID_CART && ZID_CART.addProduct);
+  // ووردبريس + WooCommerce: منكشفه من وسم generator (WooCommerce بيطبعه بكل صفحات الموقع)،
+  // ومنضيف للسلة بالـ Store API على نفس الدومين وبكوكيز الزبون — بدون plugin. الـ API ما بيقبل
+  // بيانات مخصصة على السلة، فما منقدر نعلّمها بمعرّف المحادثة؛ السيرفر بيربط الطلب بالمحادثة
+  // بالمطابقة على المنتج والوقت.
+  function isWoo() {
+    return !!(
+      document.querySelector('meta[name="generator"][content^="WooCommerce"]') ||
+      window.wc_add_to_cart_params ||
+      window.wc_cart_fragments_params ||
+      window.woocommerce_params
+    );
+  }
+  function wooApiBase() {
+    var link = document.querySelector('link[rel="https://api.w.org/"]');
+    var base = (link && link.href) || "/wp-json/";
+    return base.slice(-1) === "/" ? base : base + "/";
+  }
+  function wooCartUrl() {
+    return (window.wc_add_to_cart_params && window.wc_add_to_cart_params.cart_url) || "/cart/";
+  }
+  function refreshWooCart() {
+    // تحديث أيقونة السلة بالثيمات الكلاسيكية (fragments) وبثيمات البلوكس.
+    try {
+      if (window.jQuery) window.jQuery(document.body).trigger("wc_fragment_refresh");
+      document.body.dispatchEvent(new CustomEvent("wc-blocks_added_to_cart", { bubbles: true }));
+    } catch (e) {}
+  }
+  function addToWooCart(productId) {
+    var base = wooApiBase();
+    // طلبات تعديل السلة بالـ Store API بدها nonce — بيجي بهيدر رد GET على السلة.
+    return fetch(base + "wc/store/v1/cart", { credentials: "same-origin" })
+      .then(function (r) {
+        var nonce = r.headers.get("Nonce") || r.headers.get("X-WC-Store-API-Nonce") || "";
+        return fetch(base + "wc/store/v1/cart/add-item", {
+          method: "POST",
+          credentials: "same-origin",
+          headers: { "Content-Type": "application/json", Nonce: nonce, "X-WC-Store-API-Nonce": nonce },
+          body: JSON.stringify({ id: Number(productId), quantity: 1 }),
+        });
+      })
+      .then(function (r) {
+        if (!r.ok) throw new Error("add_failed");
+        refreshWooCart();
+      });
+  }
   // متجر مخصص (متل متجر الديمو) بيقدر يعرّف window.ControlCart = {add, url} لنضيف لسلته.
   function controlCart() {
     return window.ControlCart && typeof window.ControlCart.add === "function" ? window.ControlCart : null;
@@ -74,11 +119,15 @@
     return title.length > 40 ? title.slice(0, 38) + "…" : title;
   }
 
-  function sendEvent(type, cartId) {
+  // sku = المنتج اللي ضغط عليه الزبون: السيرفر بيسجّله بالمحادثة (حتى كرت صفحة المنتج، اللي مش
+  // من توصيات الشات) — منه بينربط طلب WooCommerce بالمحادثة.
+  function sendEvent(type, cartId, sku) {
     fetch(API_BASE + "/widget/event/", {
       method: "POST",
       headers: { "Content-Type": "application/json", "X-Api-Token": STORE_KEY },
-      body: JSON.stringify({ type: type, session_id: SESSION_ID, cart_id: cartId ? String(cartId) : "" }),
+      body: JSON.stringify({
+        type: type, session_id: SESSION_ID, cart_id: cartId ? String(cartId) : "", sku: sku ? String(sku) : "",
+      }),
       keepalive: true,
     }).catch(function () {});
   }
@@ -104,23 +153,23 @@
     return null;
   }
 
-  function trackEvent(type) {
+  function trackEvent(type, sku) {
     // ممكن ترجّع قيمة أو Promise حسب نسخة مكتبة المنصة.
     try {
       var pending = platformCartId();
       if (pending === null) {
-        sendEvent(type);
+        sendEvent(type, null, sku);
         return;
       }
       Promise.resolve(pending)
         .then(function (cartId) {
-          sendEvent(type, cartId);
+          sendEvent(type, cartId, sku);
         })
         .catch(function () {
-          sendEvent(type);
+          sendEvent(type, null, sku);
         });
     } catch (e) {
-      sendEvent(type);
+      sendEvent(type, null, sku);
     }
   }
 
@@ -459,7 +508,7 @@
         controlCart().add({ product_id: rec.product_id, quantity: 1, size: sizeBySku[rec.sku] || "" })
       )
         .then(function () {
-          trackEvent("add_to_cart");
+          trackEvent("add_to_cart", rec.sku);
           var go = document.createElement("a");
           go.className = "buy";
           go.href = controlCart().url || "#";
@@ -554,7 +603,7 @@
         })
           .then(function (r) {
             if (!r.ok) throw new Error("add_failed");
-            trackEvent("add_to_cart");
+            trackEvent("add_to_cart", rec.sku);
             var go = document.createElement("a");
             go.className = "buy";
             go.href = "/cart";
@@ -578,7 +627,7 @@
         sallaAddBtn.disabled = true;
         Promise.resolve(window.salla.cart.addItem({ id: Number(rec.product_id), quantity: 1 }))
           .then(function () {
-            trackEvent("add_to_cart");
+            trackEvent("add_to_cart", rec.sku);
             var go = document.createElement("a");
             go.className = "buy";
             go.href = (window.salla.url && window.salla.url.get && window.salla.url.get("cart")) || "/cart";
@@ -602,7 +651,7 @@
           : window.zid.store.cart.addProduct({ productId: rec.product_id, quantity: 1 });
         Promise.resolve(adding)
           .then(function () {
-            trackEvent("add_to_cart");
+            trackEvent("add_to_cart", rec.sku);
             var go = document.createElement("a");
             go.className = "buy";
             go.href = "/cart/view";
@@ -615,6 +664,28 @@
           });
       });
       card.appendChild(zidAddBtn);
+    } else if (isWoo() && rec.product_id && !rec.has_options) {
+      // منتج بمقاسات/ألوان لازم الزبون يختارها بصفحة المنتج — بس البسيط منضيفه من هون.
+      var wooAddBtn = document.createElement("button");
+      wooAddBtn.className = "addcart";
+      wooAddBtn.textContent = labels.add;
+      wooAddBtn.addEventListener("click", function () {
+        wooAddBtn.disabled = true;
+        addToWooCart(rec.product_id)
+          .then(function () {
+            trackEvent("add_to_cart", rec.sku);
+            var go = document.createElement("a");
+            go.className = "buy";
+            go.href = wooCartUrl();
+            go.textContent = labels.added;
+            wooAddBtn.replaceWith(go);
+          })
+          .catch(function () {
+            wooAddBtn.disabled = false;
+            addErrorMessage(labels.addFailed);
+          });
+      });
+      card.appendChild(wooAddBtn);
     } else if (rec.product_url) {
       var buyLink = document.createElement("a");
       buyLink.className = "buy";
@@ -624,7 +695,7 @@
       buyLink.textContent = labels.buy;
       buyLink.addEventListener("click", function () {
         tagShopifyCart();
-        trackEvent("buy_click");
+        trackEvent("buy_click", rec.sku);
       });
       card.appendChild(buyLink);
     }

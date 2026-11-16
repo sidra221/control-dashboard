@@ -13,6 +13,7 @@ from django.utils import timezone
 from ..models import Product
 from . import salla as salla_service
 from . import shopify as shopify_service
+from . import woocommerce as woocommerce_service
 from . import zid as zid_service
 
 logger = logging.getLogger(__name__)
@@ -138,6 +139,45 @@ def sync_zid(merchant, connection):
 
     connection.last_synced_at = timezone.now()
     connection.save(update_fields=["last_synced_at", "updated_at"])
+
+    try:
+        ensure_embeddings(list(merchant.products.filter(in_stock=True)))
+    except Exception:  # noqa: BLE001 — التضمين تحسين، مش شرط لنجاح المزامنة
+        logger.exception("embedding_refresh_failed merchant=%s", merchant.pk)
+    return len(rows)
+
+
+def sync_woocommerce(merchant, connection):
+    """مزامنة كاملة لمتجر WooCommerce بنفس منطق Shopify: المنتجات اللي انشالت من
+    المتجر (أو انسحبت من النشر) بتنشال عنا. برجّع عدد المنتجات."""
+    info = woocommerce_service.get_store_info(connection)
+
+    rows = []
+    for raw in woocommerce_service.fetch_all_products(connection):
+        row = woocommerce_service.product_row_from_payload(raw)
+        if row is not None:
+            rows.append(row)
+    fetched_ids = {row["external_id"] for row in rows}
+
+    with transaction.atomic():
+        for row in rows:
+            external_id = row.pop("external_id")
+            Product.objects.update_or_create(
+                merchant=merchant, external_id=external_id, defaults=row,
+            )
+        (
+            Product.objects.filter(merchant=merchant)
+            .exclude(external_id="")
+            .exclude(external_id__in=fetched_ids)
+            .delete()
+        )
+
+    if info["currency"] and info["currency"] != merchant.currency:
+        merchant.currency = info["currency"]
+        merchant.save(update_fields=["currency"])
+
+    connection.last_synced_at = timezone.now()
+    connection.save(update_fields=["last_synced_at"])
 
     try:
         ensure_embeddings(list(merchant.products.filter(in_stock=True)))
