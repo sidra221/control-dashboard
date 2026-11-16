@@ -212,3 +212,27 @@ PORTAL_MAX_PENDING_ACCOUNTS = int(os.environ.get("PORTAL_MAX_PENDING_ACCOUNTS", 
 PORTAL_TRIAL_IMAGE_QUOTA = int(os.environ.get("PORTAL_TRIAL_IMAGE_QUOTA", "20"))
 # سقف المتاجر التجريبية اللي بتنعمل بكود الاشتراك بآخر 24 ساعة (حماية رصيد الصور والواتساب). فوقه ما منرسل كود.
 PORTAL_MAX_TRIAL_STORES_PER_DAY = int(os.environ.get("PORTAL_MAX_TRIAL_STORES_PER_DAY", "30"))
+
+# ===== توزيع رصيد التاجر بين زبائنه =====
+# حد IP للتجارب = هالمضاعف × حد الزبون (الـIP ممكن يكون مشترك: شبكة جوال أو مكتب).
+TRYON_IP_LIMIT_MULTIPLIER = int(os.environ.get("TRYON_IP_LIMIT_MULTIPLIER", "3"))
+# سقف يومي للمتجر = هالنسبة من رصيد الفترة (بحد أدنى QUOTA_DAILY_MIN) — حتى بوت ما يخلّص الشهر بساعة.
+QUOTA_DAILY_SHARE = float(os.environ.get("QUOTA_DAILY_SHARE", "0.2"))
+QUOTA_DAILY_MIN = int(os.environ.get("QUOTA_DAILY_MIN", "5"))
+# حجز الرصيد أثناء التوليد بينتهي لحاله بعد هالمدة لو انقطعت العملية.
+QUOTA_RESERVATION_TTL_SECONDS = int(os.environ.get("QUOTA_RESERVATION_TTL_SECONDS", "180"))
+# حد عادل للشات لكل زبون باليوم (الشات مشمول بسعر الاشتراك فما بيستهلك من الرصيد).
+CHAT_MAX_MESSAGES_PER_SHOPPER_DAY = int(os.environ.get("CHAT_MAX_MESSAGES_PER_SHOPPER_DAY", "150"))
+# حدود الطلبات (نافذة ثابتة): اسم الحد ← (عدد الطلبات، مدة النافذة بالثواني).
+RATE_LIMITS = {
+    "tryon_ip": (6, 60),
+    "tryon_token": (60, 60),
+    "chat_ip": (20, 60),
+    "chat_ip_hour": (200, 3600),
+    "chat_token": (1000, 60),
+    "event_ip": (60, 60),
+    "pageproduct_ip": (30, 60),
+}
+# قالب واتساب Utility (من لوحة LightOTP) لتنبيه التاجر بالرصيد: 3 متغيّرات body: اسم المتجر، النسبة، المتبقي.
+LIGHTOTP_QUOTA_ALERT_TEMPLATE_ID = os.environ.get("LIGHTOTP_QUOTA_ALERT_TEMPLATE_ID", "").strip()
+

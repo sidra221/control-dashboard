@@ -1,4 +1,4 @@
-"""نصوص بوابة التاجر: portal_home_ (الرئيسية)، portal_accept_ (الموافقة)، portal_login_ و portal_register_ و portal_signup_ (الدخول والتسجيل)، portal_otp_ (تحقق الواتساب)، portal_pending_ و portal_sub_ (صفحة الاشتراك)."""
+"""نصوص بوابة التاجر: portal_home_ (الرئيسية)، portal_accept_ (الموافقة)، portal_login_ و portal_register_ و portal_signup_ (الدخول والتسجيل)، portal_otp_ (تحقق الواتساب)، portal_pending_ و portal_sub_ (صفحة الاشتراك)، portal_quota_ (رصيد تجربة اللبس وحد الزبون)."""
 
 PORTAL_TRANSLATIONS = {
     "portal_home_title": {"ar": "لوحة المتجر", "en": "Store dashboard"},
@@ -348,5 +348,85 @@ PORTAL_TRANSLATIONS = {
     "portal_otp_no_active": {
         "ar": "اضغط «إعادة إرسال الكود» لتوصلك رسالة جديدة.",
         "en": "Tap \u201cResend code\u201d to get a new message.",
+    },
+
+    # ===== رصيد تجربة اللبس وحد الزبون (portal_quota_) =====
+    "portal_quota_title": {"ar": "رصيد تجربة اللبس", "en": "Try-on credit"},
+    "portal_quota_left_label": {"ar": "تجربة لبس متبقية من رصيدك", "en": "try-ons left in your credit"},
+    "portal_quota_aria": {"ar": "نسبة الرصيد المستهلك", "en": "Share of credit used"},
+    "portal_quota_used_line": {
+        "ar": "استهلكت {used} من {total} ({pct}%)",
+        "en": "Used {used} of {total} ({pct}%)",
+    },
+    "portal_quota_renews_on": {"ar": "بيتجدد رصيدك بتاريخ", "en": "Your credit renews on"},
+    "portal_quota_renews_next_use": {
+        "ar": "فترتك الحالية خلصت، ورصيدك بيتجدد كامل مع أول تجربة جديدة.",
+        "en": "Your last period has ended; your credit renews in full with the next try-on.",
+    },
+    "portal_quota_daily_line": {
+        "ar": "تجارب اليوم (آخر 24 ساعة): {used} من {cap}",
+        "en": "Today's try-ons (last 24 hours): {used} of {cap}",
+    },
+    "portal_quota_daily_note": {
+        "ar": "في سقف يومي للمتجر بيحميك من إنه الرصيد يخلص بسرعة (مثلاً بسبب استخدام غريب).",
+        "en": "Your store has a daily cap that protects your credit from running out fast (for example because of unusual traffic).",
+    },
+    "portal_quota_daily_reached": {
+        "ar": "وصلت للسقف اليومي. التجربة بترجع تتفتح تدريجياً خلال 24 ساعة.",
+        "en": "You have reached today's cap. Try-on opens up again gradually over the next 24 hours.",
+    },
+    "portal_quota_shared_explain": {
+        "ar": (
+            "رصيدك حوض واحد مشترك بين كل زبائن متجرك: كل تجربة لبس ناجحة بتنقص منه وحدة، "
+            "وما بنقسمه عليهم مسبقاً. الشات مع المساعد مشمول بسعر اشتراكك وما بينحسب من الرصيد."
+        ),
+        "en": (
+            "Your credit is one pool shared by all of your shoppers: every successful try-on takes one from it, "
+            "and it is not split between them in advance. Chatting with the assistant is included in your "
+            "subscription and does not count against the credit."
+        ),
+    },
+    "portal_quota_low_title": {"ar": "رصيدك قارب يخلص", "en": "Your credit is running low"},
+    "portal_quota_low_text": {
+        "ar": (
+            "استهلكت {pct}% من الرصيد وضل {remaining}. لما يخلص، تجربة اللبس بتتوقف عند زبائنك "
+            "لحد ما يتجدد. تواصل معنا إذا بدك تزيده."
+        ),
+        "en": (
+            "You have used {pct}% of your credit and {remaining} are left. When it runs out, try-on pauses for "
+            "your shoppers until it renews. Contact us if you want to increase it."
+        ),
+    },
+    "portal_quota_exhausted_title": {"ar": "خلص رصيد تجربة اللبس", "en": "Your try-on credit is used up"},
+    "portal_quota_exhausted_text": {
+        "ar": (
+            "تجربة اللبس متوقفة عند زبائنك لحد ما يتجدد رصيدك. المساعد الذكي (الشات) بيضل شغّال. "
+            "تواصل معنا إذا بدك تزيد الرصيد."
+        ),
+        "en": (
+            "Try-on is paused for your shoppers until your credit renews. The AI assistant (chat) keeps working. "
+            "Contact us if you want to increase your credit."
+        ),
+    },
+    "portal_quota_set_title": {"ar": "حد التجارب لكل زبون", "en": "Try-ons per shopper"},
+    "portal_quota_set_label": {"ar": "عدد التجارب لكل زبون باليوم", "en": "Try-ons per shopper per day"},
+    "portal_quota_set_unlimited": {"ar": "بلا حد", "en": "Unlimited"},
+    "portal_quota_set_explain": {
+        "ar": (
+            "هاد عدد التجارب الناجحة اللي بيقدر الزبون الواحد يعملها خلال 24 ساعة. رقم أقل معناه إنه "
+            "الرصيد بيكفي زبائن أكتر، ورقم أكبر معناه إنه كل زبون بيجرّب أكتر والرصيد بيخلص أسرع. "
+            "«بلا حد» بيخلّي زبون واحد يقدر يستهلك الرصيد كله."
+        ),
+        "en": (
+            "This is how many successful try-ons a single shopper can make in 24 hours. A lower number lets "
+            "your credit serve more shoppers; a higher number lets each shopper try more but uses the credit "
+            "faster. \u201cUnlimited\u201d lets a single shopper use up all of your credit."
+        ),
+    },
+    "portal_quota_set_save": {"ar": "حفظ", "en": "Save"},
+    "portal_quota_set_saved": {"ar": "انحفظ الإعداد.", "en": "Setting saved."},
+    "portal_quota_set_error": {
+        "ar": "القيمة مو صالحة، ما تغيّر شي. اختار وحدة من القائمة.",
+        "en": "That value is not valid and nothing was changed. Pick one from the list.",
     },
 }

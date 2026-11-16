@@ -32,9 +32,40 @@ REQUEST_TIMEOUT_SECONDS = 45
 
 
 @dataclass
+class TokenUsage:
+    """استهلاك التوكنات لاستدعاء واحد — best-effort: أي رقم ممكن يكون None إذا المزوّد ما رجّعه."""
+    input_tokens: int = None
+    output_tokens: int = None
+
+
+@dataclass
 class LLMResult:
     reply_text: str
     tool_calls: list = field(default_factory=list)  # [{"name": str, "input": dict}, ...]
+    usage: TokenUsage = None  # اختياري؛ None إذا ما توفّر من الـ SDK
+
+
+def _count(value):
+    return value if isinstance(value, int) and not isinstance(value, bool) and value >= 0 else None
+
+
+def _usage(response, source, input_attr, output_attr, *extra_output_attrs):
+    """بيقرا usage من ردّ الـ SDK. ما بيرمي أبداً: أي شي ناقص أو بشكل غير متوقع = None."""
+    try:
+        data = getattr(response, source, None)
+        if data is None:
+            return None
+        input_tokens = _count(getattr(data, input_attr, None))
+        output_tokens = _count(getattr(data, output_attr, None))
+        for attr in extra_output_attrs:  # مثلاً توكنات تفكير Gemini بتنحسب مع الخرج
+            extra = _count(getattr(data, attr, None))
+            if extra:
+                output_tokens = (output_tokens or 0) + extra
+        if input_tokens is None and output_tokens is None:
+            return None
+        return TokenUsage(input_tokens=input_tokens, output_tokens=output_tokens)
+    except Exception:
+        return None
 
 
 def chat_with_retry(
@@ -131,7 +162,10 @@ class AnthropicProvider:
                 text_parts.append(block.text)
             elif block.type == "tool_use":
                 tool_calls.append({"name": block.name, "input": block.input})
-        return LLMResult(reply_text=" ".join(text_parts).strip(), tool_calls=tool_calls)
+        return LLMResult(
+            reply_text=" ".join(text_parts).strip(), tool_calls=tool_calls,
+            usage=_usage(response, "usage", "input_tokens", "output_tokens"),
+        )
 
 
 class OpenAIProvider:
@@ -196,7 +230,10 @@ class OpenAIProvider:
             except json.JSONDecodeError:
                 args = {}
             tool_calls.append({"name": call.function.name, "input": args})
-        return LLMResult(reply_text=(choice.content or "").strip(), tool_calls=tool_calls)
+        return LLMResult(
+            reply_text=(choice.content or "").strip(), tool_calls=tool_calls,
+            usage=_usage(response, "usage", "prompt_tokens", "completion_tokens"),
+        )
 
     def _chat_responses(self, client, openai, system_prompt, messages, tools, force_tool):
         response_tools = [
@@ -234,7 +271,10 @@ class OpenAIProvider:
                 except json.JSONDecodeError:
                     args = {}
                 tool_calls.append({"name": item.name, "input": args})
-        return LLMResult(reply_text=(response.output_text or "").strip(), tool_calls=tool_calls)
+        return LLMResult(
+            reply_text=(response.output_text or "").strip(), tool_calls=tool_calls,
+            usage=_usage(response, "usage", "input_tokens", "output_tokens"),
+        )
 
 
 class GeminiProvider:
@@ -309,4 +349,10 @@ class GeminiProvider:
         except Exception:
             reply_text = ""
 
-        return LLMResult(reply_text=reply_text, tool_calls=tool_calls)
+        return LLMResult(
+            reply_text=reply_text, tool_calls=tool_calls,
+            usage=_usage(
+                response, "usage_metadata", "prompt_token_count", "candidates_token_count",
+                "thoughts_token_count",
+            ),
+        )

@@ -92,7 +92,7 @@ class TryOnEventRecordingTests(TestCase):
     @patch("apitokens.widget_views.kieai.generate_tryon", return_value="https://img/out.png")
     def test_recording_error_never_breaks_response(self, _gen):
         with patch("apitokens.widget_views.TryOnEvent.objects.create", side_effect=Exception("db down")), \
-                self.assertLogs("apitokens.widget_views", level="ERROR"):
+                self.assertLogs("apitokens.services.quota", level="ERROR"):
             resp = self.post(session_id="sess-abcdef12")
         self.assertEqual(resp.status_code, 200)
         self.assertTrue(resp.json()["ok"])
