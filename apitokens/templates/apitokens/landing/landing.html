@@ -1,0 +1,330 @@
+{% load static %}<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PEPLO — مساعد مبيعات ذكي لمتجرك الإلكتروني</title>
+<meta name="description" content="PEPLO مساعد ذكي يُركَّب على متجرك بسطر واحد: يحاور الزبون بلغته ولهجته، يرشّح من كتالوجك الحقيقي، ويتيح له تجربة المنتج على صورته قبل الشراء.">
+<meta name="theme-color" content="#203B3F">
+<meta property="og:type" content="website">
+<meta property="og:locale" content="ar_AR">
+<meta property="og:title" content="PEPLO — مساعد مبيعات ذكي لمتجرك الإلكتروني">
+<meta property="og:description" content="يحاور زبائنك، يقنعهم، ويجعلهم يرون أنفسهم بالمنتج. يُركَّب بسطر واحد.">
+<meta property="og:url" content="{{ page_url }}">
+<meta property="og:image" content="{{ og_image }}">
+<meta name="twitter:card" content="summary_large_image">
+<link rel="icon" type="image/png" href="{% static 'apitokens/landing/favicon.png' %}">
+<link rel="apple-touch-icon" href="{% static 'apitokens/landing/apple-touch-icon.png' %}">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;500;600;700&family=Cinzel:wght@600&family=Reem+Kufi:wght@500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="{% static 'apitokens/landing/landing.css' %}">
+<script>
+  /* بوابة الحركات: بدون JS أو مع prefers-reduced-motion الصفحة كاملة وثابتة */
+  (function (d) {
+    d.classList.add("js");
+    if (window.matchMedia && matchMedia("(prefers-reduced-motion: reduce)").matches) d.classList.add("rm");
+  })(document.documentElement);
+</script>
+</head>
+<body>
+
+<div class="progress" aria-hidden="true"></div>
+
+<a class="skip" href="#main">تخطَّ إلى المحتوى</a>
+
+<header class="nav">
+  <div class="container nav-in">
+    <a href="#top" class="brand" aria-label="PEPLO">{% include "apitokens/landing/_wordmark.html" %}</a>
+    <nav class="nav-links" aria-label="التنقل">
+      <a href="#how">كيف يعمل</a>
+      <a href="#chat">المحادثة</a>
+      <a href="#tryon">تجربة اللبس</a>
+      <a href="#platforms">المنصات</a>
+      <a href="#faq">الأسئلة</a>
+    </nav>
+    <div class="nav-cta">
+      <a class="btn btn-ghost btn-sm nav-login" href="{% url 'portal:login' %}">دخول</a>
+      <a class="btn btn-gold btn-sm" href="{% url 'portal:register' %}">ابدأ تجربتك</a>
+    </div>
+  </div>
+</header>
+
+<main id="main">
+
+<!-- ============ Hero ============ -->
+<section class="hero" id="top">
+  <div class="container hero-in">
+    <div class="hero-text">
+      <h1>مساعد مبيعات يحكي مع زبائنك، ويقنعهم، ويجعلهم يرون أنفسهم بالمنتج</h1>
+      <p class="lead">PEPLO مساعد ذكي يُركَّب على متجرك بسطر واحد. يفهم احتياج الزبون بلغته ولهجته، ويرشّح من كتالوجك الحقيقي، ويتيح له تجربة المنتج على صورته قبل الشراء.</p>
+      <div class="hero-actions">
+        <a class="btn btn-gold" href="{% url 'portal:register' %}">ابدأ تجربتك</a>
+        {% if demo_enabled %}<a class="btn btn-ghost" href="{% url 'demo-home' %}">جرّب المساعد الآن</a>{% endif %}
+      </div>
+      <p class="hero-note"><span class="dia" aria-hidden="true"></span>تركيب بسطر واحد <span class="dia" aria-hidden="true"></span>يعمل مع Shopify، WooCommerce، سلة، زد</p>
+    </div>
+    <div class="hero-visual" aria-hidden="true">
+      <span class="spark spark--1"></span><span class="spark spark--2"></span><span class="spark spark--3"></span><span class="spark spark--4"></span>
+      <img class="hero-mark" src="{% static 'apitokens/landing/peplo-mark-cream.webp' %}" alt="" width="783" height="900">
+      <div class="hero-result">
+        <img src="{% static 'apitokens/landing/tryon-after.webp' %}" alt="" width="720" height="1080">
+        <span><i class="dia"></i>جرّبته عليك</span>
+      </div>
+      <div class="chat chat--float">
+        <div class="chat-head"><span class="dia"></span>مساعد المتجر</div>
+        <div class="msg msg--user">أبغى فستان لحفلة زواج وميزانيتي ما تتعدى 400 ريال</div>
+        <div class="msg msg--bot">أكيد! هذا فستان كورسيه أحمر طويل بـ 339 ريال، مناسب للأعراس. تحبين تشوفينه عليك قبل ما تقررين؟</div>
+        <div class="pcard">
+          <span class="pcard-img"><img src="{% static 'apitokens/landing/product-red-dress.webp' %}" alt="" width="162" height="420"></span>
+          <span class="pcard-info"><b>فستان كورسيه أحمر طويل</b><i>339 ر.س</i></span>
+          <span class="pcard-btn">جرّبيه عليك</span>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="meander meander--on-teal" aria-hidden="true"></div>
+</section>
+
+<!-- ============ I · المشكلة ============ -->
+<section class="section section--cream">
+  <div class="container">
+    <p class="eyebrow"><span class="dia"></span>I</p>
+    <h2>متجرك مفتوح، لكن لا أحد يجيب لحظة التردّد</h2>
+    <div class="grid grid-3">
+      <article class="card">
+        <h3>زائر يتصفّح ويغادر</h3>
+        <p>كثيرون يغادرون دون سؤال، لأن لا أحد يجيبهم في اللحظة التي يترددون فيها.</p>
+      </article>
+      <article class="card">
+        <h3>أسئلة تتكرّر</h3>
+        <p>المقاس، التوفّر، الشحن، الإرجاع. وفريقك يجيب عن الأسئلة نفسها كل يوم.</p>
+      </article>
+      <article class="card">
+        <h3>متجر لا ينام</h3>
+        <p>الزبون يسأل بعد منتصف الليل، وإن لم يجد من يردّ، يجد متجراً آخر.</p>
+      </article>
+    </div>
+  </div>
+</section>
+
+<!-- ============ II · كيف يعمل ============ -->
+<section class="section section--teal" id="how">
+  <div class="container">
+    <p class="eyebrow"><span class="dia"></span>II</p>
+    <h2>ثلاث خطوات، وتبدأ</h2>
+    <ol class="steps">
+      <li>
+        <span class="step-n">١</span>
+        <h3>اربط كتالوجك</h3>
+        <p>Shopify أو WooCommerce أو سلة أو زد، أو ارفع ملف CSV. المنتجات والأسعار تتزامن تلقائياً.</p>
+      </li>
+      <li>
+        <span class="step-n">٢</span>
+        <h3>أضف سطراً واحداً</h3>
+        <p>ضع سطر الـ <code>script</code> في موقعك. تنسخه من لوحتك بضغطة.</p>
+      </li>
+      <li>
+        <span class="step-n">٣</span>
+        <h3>يبدأ البيع</h3>
+        <p>يظهر المساعد لزوارك ويبدأ الحوار، وأنت تتابع النتائج من لوحتك.</p>
+      </li>
+    </ol>
+    <div class="snippet" dir="ltr"><code>&lt;script src="{{ widget_src }}" data-store-key="YOUR-STORE-KEY"&gt;&lt;/script&gt;</code></div>
+  </div>
+  <div class="meander meander--on-teal" aria-hidden="true"></div>
+</section>
+
+<!-- ============ III · المحادثة ============ -->
+<section class="section section--cream" id="chat">
+  <div class="container">
+    <p class="eyebrow"><span class="dia"></span>III</p>
+    <h2>محادثة تبيع، لا بوت أسئلة شائعة</h2>
+    <div class="split">
+      <ul class="ticks">
+        <li>يفهم الاحتياج والمناسبة والميزانية.</li>
+        <li>يقترح بديلاً أنسب قبل أن يعرض أي خصم.</li>
+        <li>يجيب عن سياسات متجرك (شحن، إرجاع) من المعلومات التي تضعها أنت.</li>
+        <li>يتحدث بلغة الزبون ولهجته.</li>
+      </ul>
+      <div class="chats">
+        <div class="chat">
+          <div class="chat-head"><span class="dia"></span>خليجي</div>
+          <div class="msg msg--user">أبغى فستان لحفلة زواج وميزانيتي ما تتعدى 400 ريال</div>
+          <div class="msg msg--bot">أكيد! هذا فستان كورسيه أحمر طويل بـ 339 ريال، مناسب للأعراس. تحبين تشوفينه عليك قبل ما تقررين؟</div>
+        </div>
+        <div class="chat">
+          <div class="chat-head"><span class="dia"></span>شامي</div>
+          <div class="msg msg--user">غالي كتير، في شي أرخص بنفس الستايل؟</div>
+          <div class="msg msg--bot">أكيد، هاد موديل قريب كتير بسعر أقل وبنفس الخامة. بدك تجرّبه على صورتك؟</div>
+        </div>
+        <p class="caption">أمثلة توضيحية لأسلوب الحوار.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ IV · تجربة اللبس ============ -->
+<section class="section section--teal" id="tryon">
+  <div class="container">
+    <p class="eyebrow"><span class="dia"></span>IV</p>
+    <h2>يرى الزبون المنتج عليه قبل أن يشتري</h2>
+    <div class="split split--rev">
+      <div>
+        <p class="lead">يرفع صورته، فيظهر له المنتج عليه خلال لحظات، وهو ما زال داخل المحادثة. فيحكم على القطعة بوضوح أكبر، ويقرّر وهو مطمئن.</p>
+        <ul class="ticks ticks--light">
+          <li>الوجه والوضعية والخلفية تبقى كما هي، ويتغيّر اللباس فقط.</li>
+          <li>اللون والخامة كما في صورة المنتج عندك.</li>
+          <li>من زر واحد داخل بطاقة المنتج.</li>
+        </ul>
+        <p class="fine">الصورة تُستعمل لإنتاج التجربة فقط. التفاصيل في <a href="{% url 'privacy' %}">سياسة الخصوصية</a>.</p>
+      </div>
+      <div class="ba-wrap">
+        <div class="ba" data-ba dir="ltr">
+          <img class="ba-img" src="{% static 'apitokens/landing/tryon-after.webp' %}" alt="الموديل بعد تجربة فستان الكورسيه الأحمر" width="720" height="1080" loading="lazy">
+          <div class="ba-before"><img class="ba-img" src="{% static 'apitokens/landing/tryon-before.webp' %}" alt="الموديل قبل التجربة" width="720" height="1080" loading="lazy"></div>
+          <span class="ba-line" aria-hidden="true"></span>
+          <span class="ba-knob" aria-hidden="true"><i></i></span>
+          <span class="ba-tag ba-tag--after">بعد</span>
+          <span class="ba-tag ba-tag--before">قبل</span>
+          <input class="ba-range" type="range" min="0" max="100" value="50" aria-label="اسحب للمقارنة بين صورة الزبون قبل التجربة وبعدها">
+        </div>
+        <div class="ba-product">
+          <img src="{% static 'apitokens/landing/product-red-dress.webp' %}" alt="" width="162" height="420" loading="lazy">
+          <span><b>فستان كورسيه أحمر طويل</b><i>339 ر.س</i></span>
+        </div>
+        <p class="caption caption--light">نتيجة حقيقية من PEPLO على موديل افتراضي (صورة مولَّدة بالذكاء الاصطناعي).</p>
+      </div>
+    </div>
+  </div>
+  <div class="meander meander--on-teal" aria-hidden="true"></div>
+</section>
+
+<!-- ============ V · الكتالوج والمنصات ============ -->
+<section class="section section--cream" id="platforms">
+  <div class="container">
+    <p class="eyebrow"><span class="dia"></span>V</p>
+    <h2>يعرف منتجاتك كما هي الآن</h2>
+    <div class="grid grid-3">
+      <article class="card">
+        <h3>تحديث تلقائي</h3>
+        <p>أي تغيير في المنتج أو السعر ينعكس على المساعد بدون عمل يدوي.</p>
+      </article>
+      <article class="card">
+        <h3>تفاصيل المنتج كاملة</h3>
+        <p>يعرض الخيارات المتاحة (ألوان، مقاسات) والسعر قبل التخفيض.</p>
+      </article>
+      <article class="card">
+        <h3>مبيعات مرتبطة بالمحادثة</h3>
+        <p>تربط الطلبات الفعلية بالمحادثة التي جاءت منها، لتعرف أثر المساعد.</p>
+      </article>
+    </div>
+    <ul class="chips" aria-label="المنصات المدعومة">
+      <li>Shopify</li><li>WooCommerce</li><li>سلة</li><li>زد</li><li>ملف CSV</li>
+    </ul>
+  </div>
+</section>
+
+<!-- ============ VI · الخصومات ============ -->
+<section class="section section--teal">
+  <div class="container">
+    <p class="eyebrow"><span class="dia"></span>VI</p>
+    <h2>لا يخترع خصماً، ولا يفاوض على السعر</h2>
+    <div class="split">
+      <p class="lead">يعرض المساعد أكواد الخصم التي أنشأتها أنت فقط، وفي الوقت المناسب. وإذا لم ينطبق خصم، يواصل البيع بإظهار القيمة أو باقتراح بديل أنسب.</p>
+      <ul class="ticks ticks--light">
+        <li>أكوادك أنت فقط، من لوحة التحكم.</li>
+        <li>لا خصم من عنده ولا مساومة.</li>
+        <li>هامش ربحك تحت سيطرتك.</li>
+      </ul>
+    </div>
+  </div>
+  <div class="meander meander--on-teal" aria-hidden="true"></div>
+</section>
+
+<!-- ============ VII · لوحة التاجر ============ -->
+<section class="section section--cream">
+  <div class="container">
+    <p class="eyebrow"><span class="dia"></span>VII</p>
+    <h2>اعرف ماذا حقّق المساعد</h2>
+    <div class="split">
+      <ul class="ticks">
+        <li>عدد المحادثات.</li>
+        <li>ضغطات الشراء والإضافة للسلة.</li>
+        <li>الطلبات الفعلية المرتبطة بالمحادثات.</li>
+      </ul>
+      <div>
+        <div class="kpis" aria-label="مثال توضيحي للوحة التاجر">
+          <div class="kpi"><b data-count="124">١٢٤</b><span>محادثة</span></div>
+          <div class="kpi"><b data-count="38">٣٨</b><span>ضغطة شراء</span></div>
+          <div class="kpi"><b data-count="9">٩</b><span>طلب مرتبط</span></div>
+        </div>
+        <p class="caption">أرقام توضيحية لشكل اللوحة.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ VIII · الأسئلة ============ -->
+<section class="section section--cream" id="faq">
+  <div class="container container--narrow">
+    <p class="eyebrow"><span class="dia"></span>VIII</p>
+    <h2>أسئلة شائعة</h2>
+    <div class="faq">
+      <details>
+        <summary>كم يستغرق التركيب؟</summary>
+        <p>سطر واحد تضعه في موقعك بعد ربط الكتالوج، تنسخه من لوحتك.</p>
+      </details>
+      <details>
+        <summary>هل يعدّل شيئاً في متجري؟</summary>
+        <p>يقرأ منتجاتك ليغذّي المساعد. تتحكم أنت بالصلاحيات التي تمنحها له، وتستطيع فصل الربط متى شئت.</p>
+      </details>
+      <details>
+        <summary>هل يتحدث بالعربية واللهجات؟</summary>
+        <p>نعم، يحاور الزبون بلغته ولهجته.</p>
+      </details>
+      <details>
+        <summary>ماذا عن صور الزبائن في تجربة اللبس؟</summary>
+        <p>الصورة تُستعمل لإنتاج صورة التجربة فقط، ولا نخزّنها على خوادمنا، ولا نبيعها ولا نستخدمها لتدريب نماذجنا. وتُعالَج لدى مزوّد خارجي له سياسته الخاصة. التفاصيل كاملة في <a href="{% url 'privacy' %}">سياسة الخصوصية</a>.</p>
+      </details>
+      <details>
+        <summary>هل أتحكم بالخصومات؟</summary>
+        <p>نعم. المساعد يعرض الأكواد التي أنشأتها أنت فقط، ولا يخترع خصماً.</p>
+      </details>
+      <details>
+        <summary>كيف أبدأ؟</summary>
+        <p>سجّل حسابك، ثم أدخل كود الاشتراك الذي يصلك على واتساب، وتفتح لك اللوحة مباشرة.</p>
+      </details>
+    </div>
+  </div>
+</section>
+
+<!-- ============ CTA ختامي ============ -->
+<section class="cta">
+  <div class="container">
+    <img class="cta-mark" src="{% static 'apitokens/landing/peplo-mark-cream.webp' %}" alt="" width="783" height="900" loading="lazy">
+    <h2>جاهز ليتحدث متجرك مع زبائنه؟</h2>
+    <div class="hero-actions">
+      <a class="btn btn-gold" href="{% url 'portal:register' %}">ابدأ تجربتك</a>
+      {% if demo_enabled %}<a class="btn btn-ghost" href="{% url 'demo-home' %}">جرّب المساعد الآن</a>{% endif %}
+    </div>
+  </div>
+</section>
+
+</main>
+
+<footer class="footer">
+  <div class="container footer-in">
+    <a href="#top" class="brand" aria-label="PEPLO">{% include "apitokens/landing/_wordmark.html" %}</a>
+    <nav aria-label="روابط">
+      <a href="{% url 'privacy' %}">الخصوصية</a>
+      <a href="{% url 'portal:login' %}">دخول</a>
+      {% if whatsapp_url %}<a href="{{ whatsapp_url }}" rel="noopener">تواصل عبر واتساب</a>{% endif %}
+    </nav>
+    <p>© 2026 PEPLO</p>
+  </div>
+</footer>
+
+<script src="{% static 'apitokens/landing/landing.js' %}" defer></script>
+</body>
+</html>
