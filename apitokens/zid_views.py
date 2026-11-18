@@ -17,7 +17,7 @@ STATE_SESSION_KEY = "zid_oauth_state"
 CONNECTION_SESSION_KEY = "zid_connection_id"
 
 
-PRIVACY_POLICY_UPDATED = "2026-11-09"
+PRIVACY_POLICY_UPDATED = "2026-11-18"
 
 
 @require_GET

@@ -235,4 +235,6 @@ RATE_LIMITS = {
 }
 # قالب واتساب Utility (من لوحة LightOTP) لتنبيه التاجر بالرصيد: 3 متغيّرات body: اسم المتجر، النسبة، المتبقي.
 LIGHTOTP_QUOTA_ALERT_TEMPLATE_ID = os.environ.get("LIGHTOTP_QUOTA_ALERT_TEMPLATE_ID", "").strip()
+# مدة الاحتفاظ ببيانات الزبائن (المحادثات، التجارب، استهلاك الشات) بالأيام؛ الأقدم بيحذفه purge_old_data.
+DATA_RETENTION_DAYS = int(os.environ.get("DATA_RETENTION_DAYS", "365"))
 
