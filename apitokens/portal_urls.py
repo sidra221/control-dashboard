@@ -1,6 +1,6 @@
 from django.urls import path
 
-from . import portal_auth, portal_views
+from . import portal_auth, portal_reset, portal_views
 
 app_name = "portal"
 
@@ -8,6 +8,8 @@ urlpatterns = [
     path("enter/<str:key>/", portal_auth.enter, name="enter"),
     path("login/", portal_auth.login, name="login"),
     path("register/", portal_auth.register, name="register"),
+    path("password/forgot/", portal_reset.forgot, name="password_forgot"),
+    path("password/reset/", portal_reset.reset, name="password_reset"),
     path("verify/", portal_views.verify, name="verify"),
     path("verify/resend/", portal_views.verify_resend, name="verify_resend"),
     path("pending/", portal_views.pending, name="pending"),

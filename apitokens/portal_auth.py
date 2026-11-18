@@ -45,7 +45,13 @@ SESSION_FINGERPRINT = "portal_session_fp"
 SESSION_OTP_FLASH = "portal_otp_flash"
 SESSION_OTP_WAIT_UNTIL = "portal_otp_wait_until"
 _OTP_STATE_KEYS = (SESSION_OTP_FLASH, SESSION_OTP_WAIT_UNTIL)
-_SESSION_KEYS = (SESSION_ACCOUNT, SESSION_FINGERPRINT, *_OTP_STATE_KEYS)
+# حالة "نسيت كلمة المرور" (portal_reset.py): الرقم المكتوب ووقت الطلب دايماً، ورقم الحساب بس لو مؤهّل
+SESSION_RESET_PHONE = "portal_reset_phone"
+SESSION_RESET_STARTED = "portal_reset_started"
+SESSION_RESET_ACCOUNT = "portal_reset_account_id"
+SESSION_RESET_TRIES = "portal_reset_tries"
+_RESET_STATE_KEYS = (SESSION_RESET_PHONE, SESSION_RESET_STARTED, SESSION_RESET_ACCOUNT, SESSION_RESET_TRIES)
+_SESSION_KEYS = (SESSION_ACCOUNT, SESSION_FINGERPRINT, *_OTP_STATE_KEYS, *_RESET_STATE_KEYS)
 
 MAX_FAILED_LOGINS = 5
 LOCK_DURATION = timedelta(minutes=15)
@@ -58,6 +64,11 @@ DEFAULT_MAX_PENDING_ACCOUNTS = 500
 # محاولات صفحة التحقق (POST) لكل IP: عدّاد منفصل عن الدخول
 IP_MAX_VERIFY_POSTS = 30
 VERIFY_WINDOW_SECONDS = 600
+# نسيت كلمة المرور: طلب الكود (10 بالساعة لكل IP) وإدخاله (30 كل 10 دقايق لكل IP)
+IP_MAX_FORGOT_POSTS = 10
+FORGOT_WINDOW_SECONDS = 3600
+IP_MAX_RESET_POSTS = 30
+RESET_WINDOW_SECONDS = 600
 HONEYPOT_FIELD = "website"
 
 PASSWORD_MIN_LENGTH = 8
@@ -168,7 +179,7 @@ def session_fingerprint(account):
 
 def login_session(request, account):
     request.session.cycle_key()
-    for name in _OTP_STATE_KEYS:
+    for name in (*_OTP_STATE_KEYS, *_RESET_STATE_KEYS):
         request.session.pop(name, None)
     request.session[SESSION_ACCOUNT] = account.pk
     request.session[SESSION_FINGERPRINT] = session_fingerprint(account)
@@ -461,6 +472,14 @@ def _register_throttled(request):
 
 def verify_throttled(request):
     return _throttled(request, "verify", IP_MAX_VERIFY_POSTS, VERIFY_WINDOW_SECONDS)
+
+
+def forgot_throttled(request):
+    return _throttled(request, "forgot", IP_MAX_FORGOT_POSTS, FORGOT_WINDOW_SECONDS)
+
+
+def reset_throttled(request):
+    return _throttled(request, "reset", IP_MAX_RESET_POSTS, RESET_WINDOW_SECONDS)
 
 
 def _attempt_login(phone, password):

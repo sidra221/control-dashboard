@@ -506,7 +506,7 @@ class LoginPageTests(PortalBase):
         self.assertIn('<label for="phone">', html)
         self.assertIn('<label for="password">', html)
         self.assertIn("csrfmiddlewaretoken", html)
-        self.assertIn("Ask the store provider for a new registration link", html)
+        self.assertIn(reverse("portal:password_forgot"), html)
         # ما في next ولا زر لغة بصفحة الدخول (ما في سطح لـ open redirect)
         self.assertEqual(html.count('name="next"'), 0)
 
