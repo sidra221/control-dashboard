@@ -21,5 +21,11 @@ class Command(BaseCommand):
             try:
                 count = catalog_service.sync_salla(connection.merchant, connection)
                 self.stdout.write(f"{name}: {count} products")
+            except salla_service.SallaReauthRequired as exc:
+                # الربط انوقف (get_access_token سجّل ERROR) — بيرجع بإعادة تركيب التطبيق بس.
+                self.stderr.write(
+                    f"{name}: REAUTH REQUIRED (merchant {connection.merchant_id}), "
+                    f"connection deactivated until the app is reinstalled: {exc}"
+                )
             except salla_service.SallaError as exc:
                 self.stderr.write(f"{name}: {exc}")

@@ -17,6 +17,13 @@ class Command(BaseCommand):
         for connection in ZidConnection.objects.filter(is_active=True).select_related("merchant"):
             name = connection.store_name or connection.store_id
             try:
+                # دومين خاص بعد التثبيت: الودجت بيلاقي المتجر بـ store_url.
+                zid_service.refresh_store_info(connection)
+                if connection.webhooks_registered_at is None:
+                    # تسجيل الإشعارات بعد التثبيت فشل (أو ما كمل) — منعيد، وهو آمن للتكرار.
+                    events = zid_service.register_store_webhooks(connection)
+                    state = "registered" if connection.webhooks_registered_at else "still incomplete"
+                    self.stdout.write(f"{name}: webhooks {state} ({', '.join(events) or 'none'})")
                 count = catalog_service.sync_zid(connection.merchant, connection)
                 self.stdout.write(f"{name}: {count} products")
             except zid_service.ZidError as exc:

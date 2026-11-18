@@ -1,6 +1,7 @@
 import json
 from decimal import Decimal, InvalidOperation
 
+from django.core.cache import cache
 from django.http import HttpResponse
 from django.utils import timezone
 from django.views.decorators.csrf import csrf_exempt
@@ -8,6 +9,10 @@ from django.views.decorators.http import require_http_methods
 
 from .models import ApiToken, Conversation, Product
 from .services import shopify as shopify_service
+
+# Shopify بتعيد إرسال نفس الإشعار (نفس X-Shopify-Webhook-Id) لو ما وصلها 200
+# بسرعة — منتذكّر المعرّف يوم كامل حتى ما نعالج نفس الحدث مرتين.
+DELIVERY_DEDUP_TTL_SECONDS = 24 * 60 * 60
 
 
 @csrf_exempt
@@ -22,15 +27,36 @@ def product_webhook(request, token):
     if not shopify_service.verify_webhook_hmac(request.body, hmac_header, connection.api_secret):
         return HttpResponse(status=401)
 
+    if not connection.is_active or not merchant.is_active:
+        # ربط موقوف (أو تاجر موقوف): 200 بدون معالجة حتى ما تضل Shopify تعيد.
+        return HttpResponse(status=200)
+
     topic = request.headers.get("X-Shopify-Topic", "")
     try:
         payload = json.loads(request.body or "{}")
     except json.JSONDecodeError:
         return HttpResponse(status=400)
 
+    dedup_key = None
+    webhook_id = request.headers.get("X-Shopify-Webhook-Id", "").strip()
+    if webhook_id:
+        dedup_key = f"shopify_webhook:{merchant.pk}:{webhook_id[:128]}"
+        if not cache.add(dedup_key, 1, DELIVERY_DEDUP_TTL_SECONDS):
+            return HttpResponse(status=200)  # نفس الإشعار وصل قبل — اتعالج
+    try:
+        _handle(merchant, connection, topic, payload)
+    except Exception:
+        # فشلت المعالجة: منشيل المعرّف حتى إعادة Shopify تنعالج من جديد.
+        if dedup_key:
+            cache.delete(dedup_key)
+        raise
+    return HttpResponse(status=200)
+
+
+def _handle(merchant, connection, topic, payload):
     if topic == "orders/create":
         _record_order(merchant, payload)
-        return HttpResponse(status=200)
+        return
 
     external_id = str(payload.get("id", ""))
 
@@ -49,8 +75,6 @@ def product_webhook(request, token):
             # المنتج صار بدون صورة أو مش فعّال (draft/archived) — منشيله من
             # الكتالوج بدل ما المساعد يعرض منتج الزبون ما بيقدر يشتريه.
             Product.objects.filter(merchant=merchant, external_id=external_id).delete()
-
-    return HttpResponse(status=200)
 
 
 def _record_order(merchant, payload):

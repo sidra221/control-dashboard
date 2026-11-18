@@ -260,7 +260,9 @@ def portal_account_delete(request, pk):
 def toggle_active(request, pk):
     token = get_object_or_404(ApiToken, pk=pk)
     token.is_active = not token.is_active
-    token.save(update_fields=["is_active"])
+    # إيقاف من الإدارة لازم يصمد قدام إعادة تركيب التطبيق أو تجديد اشتراك زد.
+    token.suspended_by_staff = not token.is_active
+    token.save(update_fields=["is_active", "suspended_by_staff"])
     return redirect("apitokens:dashboard")
 
 

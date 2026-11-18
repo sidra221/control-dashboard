@@ -35,6 +35,11 @@ class SallaError(Exception):
     pass
 
 
+class SallaReauthRequired(SallaError):
+    """سلة رفضت الـ refresh_token نهائياً (invalid_grant / 400 / 401): الربط
+    صار ميت وما بيرجع إلا لما التاجر يعيد تركيب التطبيق."""
+
+
 def _expires_at(expires):
     """سلة بتبعت `expires` كـ Unix timestamp مطلق، مش مدة."""
     try:
@@ -68,7 +73,8 @@ def save_authorization(salla_merchant_id, data):
         connection.scope = (data.get("scope") or "")[:500]
         connection.is_active = True
         connection.save()
-        if not connection.merchant.is_active:
+        # إعادة التركيب ما بتلغي إيقاف الإدارة — بس بترجّع اللي انوقف بسبب إلغاء التطبيق.
+        if not connection.merchant.is_active and not connection.merchant.suspended_by_staff:
             connection.merchant.is_active = True
             connection.merchant.save(update_fields=["is_active"])
     _fill_store_info(connection)
@@ -125,6 +131,7 @@ def get_access_token(connection, force_refresh=False):
     if not force_refresh and not _needs_refresh(connection):
         return connection.access_token
     stale_token = connection.access_token
+    reauth_reason = None
     with transaction.atomic():
         locked = SallaConnection.objects.select_for_update().get(pk=connection.pk)
         # عملية تانية جدّدت وإحنا ناطرين القفل — منستخدم توكنها بدل ما نحرق الـ refresh.
@@ -151,18 +158,40 @@ def get_access_token(connection, force_refresh=False):
                 "salla_refresh_failed merchant=%s status=%s body=%s",
                 locked.salla_merchant_id, resp.status_code, resp.text[:200],
             )
-            raise SallaError(f"refresh_failed:{resp.status_code}")
-        data = resp.json()
-        # لازم نحفظ التنين: الـ refresh القديم صار ميت.
-        locked.access_token = data["access_token"]
-        locked.refresh_token = data.get("refresh_token") or ""
-        locked.token_expires_at = (
-            _expires_at(data.get("expires"))
-            or timezone.now() + timedelta(seconds=int(data.get("expires_in") or 0))
+            if not _is_permanent_refresh_failure(resp):
+                raise SallaError(f"refresh_failed:{resp.status_code}")
+            # منوقف الربط جوا القفل، ومنرمي الخطأ بعد ما يخلص الـ atomic
+            # (الرمي جوّاه كان رح يلغي حفظ is_active=False).
+            locked.is_active = False
+            locked.save(update_fields=["is_active", "updated_at"])
+            reauth_reason = f"refresh_failed:{resp.status_code}"
+        else:
+            data = resp.json()
+            # لازم نحفظ التنين: الـ refresh القديم صار ميت.
+            locked.access_token = data["access_token"]
+            locked.refresh_token = data.get("refresh_token") or ""
+            locked.token_expires_at = (
+                _expires_at(data.get("expires"))
+                or timezone.now() + timedelta(seconds=int(data.get("expires_in") or 0))
+            )
+            locked.save(update_fields=["access_token", "refresh_token", "token_expires_at", "updated_at"])
+    if reauth_reason:
+        connection.is_active = False
+        logger.error(
+            "salla_reauth_required merchant=%s salla_merchant=%s reason=%s",
+            connection.merchant_id, connection.salla_merchant_id, reauth_reason,
         )
-        locked.save(update_fields=["access_token", "refresh_token", "token_expires_at", "updated_at"])
+        raise SallaReauthRequired(reauth_reason)
     _copy_tokens(locked, connection)
     return connection.access_token
+
+
+def _is_permanent_refresh_failure(resp):
+    """400/401 من endpoint التوكن (أو invalid_grant بالجسم) يعني الـ refresh
+    انحرق أو انلغى — إعادة المحاولة ما بتفيد. 5xx/429 مؤقتين."""
+    if resp.status_code in (400, 401):
+        return True
+    return "invalid_grant" in (resp.text or "")
 
 
 def _copy_tokens(source, target):
@@ -202,12 +231,16 @@ def verify_webhook(body_bytes, headers, secret):
     x-salla-signature) أو token (هيدر Authorization = السر نفسه)."""
     if not secret:
         return False
+    # المقارنة دايماً بالـ bytes: compare_digest على نص فيه حروف غير ASCII
+    # بيرمي TypeError (يعني 500) بدل ما يرفض الطلب بـ 401.
     signature = (headers.get("X-Salla-Signature") or "").strip().lower()
     if signature:
-        expected = hmac.new(secret.encode(), body_bytes, hashlib.sha256).hexdigest()
-        return hmac.compare_digest(expected, signature)
+        expected = hmac.new(secret.encode(), body_bytes, hashlib.sha256).hexdigest().encode()
+        return hmac.compare_digest(expected, signature.encode("utf-8"))
     authorization = (headers.get("Authorization") or "").strip()
-    return bool(authorization) and hmac.compare_digest(authorization, secret)
+    if authorization[:7].lower() == "bearer ":
+        authorization = authorization[7:].strip()
+    return bool(authorization) and hmac.compare_digest(authorization.encode("utf-8"), secret.encode("utf-8"))
 
 
 def _amount(value):

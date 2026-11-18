@@ -2146,7 +2146,9 @@ class ZidProductTests(TestCase):
             mock_req.return_value.json.return_value = {}
             events = zid.register_store_webhooks(self.connection)
         self.assertEqual(events, zid.STORE_WEBHOOK_EVENTS)
-        body = mock_req.call_args_list[0].kwargs["json"]
+        # أول طلب بيقرا الإشعارات الموجودة (GET)، بعدين التسجيل (POST).
+        self.assertEqual(mock_req.call_args_list[0].args[0], "GET")
+        body = [c for c in mock_req.call_args_list if c.args[0] == "POST"][0].kwargs["json"]
         self.assertEqual(body["target_url"], "https://control.example.com/webhooks/zid/store/4242/product.create/")
         self.assertEqual((body["username"], body["password"], body["original_id"]), ("control", "zid-hook-secret", "8467"))
 
