@@ -77,6 +77,7 @@ def dashboard(request):
     tokens = ApiToken.objects.annotate(product_count=Count("products")).select_related(
         "shopify_connection", "woocommerce_connection", "salla_connection", "zid_connection", "portal_account"
     )
+    tokens, store_filter = _apply_store_filter(request, tokens)
     now = timezone.now()
     chat = _chat_usage_by_store(now)
     for tok in tokens:
@@ -94,11 +95,7 @@ def dashboard(request):
         ApiToken.objects.filter(is_active=True, portal_account__isnull=True).order_by("label", "pk")
         if any(acc.phone_verified for acc in pending_accounts) else []
     )
-    stats = {
-        "total": len(tokens),
-        "active": sum(1 for tok in tokens if tok.is_active),
-        "images_used": sum(tok.images_used for tok in tokens),
-    }
+    stats = _store_stats()
     periods = [(value, t("period_" + value, lang)) for value in ApiToken.Period.values]
     return render(
         request,
@@ -111,6 +108,7 @@ def dashboard(request):
             "free_stores": free_stores,
             "periods": periods,
             "stats": stats,
+            "store_filter": store_filter,
         },
     )
 
@@ -721,3 +719,244 @@ def zid_integration(request):
             "snippet": "<script>\n" + ZID_SNIPPET_PATH.read_text(encoding="utf-8") + "</script>",
         },
     )
+
+
+# ===== Staff store controls (settings page, top-up, new period, dashboard search) =====
+# Kept in its own section at the end of the module so concurrent edits elsewhere merge cleanly.
+import logging  # noqa: E402
+import re  # noqa: E402
+
+from .portal_views import SHOPPER_LIMIT_CHOICES  # noqa: E402
+
+store_controls_logger = logging.getLogger("apitokens.staff_store_controls")
+
+STORE_LABEL_MAX = 120
+STORE_INFO_MAX = 8000
+STORE_QUOTA_MAX = 1_000_000
+STORE_TOPUP_MAX = 1_000_000
+STORE_SEARCH_MAX = 120
+_CURRENCY_RE = re.compile(r"^[A-Z]{3}$")
+STORE_STATUS_FILTERS = ("active", "inactive")
+STORE_SETTINGS_FIELDS = ("label", "image_quota", "period", "currency", "tryons_per_shopper", "store_info")
+
+
+def _positive_int(raw, maximum):
+    """Strict ASCII digits only (no signs, spaces, or Arabic-Indic digits), 1..maximum, else None."""
+    raw = (raw or "").strip()
+    if not (raw.isascii() and raw.isdigit()):
+        return None
+    value = int(raw)
+    return value if 1 <= value <= maximum else None
+
+
+def _apply_store_filter(request, tokens):
+    """Dashboard stores table: ?q= matches label (contains) or token prefix, case-insensitive;
+    ?status=active|inactive. Returns (filtered queryset, filter state for the template)."""
+    q = (request.GET.get("q") or "").strip()[:STORE_SEARCH_MAX]
+    status = request.GET.get("status") or ""
+    if status not in STORE_STATUS_FILTERS:
+        status = ""
+    if q:
+        tokens = tokens.filter(Q(label__icontains=q) | Q(token__istartswith=q))
+    if status:
+        tokens = tokens.filter(is_active=(status == "active"))
+    return tokens, {"q": q, "status": status, "active": bool(q or status)}
+
+
+def _store_stats():
+    """Dashboard header stats over all stores, independent of the table's search/filter."""
+    agg = ApiToken.objects.aggregate(
+        total=Count("pk"), active=Count("pk", filter=Q(is_active=True)), images_used=Sum("images_used"),
+    )
+    return {"total": agg["total"] or 0, "active": agg["active"] or 0, "images_used": agg["images_used"] or 0}
+
+
+def _validate_store_settings(post, merchant, lang):
+    """Returns (cleaned dict, list of error messages). Nothing is saved here."""
+    errors = []
+    cleaned = {}
+
+    label = (post.get("label") or "").strip()
+    if not label:
+        errors.append(t("store_settings_err_label_required", lang))
+    elif len(label) > STORE_LABEL_MAX:
+        errors.append(_fill(t("store_settings_err_label_too_long", lang), n=STORE_LABEL_MAX))
+    else:
+        cleaned["label"] = label
+
+    quota = _positive_int(post.get("image_quota"), STORE_QUOTA_MAX)
+    if quota is None:
+        errors.append(_fill(t("store_settings_err_quota", lang), max=STORE_QUOTA_MAX))
+    else:
+        cleaned["image_quota"] = quota
+
+    period = post.get("period") or ""
+    if period not in ApiToken.Period.values:
+        errors.append(t("store_settings_err_period", lang))
+    else:
+        cleaned["period"] = period
+
+    currency = (post.get("currency") or "").strip().upper()
+    if currency and not _CURRENCY_RE.match(currency):
+        errors.append(t("store_settings_err_currency", lang))
+    else:
+        cleaned["currency"] = currency
+
+    # Same choices as the merchant portal (1/3/5/10/0=unlimited). A legacy value outside that list
+    # may be kept as-is, but cannot be newly chosen.
+    raw_limit = (post.get("tryons_per_shopper") or "").strip()
+    allowed = {str(n): n for n in SHOPPER_LIMIT_CHOICES}
+    allowed.setdefault(str(merchant.tryons_per_shopper), merchant.tryons_per_shopper)
+    if raw_limit not in allowed:
+        errors.append(t("store_settings_err_per_shopper", lang))
+    else:
+        cleaned["tryons_per_shopper"] = allowed[raw_limit]
+
+    store_info = (post.get("store_info") or "").replace("\r\n", "\n").strip()
+    if len(store_info) > STORE_INFO_MAX:
+        errors.append(_fill(t("store_settings_err_store_info_too_long", lang), n=STORE_INFO_MAX))
+    else:
+        cleaned["store_info"] = store_info
+
+    return cleaned, errors
+
+
+def _log_value(field, value):
+    # store_info is free text the merchant's assistant reads; log its size, not its content.
+    return f"<{len(value)} chars>" if field == "store_info" else repr(value)
+
+
+def _store_settings_context(merchant, lang, form=None):
+    now = timezone.now()
+    resets_at = merchant.period_start + timedelta(days=merchant.period_days)
+    expired = now >= resets_at
+    used = 0 if expired else merchant.images_used
+    remaining = max(merchant.image_quota - used, 0)
+    if form is None:
+        form = {field: str(getattr(merchant, field)) for field in STORE_SETTINGS_FIELDS}
+    shopper_choices = [
+        {"value": str(n), "label": t("store_settings_unlimited", lang) if n == 0 else str(n)}
+        for n in SHOPPER_LIMIT_CHOICES
+    ]
+    if merchant.tryons_per_shopper not in SHOPPER_LIMIT_CHOICES:
+        current = str(merchant.tryons_per_shopper)
+        shopper_choices.insert(0, {"value": current, "label": current})
+    return {
+        "merchant": merchant,
+        "form": form,
+        "periods": [(value, t("period_" + value, lang)) for value in ApiToken.Period.values],
+        "shopper_choices": shopper_choices,
+        "usage": {
+            "period_start": merchant.period_start,
+            "resets_at": resets_at,
+            "expired": expired,
+            "can_topup": not expired and merchant.images_used > 0,
+            "line": _fill(t("store_settings_usage_line", lang), used=used, quota=merchant.image_quota, remaining=remaining),
+        },
+        "limits": {"label": STORE_LABEL_MAX, "quota": STORE_QUOTA_MAX, "topup": STORE_TOPUP_MAX, "info": STORE_INFO_MAX},
+    }
+
+
+@staff_member_required
+@require_http_methods(["GET", "POST"])
+def store_settings(request, pk):
+    """Staff edit of a store's label, quota, period, currency, per-shopper limit and store info."""
+    merchant = get_object_or_404(ApiToken, pk=pk)
+    lang = request.session.get("lang", "ar")
+    if request.method == "GET":
+        return render(request, "apitokens/store_settings.html", _store_settings_context(merchant, lang))
+
+    cleaned, errors = _validate_store_settings(request.POST, merchant, lang)
+    if errors:
+        # Nothing was changed, so re-render with the submitted values (staff keep their input).
+        for error in errors:
+            messages.error(request, error)
+        form = {field: request.POST.get(field, "") for field in STORE_SETTINGS_FIELDS}
+        return render(
+            request, "apitokens/store_settings.html", _store_settings_context(merchant, lang, form), status=400,
+        )
+
+    with transaction.atomic():
+        merchant = ApiToken.objects.select_for_update().get(pk=pk)
+        changes = {
+            field: (getattr(merchant, field), value)
+            for field, value in cleaned.items() if getattr(merchant, field) != value
+        }
+        for field, (_old, new) in changes.items():
+            setattr(merchant, field, new)
+        if changes:
+            merchant.save(update_fields=list(changes))
+    if changes:
+        store_controls_logger.info(
+            "staff_store_settings_updated staff_user=%s store=%s changes=%s",
+            request.user.pk, merchant.pk,
+            "; ".join(f"{f}: {_log_value(f, o)} -> {_log_value(f, n)}" for f, (o, n) in changes.items()),
+        )
+        messages.success(request, t("store_settings_msg_saved", lang))
+    else:
+        messages.info(request, t("store_settings_msg_unchanged", lang))
+    return redirect("apitokens:store-settings", pk=pk)
+
+
+@staff_member_required
+@require_http_methods(["POST"])
+def store_topup(request, pk):
+    """Give back N images to the CURRENT period by lowering images_used (never below 0).
+
+    image_quota (the recurring plan) is left alone, so the extra images disappear when the period
+    renews and nobody has to remember to undo a quota bump. The credit is therefore capped at what
+    was already consumed this period."""
+    get_object_or_404(ApiToken, pk=pk)
+    lang = request.session.get("lang", "ar")
+    amount = _positive_int(request.POST.get("amount"), STORE_TOPUP_MAX)
+    if amount is None:
+        messages.error(request, _fill(t("store_settings_err_topup_amount", lang), max=STORE_TOPUP_MAX))
+        return redirect("apitokens:store-settings", pk=pk)
+
+    with transaction.atomic():
+        merchant = ApiToken.objects.select_for_update().get(pk=pk)
+        expired = timezone.now() >= merchant.period_start + timedelta(days=merchant.period_days)
+        old_used = merchant.images_used
+        applied = 0
+        if expired:
+            error = "store_settings_err_topup_period_expired"
+        elif old_used <= 0:
+            error = "store_settings_err_topup_nothing_used"
+        else:
+            error = None
+            applied = min(amount, old_used)
+            merchant.images_used = old_used - applied
+            merchant.save(update_fields=["images_used"])
+    if error:
+        messages.error(request, t(error, lang))
+        return redirect("apitokens:store-settings", pk=pk)
+
+    store_controls_logger.info(
+        "staff_store_topup staff_user=%s store=%s requested=%s applied=%s images_used: %s -> %s",
+        request.user.pk, merchant.pk, amount, applied, old_used, merchant.images_used,
+    )
+    messages.success(request, _fill(t("store_settings_msg_topup_done", lang), n=applied))
+    if applied < amount:
+        messages.warning(request, _fill(t("store_settings_msg_topup_capped", lang), requested=amount, n=applied))
+    return redirect("apitokens:store-settings", pk=pk)
+
+
+@staff_member_required
+@require_http_methods(["POST"])
+def store_new_period(request, pk):
+    """Start a fresh period right now: images_used=0, period_start=now (quota alerts re-arm by
+    themselves because they are keyed on period_start)."""
+    get_object_or_404(ApiToken, pk=pk)
+    lang = request.session.get("lang", "ar")
+    with transaction.atomic():
+        merchant = ApiToken.objects.select_for_update().get(pk=pk)
+        old_used, old_start = merchant.images_used, merchant.period_start
+        merchant.images_used = 0
+        merchant.period_start = timezone.now()
+        merchant.save(update_fields=["images_used", "period_start"])
+    store_controls_logger.info(
+        "staff_store_new_period staff_user=%s store=%s images_used: %s -> 0 period_start: %s -> %s",
+        request.user.pk, merchant.pk, old_used, old_start.isoformat(), merchant.period_start.isoformat(),
+    )
+    messages.success(request, t("store_settings_msg_new_period", lang))
+    return redirect("apitokens:store-settings", pk=pk)

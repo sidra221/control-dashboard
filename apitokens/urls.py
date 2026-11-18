@@ -19,4 +19,7 @@ urlpatterns = [
     path("<int:pk>/tryon-stats/", views.tryon_stats, name="tryon-stats"),
     path("salla/", views.salla_integration, name="salla"),
     path("zid/", views.zid_integration, name="zid"),
+    path("<int:pk>/settings/", views.store_settings, name="store-settings"),
+    path("<int:pk>/settings/topup/", views.store_topup, name="store-topup"),
+    path("<int:pk>/settings/new-period/", views.store_new_period, name="store-new-period"),
 ]
