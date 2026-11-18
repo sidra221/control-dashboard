@@ -28,6 +28,7 @@ from .services import tryon_stats as tryon_stats_service
 from .services import shopify as shopify_service
 from .services import woocommerce as woocommerce_service
 from .services import zid as zid_service
+from .woocommerce_webhooks import start_initial_sync as start_woocommerce_sync
 
 REQUIRED_COLUMNS = {"sku", "title", "price", "image_url"}
 
@@ -448,19 +449,22 @@ def woocommerce_connect(request, pk):
 
         if action == "disconnect":
             if connection:
-                connection.delete()
+                # أفضل محاولة: نحذف الـ webhooks التي سجّلناها بالمتجر (مهلة قصيرة، الأخطاء تُتجاهل)،
+                # ثم المنتجات المتزامنة من WooCommerce (الكتالوج اليدوي external_id="" يبقى)، ثم الربط.
+                woocommerce_service.delete_webhooks(connection, _woocommerce_callback_url(merchant))
+                with transaction.atomic():
+                    Product.objects.filter(merchant=merchant).exclude(external_id="").delete()
+                    connection.delete()
                 messages.success(request, t("msg_woo_disconnected", lang))
+                messages.warning(request, t("warn_woo_revoke_keys", lang))
             return redirect("apitokens:woocommerce-connect", pk=pk)
 
         if action == "resync":
             if not connection:
                 messages.error(request, t("err_no_connection_to_resync", lang))
             else:
-                try:
-                    catalog_service.sync_woocommerce(merchant, connection)
-                    messages.success(request, t("msg_resync_success", lang))
-                except woocommerce_service.WooCommerceError as exc:
-                    messages.error(request, str(exc))
+                _start_woocommerce_sync_after_commit(connection, merchant)
+                messages.success(request, t("msg_woo_sync_started", lang))
             return redirect("apitokens:woocommerce-connect", pk=pk)
 
         raw_url = request.POST.get("site_url", "")
@@ -479,6 +483,7 @@ def woocommerce_connect(request, pk):
             consumer_key=consumer_key, consumer_secret=consumer_secret,
         )
         try:
+            woocommerce_service.assert_public_host(site_url)
             woocommerce_service.get_store_info(candidate)
         except woocommerce_service.WooCommerceError as exc:
             messages.error(request, str(exc))
@@ -495,24 +500,10 @@ def woocommerce_connect(request, pk):
             },
         )
 
-        # المزامنة أول شي: لو تسجيل الـ webhooks فشل (مفاتيح Read بس مثلاً) الكتالوج يضل جاهز.
-        try:
-            catalog_service.sync_woocommerce(merchant, connection)
-        except woocommerce_service.WooCommerceError as exc:
-            messages.error(request, t("err_connect_sync_partial", lang) % {"exc": exc})
-            return redirect("apitokens:woocommerce-connect", pk=pk)
-
-        callback_url = f"{settings.SITE_BASE_URL}/webhooks/woocommerce/{merchant.token}/"
-        try:
-            orders_ok = woocommerce_service.register_webhooks(connection, callback_url)
-        except woocommerce_service.WooCommerceError as exc:
-            messages.success(request, t("msg_woo_synced_only", lang))
-            messages.warning(request, t("warn_woo_webhooks_failed", lang) % {"exc": exc})
-        else:
-            messages.success(request, t("msg_connect_sync_success", lang))
-            if not orders_ok:
-                messages.warning(request, t("warn_woo_no_order_webhooks", lang))
-
+        # المزامنة الكاملة وتسجيل الـ webhooks بالخلفية بعد حفظ الربط (الكتالوجات الكبيرة
+        # تتجاوز مهلة طلب الموظف). النتيجة تظهر في "آخر مزامنة" وعدد المنتجات.
+        _start_woocommerce_sync_after_commit(connection, merchant)
+        messages.success(request, t("msg_woo_sync_started", lang))
         return redirect("apitokens:woocommerce-connect", pk=pk)
 
     return render(
@@ -520,6 +511,16 @@ def woocommerce_connect(request, pk):
         "apitokens/woocommerce_connect.html",
         {"merchant": merchant, "connection": connection},
     )
+
+
+def _woocommerce_callback_url(merchant):
+    return f"{settings.SITE_BASE_URL}/webhooks/woocommerce/{merchant.token}/"
+
+
+def _start_woocommerce_sync_after_commit(connection, merchant):
+    # الخيط يستخدم اتصال قاعدة بيانات مستقلاً، فلا يبدأ إلا بعد أن يُحفظ الربط فعلياً.
+    connection_pk, callback_url = connection.pk, _woocommerce_callback_url(merchant)
+    transaction.on_commit(lambda: start_woocommerce_sync(connection_pk, callback_url))
 
 
 def _normalize_shop_domain(value):

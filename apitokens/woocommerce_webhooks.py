@@ -1,8 +1,10 @@
 import json
 import logging
+import threading
 from datetime import datetime, timedelta, timezone as dt_timezone
 from decimal import Decimal, InvalidOperation
 
+from django.db import connection as db_connection
 from django.db import transaction
 from django.db.models import Q
 from django.http import HttpResponse
@@ -10,7 +12,7 @@ from django.utils import timezone
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_http_methods
 
-from .models import ApiToken, Conversation, Product
+from .models import ApiToken, Conversation, Product, WooCommerceConnection
 from .services import woocommerce as woocommerce_service
 
 logger = logging.getLogger(__name__)
@@ -35,6 +37,10 @@ def webhook(request, token):
     if request.body.startswith(b"webhook_id="):
         return HttpResponse(status=200)
 
+    # ربط موقوف أو تاجر موقوف: نرد 200 بلا أي أثر — رد خطأ يجعل WooCommerce يعطّل الـ webhook.
+    if not connection.is_active or not merchant.is_active:
+        return HttpResponse(status=200)
+
     signature = request.headers.get("X-WC-Webhook-Signature", "")
     if not woocommerce_service.verify_webhook_signature(request.body, signature, connection.webhook_secret):
         return HttpResponse(status=401)
@@ -53,24 +59,60 @@ def webhook(request, token):
     if topic == "product.deleted":
         Product.objects.filter(merchant=merchant, external_id=external_id).delete()
     elif topic in ("product.created", "product.updated"):
-        if payload.get("type") == "variable":
-            # الإشعار فيه أرقام النسخ بس، والتوافر بيتحدد منها — منجيبها من الـ API.
-            try:
-                payload["_variations"] = woocommerce_service.fetch_variations(connection, payload.get("id"))
-            except woocommerce_service.WooCommerceError:
-                logger.warning("woo_variations_fetch_failed merchant=%s product=%s", merchant.pk, external_id)
-        row = woocommerce_service.product_row_from_payload(payload)
-        if row is not None:
-            row.pop("external_id")
-            Product.objects.update_or_create(
-                merchant=merchant, external_id=external_id, defaults=row,
-            )
-        else:
-            # المنتج صار مسودة/مخفي/بدون صورة — منشيله من الكتالوج بدل ما المساعد
-            # يعرض منتج الزبون ما بيقدر يشتريه.
-            Product.objects.filter(merchant=merchant, external_id=external_id).delete()
+        _upsert_product(merchant, external_id, payload)
 
     return HttpResponse(status=200)
+
+
+def _upsert_product(merchant, external_id, payload):
+    """نحدّث المنتج من محتوى الإشعار فقط، دون أي طلب REST إضافي يحجز رد الإشعار
+    (WooCommerce يعطّل الـ webhook بعد إخفاقات متكررة). إشعار المنتج المتغيّر لا يحمل
+    إلا أرقام النسخ؛ لذا نُبقي الخيارات المتوفرة المعروفة من آخر مزامنة (ضمن خيارات
+    المنتج الحالية)، والتحديث الكامل للنسخ تتولاه sync_woocommerce كل ساعة."""
+    variations = payload.get("variations") or []
+    if "_variations" not in payload and variations and all(isinstance(v, dict) for v in variations):
+        payload["_variations"] = variations
+    row = woocommerce_service.product_row_from_payload(payload)
+    if row is None:
+        # المنتج صار مسودة/مخفي/بدون صورة — منشيله من الكتالوج بدل ما المساعد
+        # يعرض منتج الزبون ما بيقدر يشتريه.
+        Product.objects.filter(merchant=merchant, external_id=external_id).delete()
+        return
+    row.pop("external_id")
+    if payload.get("type") == "variable" and "_variations" not in payload:
+        existing = Product.objects.filter(merchant=merchant, external_id=external_id).first()
+        if existing is not None and existing.options:
+            row["options"] = {
+                name: [v for v in (existing.options.get(name) or values) if v in values]
+                for name, values in row["options"].items()
+            }
+            row["options"] = {name: values for name, values in row["options"].items() if values}
+    Product.objects.update_or_create(merchant=merchant, external_id=external_id, defaults=row)
+
+
+def start_initial_sync(connection_pk, callback_url):
+    """المزامنة الكاملة وتسجيل الـ webhooks في الخلفية، حتى لا ينتهي وقت طلب الموظف
+    مع الكتالوجات الكبيرة (على نمط سلة وزد)."""
+    threading.Thread(target=_initial_sync, args=(connection_pk, callback_url), daemon=True).start()
+
+
+def _initial_sync(connection_pk, callback_url):
+    try:
+        from .services import catalog as catalog_service
+
+        connection = WooCommerceConnection.objects.select_related("merchant").get(pk=connection_pk)
+        # المزامنة أولاً: لو فشل تسجيل الـ webhooks (مفاتيح Read فقط مثلاً) يبقى الكتالوج جاهزاً.
+        count = catalog_service.sync_woocommerce(connection.merchant, connection)
+        try:
+            orders_ok = woocommerce_service.register_webhooks(connection, callback_url)
+        except woocommerce_service.WooCommerceError:
+            logger.warning("woo_webhook_register_failed connection=%s", connection_pk, exc_info=True)
+            orders_ok = None
+        logger.info("woo_initial_sync connection=%s products=%s order_hooks=%s", connection_pk, count, orders_ok)
+    except Exception:  # noqa: BLE001 — خيط بالخلفية، أي خطأ لازم ينسجّل بس
+        logger.exception("woo_initial_sync_failed connection=%s", connection_pk)
+    finally:
+        db_connection.close()
 
 
 def _order_created_at(payload):
