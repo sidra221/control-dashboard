@@ -78,7 +78,7 @@ PORTAL_ADMIN_TRANSLATIONS = {
     "portal_admin_quota_per_shopper_value": {"ar": "{n} في اليوم", "en": "{n} / day"},
     "portal_admin_quota_unlimited": {"ar": "بلا حد", "en": "Unlimited"},
     "portal_admin_quota_chat_calls": {"ar": "{n} استدعاء", "en": "{n} calls"},
-    "portal_admin_quota_chat_tokens": {"ar": "{n} توكن", "en": "{n} tokens"},
+    "portal_admin_quota_chat_tokens": {"ar": "{n} وحدة نصية", "en": "{n} tokens"},
     "portal_admin_quota_chat_none": {"ar": "لا يوجد استهلاك", "en": "No usage"},
     "portal_admin_quota_chat_cap_hit": {"ar": "بلغ الحد اليومي للمحادثة", "en": "Hit daily chat cap"},
 }

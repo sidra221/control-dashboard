@@ -198,7 +198,7 @@ PORTAL_TRANSLATIONS = {
 
     # ===== portal/_install_card.html — تركيب المساعد بالمتجر (توكن + سطر السكربت) =====
     "portal_install_title": {"ar": "تركيب المساعد في متجرك", "en": "Install the assistant in your store"},
-    "portal_install_step1": {"ar": "توكن متجرك", "en": "Your store token"},
+    "portal_install_step1": {"ar": "مفتاح متجرك", "en": "Your store key"},
     "portal_install_step2": {
         "ar": "أضف هذا السطر إلى صفحات متجرك",
         "en": "Add this line to your store pages",
@@ -217,7 +217,7 @@ PORTAL_TRANSLATIONS = {
         "en": "There are no products yet, and the assistant only suggests your own products. Contact us to connect your Salla, Zid or Shopify store or to upload your products.",
     },
     "portal_install_token_note": {
-        "ar": "التوكن خاص بمتجرك، فلا تضعه في متجر آخر.",
+        "ar": "هذا المفتاح خاص بمتجرك، فلا تضعه في متجر آخر.",
         "en": "This token belongs to your store; do not use it on another store.",
     },
     "portal_install_copy": {"ar": "نسخ", "en": "Copy"},
