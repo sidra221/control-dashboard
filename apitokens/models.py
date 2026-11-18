@@ -35,6 +35,11 @@ class ApiToken(models.Model):
     images_used = models.PositiveIntegerField("المستهلك بالفترة الحالية", default=0)
     period_start = models.DateTimeField("بداية الفترة الحالية", default=timezone.now)
     is_active = models.BooleanField("فعّال", default=True)
+    suspended_by_staff = models.BooleanField(
+        "موقوف من قِبل الإدارة",
+        default=False,
+        help_text="يُضبط عند إيقاف الحساب من لوحة الإدارة، ويمنع إعادة تفعيله تلقائياً عند إعادة تثبيت التطبيق أو تجديد الاشتراك",
+    )
     currency = models.CharField(
         "العملة", max_length=8, blank=True, default="",
         help_text="رمز العملة (مثلاً USD أو SAR) — بيتعبّى لحاله من Shopify",
@@ -317,6 +322,10 @@ class ZidConnection(models.Model):
     token_expires_at = models.DateTimeField(null=True, blank=True)
     tokens_refreshed_at = models.DateTimeField(null=True, blank=True)
     is_active = models.BooleanField("فعّال", default=True)
+    webhooks_registered_at = models.DateTimeField(
+        "تاريخ تسجيل إشعارات المتجر", null=True, blank=True,
+        help_text="فارغ يعني أن تسجيل إشعارات المنتجات لم ينجح بعد، وستُعاد محاولته مع المزامنة الدورية",
+    )
     last_synced_at = models.DateTimeField("آخر مزامنة", null=True, blank=True)
     created_at = models.DateTimeField("تاريخ الربط", auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)

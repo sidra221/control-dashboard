@@ -361,5 +361,6 @@ def verify_webhook_hmac(body_bytes, hmac_header, api_secret):
     if not hmac_header:
         return False
     digest = hmac.new(api_secret.encode("utf-8"), body_bytes, hashlib.sha256).digest()
-    computed = base64.b64encode(digest).decode("utf-8")
-    return hmac.compare_digest(computed, hmac_header)
+    computed = base64.b64encode(digest)
+    # bytes: هيدر فيه حروف غير ASCII كان بيرمي TypeError (500) بدل 401.
+    return hmac.compare_digest(computed, hmac_header.strip().encode("utf-8"))

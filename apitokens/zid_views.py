@@ -52,10 +52,18 @@ def callback(request):
     except zid_service.ZidError:
         logger.exception("zid_installation_failed")
         return render(request, "apitokens/zid_app.html", {"error": "exchange"}, status=502)
-    # بعد التثبيت مباشرة منبلّش أول مزامنة بالخلفية (تاسك المزامنة).
-    from .zid_webhooks import start_initial_sync
+    # بعد التثبيت مباشرة منبلّش أول مزامنة بالخلفية (تاسك المزامنة). رجعة
+    # لـ /zid/app/ بدون جلسة بتمرق من OAuth كمان — إذا الربط كان مفعّل ومتزامن
+    # وإشعاراته مسجّلة ما منعيد المزامنة الكاملة والتسجيل كل زيارة.
+    already_set_up = (
+        getattr(connection, "was_already_active", False)
+        and connection.last_synced_at is not None
+        and connection.webhooks_registered_at is not None
+    )
+    if not already_set_up:
+        from .zid_webhooks import start_initial_sync
 
-    start_initial_sync(connection.pk)
+        start_initial_sync(connection.pk)
     request.session[CONNECTION_SESSION_KEY] = connection.pk
     return redirect("zid-app")
 

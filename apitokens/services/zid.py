@@ -113,6 +113,9 @@ def complete_installation(code):
 
     with transaction.atomic():
         connection = ZidConnection.objects.select_for_update().filter(store_id=store_id).first()
+        # رجعة لتطبيق مفعّل أصلاً (مثلاً فتح /zid/app/ بدون جلسة) — الـ callback
+        # بيستخدمها ليتخطى المزامنة وتسجيل الإشعارات.
+        was_already_active = connection is not None and connection.is_active
         if connection is None:
             merchant = ApiToken.objects.create(
                 label=(store.get("title") or f"Zid {store_id}")[:120],
@@ -126,12 +129,37 @@ def complete_installation(code):
         connection.store_url = (store.get("url") or "")[:255]
         connection.is_active = True
         connection.save()
-        if not connection.merchant.is_active:
+        # إعادة التثبيت ما بتلغي إيقاف الإدارة.
+        if not connection.merchant.is_active and not connection.merchant.suspended_by_staff:
             connection.merchant.is_active = True
             connection.merchant.save(update_fields=["is_active"])
-    # اشتراك وصل قبل ما التاجر يكمّل التفعيل (زد بتقبض قبل OAuth).
-    apply_subscription(connection, new_period=True)
+    # اشتراك وصل قبل ما التاجر يكمّل التفعيل (زد بتقبض قبل OAuth). رجعة لربط
+    # مفعّل مش فترة جديدة — ما منصفّر الرصيد.
+    apply_subscription(connection, new_period=not was_already_active)
+    connection.was_already_active = was_already_active
     return connection
+
+
+def refresh_store_info(connection):
+    """رابط المتجر (والاسم) ممكن يتغيّر بعد التثبيت — مثلاً دومين خاص — والودجت
+    بيلاقي المتجر بالـ host. فشلها ما بيوقف المزامنة."""
+    try:
+        store = api_request(connection, "GET", "/managers/account/store").get("store") or {}
+    except (ZidError, ValueError, AttributeError) as exc:
+        logger.warning("zid_store_info_failed store=%s error=%s", connection.store_id, exc)
+        return False
+    fields = []
+    url = (store.get("url") or "")[:255]
+    if url and url != connection.store_url:
+        connection.store_url = url
+        fields.append("store_url")
+    name = (store.get("title") or "")[:255]
+    if name and name != connection.store_name:
+        connection.store_name = name
+        fields.append("store_name")
+    if fields:
+        connection.save(update_fields=fields + ["updated_at"])
+    return True
 
 
 def deactivate(store_id="", store_uuid=""):
@@ -146,8 +174,11 @@ def deactivate(store_id="", store_uuid=""):
     connection.authorization_token = ""
     connection.manager_token = ""
     connection.refresh_token = ""
+    # إشعارات المتجر بتنلغى مع التطبيق — إعادة التثبيت لازم تسجّلها من جديد.
+    connection.webhooks_registered_at = None
     connection.save(update_fields=[
-        "is_active", "authorization_token", "manager_token", "refresh_token", "updated_at",
+        "is_active", "authorization_token", "manager_token", "refresh_token",
+        "webhooks_registered_at", "updated_at",
     ])
     connection.merchant.is_active = False
     connection.merchant.save(update_fields=["is_active"])
@@ -295,7 +326,9 @@ def apply_subscription(connection, subscription=None, new_period=False):
             merchant.images_used = 0
             merchant.period_start = timezone.now()
             fields += ["images_used", "period_start"]
-    should_be_active = subscription.is_active and connection.is_active
+    should_be_active = (
+        subscription.is_active and connection.is_active and not merchant.suspended_by_staff
+    )
     if merchant.is_active != should_be_active:
         merchant.is_active = should_be_active
         fields.append("is_active")
@@ -446,15 +479,47 @@ def store_webhook_url(connection, event):
     return f"{settings.SITE_BASE_URL}/webhooks/zid/store/{connection.store_id}/{event}/"
 
 
+# بدونها الكتالوج ما بيتحدّث إلا بالمزامنة الدورية. order.create بدّه صلاحية
+# الطلبات، فما منعتبر فشله فشل تسجيل (وإلا منضل نعيد كل مزامنة).
+REQUIRED_STORE_WEBHOOK_EVENTS = {"product.create", "product.update", "product.publish", "product.delete"}
+
+
+def _existing_webhook_targets(connection):
+    """روابط الإشعارات المسجّلة أصلاً لهالمتجر، حتى إعادة التسجيل ما تكرّرها.
+    None إذا ما قدرنا نقرأ القائمة (منكمّل ومنعتمد على زد)."""
+    try:
+        body = api_request(connection, "GET", "/managers/webhooks")
+    except ZidError as exc:
+        logger.warning("zid_webhook_list_failed store=%s error=%s", connection.store_id, exc)
+        return None
+    items = body
+    if isinstance(body, dict):
+        items = body.get("webhooks") or body.get("results") or body.get("data") or []
+    if not isinstance(items, list):
+        return None
+    targets = set()
+    for item in items:
+        if isinstance(item, dict) and item.get("target_url"):
+            targets.add((str(item.get("event") or ""), str(item["target_url"])))
+    return targets
+
+
 def register_store_webhooks(connection):
     """إشعارات المنتجات والطلبات بتنسجّل لكل متجر عبر الـ API (صلاحية
-    Webhooks)، مع Basic Auth بكلمة سرنا حتى نتأكد إنها من زد."""
+    Webhooks)، مع Basic Auth بكلمة سرنا حتى نتأكد إنها من زد. آمنة للإعادة:
+    الحدث اللي رابطه مسجّل أصلاً ما منبعته مرة تانية. لما تنجح أحداث المنتجات
+    كلها منسجّل webhooks_registered_at، وإلا sync_zid بيعيد المحاولة."""
+    existing = _existing_webhook_targets(connection) or set()
     registered = []
     for event in STORE_WEBHOOK_EVENTS:
+        target_url = store_webhook_url(connection, event)
+        if (event, target_url) in existing:
+            registered.append(event)
+            continue
         try:
             api_request(connection, "POST", "/managers/webhooks", json_body={
                 "event": event,
-                "target_url": store_webhook_url(connection, event),
+                "target_url": target_url,
                 "original_id": settings.ZID_CLIENT_ID,
                 "username": STORE_WEBHOOK_USERNAME,
                 "password": settings.ZID_WEBHOOK_SECRET,
@@ -464,6 +529,9 @@ def register_store_webhooks(connection):
             # order.create مثلاً بدّه صلاحية الطلبات — منكمّل بالباقي.
             logger.warning("zid_webhook_register_failed store=%s event=%s error=%s",
                            connection.store_id, event, exc)
+    if REQUIRED_STORE_WEBHOOK_EVENTS.issubset(registered):
+        connection.webhooks_registered_at = timezone.now()
+        connection.save(update_fields=["webhooks_registered_at", "updated_at"])
     return registered
 
 
