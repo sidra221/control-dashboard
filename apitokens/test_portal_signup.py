@@ -172,7 +172,7 @@ class SignupValidationTests(SignupBase):
         self.assertEqual(resp.status_code, 400)
         self.assertIn("already registered", resp.content.decode())
         self.set_lang("ar")
-        self.assertIn("مسجّل من قبل", self.signup(client=self.client).content.decode())
+        self.assertIn("مسجّل مسبقاً", self.signup(client=self.client).content.decode())
 
     def test_duplicate_phone_belonging_to_account_with_store(self):
         make_account(self.b, phone=GOOD_PHONE)
@@ -244,7 +244,7 @@ class SignupThrottleTests(SignupBase):
         resp = self.signup(client=Client(), phone="+966509999999")
         self.assertEqual(resp.status_code, 429)
         self.assert_headers(resp)
-        self.assertIn("محاولات كتير", resp.content.decode())
+        self.assertIn("محاولات كثيرة", resp.content.decode())
         self.assertEqual(MerchantAccount.objects.count(), portal_auth.IP_MAX_REGISTER_POSTS)
 
     def test_failed_and_honeypot_posts_count_too(self):

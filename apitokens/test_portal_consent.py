@@ -114,7 +114,7 @@ class StaffVisibilityTests(TestCase):
         make_account(done)
         ApiToken.objects.filter(label="Done").update(terms_accepted_at="2026-11-09T10:00:00Z")
         html = self.client.get(reverse("apitokens:dashboard")).content.decode()
-        self.assertIn("ما وافق على السياسة بعد", html)
+        self.assertIn("لم يوافق على السياسة بعد", html)
         self.assertIn("وافق على السياسة بتاريخ 2026-11-09", html)
 
 

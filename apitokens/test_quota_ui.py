@@ -117,9 +117,9 @@ class QuotaCardTests(PortalCase):
         m = make_merchant(quota=100, images_used=100)
         login_portal(self.client, m)
         html = self.html("ar")
-        self.assertIn("خلص رصيد تجربة اللبس", html)
+        self.assertIn("نفد رصيد تجربة اللبس", html)
         self.assertIn("رصيدك حوض واحد مشترك بين كل زبائن متجرك", html)
-        self.assertIn("المساعد الذكي (الشات) بيضل شغّال", html)
+        self.assertIn("ويستمر المساعد الذكي (المحادثة) في العمل", html)
 
     def test_merchants_never_see_each_others_numbers(self):
         a = make_merchant("Shop A", quota=100, images_used=7)
@@ -396,7 +396,7 @@ class StaffDashboardQuotaTests(TestCase):
         make_merchant("Alpha")
         html = self.html("ar")
         self.assertIn("<th>الرصيد</th>", html)
-        self.assertIn("الشات (آخر 30 يوم)", html)
+        self.assertIn("المحادثة (آخر 30 يوماً)", html)
 
     def test_existing_buttons_still_render(self):
         m = make_merchant("Alpha")
