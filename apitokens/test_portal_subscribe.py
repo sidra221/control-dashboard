@@ -246,3 +246,19 @@ class SubscribeTests(PortalBase):
         self.assertIn("فعّل اشتراكك", html)
         self.assertIn("يتضمن الاشتراك 20 تجربة لبس شهرياً.", html)
         self.assertIn("اطلب كود الاشتراك", html)
+
+
+class SupportLinkTests(PortalBase):
+    @override_settings(SUPPORT_WHATSAPP="+966 53 030 7054")
+    def test_contact_us_opens_support_whatsapp_on_portal_and_privacy(self):
+        from .portal_testing import login_portal
+
+        store = ApiToken.objects.create(label="Z", image_quota=20, terms_accepted_version=portal_auth.PORTAL_TERMS_VERSION)
+        login_portal(self.client, store, phone="+966500000888")
+        html = self.client.get(reverse("portal:home")).content.decode()
+        self.assertIn('href="https://wa.me/966530307054"', html)  # بطاقة التركيب (ما في منتجات)
+        self.assertIn('href="https://wa.me/966530307054"', self.client.get(reverse("privacy")).content.decode())
+
+    @override_settings(SUPPORT_WHATSAPP="")
+    def test_no_number_no_link(self):
+        self.assertNotIn("wa.me", self.client.get(reverse("privacy")).content.decode())

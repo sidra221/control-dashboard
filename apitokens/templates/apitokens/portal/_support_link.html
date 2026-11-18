@@ -1,0 +1,2 @@
+{# رابط الدعم: واتساب (دايماً إذا الرقم مضبوط) والإيميل إذا موجود #}
+{% if SUPPORT_WHATSAPP_URL %}<a class="support-link" href="{{ SUPPORT_WHATSAPP_URL }}" target="_blank" rel="noopener noreferrer">{{ T.portal_support_whatsapp }}</a>{% endif %}{% if support_email %} <bdi dir="ltr"><a href="mailto:{{ support_email }}">{{ support_email }}</a></bdi>{% endif %}

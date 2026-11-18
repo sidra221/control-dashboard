@@ -57,7 +57,7 @@
     </ul>
 
     <h2>التواصل</h2>
-    <p>لأي استفسار أو طلب حذف للبيانات{% if contact_email %}، راسلنا على <a href="mailto:{{ contact_email }}">{{ contact_email }}</a>{% else %}، تواصل معنا عبر قناة الدعم الموضحة في صفحة التطبيق بمتجر التطبيقات{% endif %}.</p>
+    <p>لأي استفسار أو طلب حذف للبيانات{% if SUPPORT_WHATSAPP_URL %}، تواصل معنا عبر <a href="{{ SUPPORT_WHATSAPP_URL }}" target="_blank" rel="noopener noreferrer">واتساب</a>{% endif %}{% if contact_email %}{% if SUPPORT_WHATSAPP_URL %} أو{% else %}،{% endif %} راسلنا على <a href="mailto:{{ contact_email }}">{{ contact_email }}</a>{% endif %}{% if not SUPPORT_WHATSAPP_URL and not contact_email %}، تواصل معنا عبر قناة الدعم الموضحة في صفحة التطبيق بمتجر التطبيقات{% endif %}.</p>
   </article>
 
   <article lang="en">
@@ -94,7 +94,7 @@
     </ul>
 
     <h2>Contact</h2>
-    <p>For questions or data deletion requests{% if contact_email %}, email <a href="mailto:{{ contact_email }}">{{ contact_email }}</a>{% else %}, use the support channel listed on the app's page in the App Market{% endif %}.</p>
+    <p>For questions or data deletion requests{% if SUPPORT_WHATSAPP_URL %}, contact us on <a href="{{ SUPPORT_WHATSAPP_URL }}" target="_blank" rel="noopener noreferrer">WhatsApp</a>{% endif %}{% if contact_email %}{% if SUPPORT_WHATSAPP_URL %} or{% else %},{% endif %} email <a href="mailto:{{ contact_email }}">{{ contact_email }}</a>{% endif %}{% if not SUPPORT_WHATSAPP_URL and not contact_email %}, use the support channel listed on the app's page in the App Market{% endif %}.</p>
   </article>
 </main>
 </body>

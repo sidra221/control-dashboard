@@ -19,7 +19,7 @@
       </li>
       <li>
         <strong>{{ T.portal_install_step3 }}</strong>
-        <span class="card-note">{% if product_count %}{{ products_line }}{% else %}{{ T.portal_install_no_products }}{% endif %}{% if support_email %} <bdi dir="ltr"><a href="mailto:{{ support_email }}">{{ support_email }}</a></bdi>{% endif %}</span>
+        <span class="card-note">{% if product_count %}{{ products_line }}{% else %}{{ T.portal_install_no_products }}{% endif %}{% if not product_count %} {% include "apitokens/portal/_support_link.html" %}{% endif %}</span>
       </li>
     </ol>
   </details>

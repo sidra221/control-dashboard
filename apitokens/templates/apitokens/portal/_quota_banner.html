@@ -6,6 +6,6 @@
   {% else %}
   <strong>{{ T.portal_quota_low_title }}</strong> {{ quota.banner_text }}
   {% endif %}
-  {% if support_email %}<bdi dir="ltr"><a href="mailto:{{ support_email }}">{{ support_email }}</a></bdi>{% endif %}
+  {% include "apitokens/portal/_support_link.html" %}
 </div>
 {% endif %}

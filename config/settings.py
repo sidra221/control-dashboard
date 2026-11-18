@@ -193,6 +193,8 @@ ZID_PLAN_QUOTAS = json.loads(
 
 # إيميل الدعم اللي بيظهر بصفحة سياسة الخصوصية (/privacy/).
 SUPPORT_EMAIL = os.environ.get("SUPPORT_EMAIL", "").strip()
+# رقم واتساب التواصل (بصيغة دولية بدون +) — بيظهر بالصفحة التسويقية /welcome/.
+SUPPORT_WHATSAPP = os.environ.get("SUPPORT_WHATSAPP", "966530307054").strip()
 # هيدر عنوان الزبون الحقيقي لحد محاولات دخول التاجر (مثلاً HTTP_X_REAL_IP خلف nginx). فاضي = REMOTE_ADDR.
 PORTAL_CLIENT_IP_HEADER = os.environ.get("PORTAL_CLIENT_IP_HEADER", "").strip()
 

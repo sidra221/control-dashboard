@@ -223,6 +223,8 @@ PORTAL_TRANSLATIONS = {
     "portal_install_copy": {"ar": "نسخ", "en": "Copy"},
     "portal_install_copied": {"ar": "تم النسخ ✓", "en": "Copied ✓"},
 
+    "portal_support_whatsapp": {"ar": "تواصل معنا عبر واتساب", "en": "Contact us on WhatsApp"},
+
     # ===== portal/pending.html — صفحة الاشتراك (حساب موثّق بلا متجر) =====
     "portal_pending_title": {"ar": "فعّل اشتراكك", "en": "Activate your subscription"},
     "portal_pending_sub": {"ar": "خطوة أخيرة لتشغيل الخدمة في متجرك", "en": "One last step to run the service in your store"},
