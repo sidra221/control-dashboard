@@ -35,6 +35,8 @@
       <dt>المنتجات المتزامنة</dt><dd>{{ product_count }}</dd>
       <dt>آخر مزامنة</dt><dd>{% if connection.last_synced_at %}{{ connection.last_synced_at|date:"Y-m-d H:i" }}{% else %}جارية الآن{% endif %}</dd>
     </dl>
+    <p style="margin-top:20px">من لوحة متجرك تتابع تجارب اللبس والطلبات والمبيعات التي جاءت بعدها، ورصيدك من الصور.</p>
+    <a class="btn" href="{% url 'zid-portal-entry' %}" target="_blank" rel="noopener">افتح لوحة متجرك</a>
   {% else %}
     <span class="status err">تعذّر التفعيل</span>
     {% if error == "denied" %}

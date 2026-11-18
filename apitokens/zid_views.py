@@ -8,7 +8,8 @@ from django.conf import settings
 from django.shortcuts import redirect, render
 from django.views.decorators.http import require_GET
 
-from .models import ZidConnection
+from . import portal_auth
+from .models import MerchantAccount, ZidConnection
 from .services import zid as zid_service
 
 logger = logging.getLogger(__name__)
@@ -84,3 +85,23 @@ def app(request):
         "apitokens/zid_app.html",
         {"connection": connection, "product_count": connection.merchant.products.count()},
     )
+
+
+@require_GET
+def portal_entry(request):
+    """زر "افتح لوحة متجرك" بصفحة التطبيق: صاحب متجر زد (جلسة OAuth) بيوصل للوحته بدون متجر تجريبي مكرر.
+    بلا حساب ← دعوة جديدة لنفس المتجر وتحويل لصفحة التسجيل (رقم + كود واتساب، بينربط بالمتجر نفسه).
+    عنده حساب ← صفحة الدخول. GET لأن الصفحة غالباً جوّا إطار زد وبتفتح بتبويب جديد؛ الدعوة ما بترجع
+    إلا لمتصفح صاحب الجلسة نفسه."""
+    connection = (
+        ZidConnection.objects.filter(pk=request.session.get(CONNECTION_SESSION_KEY), is_active=True)
+        .select_related("merchant")
+        .first()
+    )
+    if connection is None or not connection.merchant.is_active:
+        return redirect("zid-install")
+    merchant = connection.merchant
+    if MerchantAccount.objects.filter(merchant=merchant).exists():
+        return redirect("portal:login")
+    key = portal_auth.generate_portal_key(merchant)
+    return redirect("portal:enter", key=key)
