@@ -177,6 +177,7 @@ class PhoneOtp(models.Model):
 
     PURPOSE_VERIFY = "verify"        # توثيق رقم الحساب
     PURPOSE_SUBSCRIBE = "subscribe"  # كود الاشتراك: إدخاله بينشئ متجر للحساب
+    PURPOSE_RESET = "reset"          # إعادة تعيين كلمة مرور منسية (حساب موثّق فقط)
 
     account = models.ForeignKey(MerchantAccount, on_delete=models.CASCADE, related_name="otps")
     purpose = models.CharField(max_length=16, default=PURPOSE_VERIFY)

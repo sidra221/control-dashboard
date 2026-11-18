@@ -10,6 +10,8 @@
 - كود الاشتراك (purpose=subscribe): نفس الإرسال والحماية والتهدئة (مشتركة مع كود التوثيق لنفس الرقم)،
   بس 8 حروف/أرقام وصالح 30 دقيقة. إدخاله الصح بينشئ متجر (ApiToken) برصيد PORTAL_TRIAL_IMAGE_QUOTA
   وبيربطه بالحساب — مرة وحدة: الحساب المربوط ما بياخد كود تاني.
+- كود إعادة تعيين كلمة المرور (purpose=reset): لحساب فعّال موثّق بس، 6 أرقام، نفس المدة والمحاولات
+  والتهدئة. إدخاله الصح بيغيّر كلمة المرور بس (ما بيوثّق رقم ولا بيفعّل اشتراك). انظر portal_reset.py.
 - أخطاء الإعداد/الرصيد/الرموز الدائمة: المستخدم بيشوف رسالة عامة، والتفاصيل بالـ log (الرقم مخفي والكود أبداً).
 
 استيراد هالملف من portal_auth بيصير متأخر (جوّا دالة) لأنه بيستورد portal_auth.
@@ -253,6 +255,23 @@ def send_subscription_code(account, store_name, lang, request_ip):
     )
 
 
+def reset_eligible(account):
+    """بس الحساب الفعّال والموثّق (ومتجره فعّال إن وُجد) بياخد كود إعادة تعيين كلمة المرور."""
+    if not (account.is_active and account.phone_verified):
+        return False
+    return account.merchant_id is None or ApiToken.objects.filter(pk=account.merchant_id, is_active=True).exists()
+
+
+def send_reset_code(account, lang, request_ip):
+    """كود إعادة تعيين كلمة المرور (6 أرقام، نفس مدة وصلاحية كود التوثيق) لحساب موثّق. نفس نتائج send_code.
+    الصفحة ما بتعرض النتيجة أبداً للمستخدم (منع كشف الحسابات)."""
+    return _send(
+        account, lang, request_ip,
+        purpose=PhoneOtp.PURPOSE_RESET, store_name="", ttl=OTP_TTL, make_code=generate_code,
+        done=lambda locked: None if reset_eligible(locked) else UNAVAILABLE,
+    )
+
+
 def _send(account, lang, request_ip, *, purpose, store_name, ttl, make_code, done):
     backend = settings.PORTAL_OTP_BACKEND
     if backend == "console" and not settings.DEBUG:
@@ -403,6 +422,44 @@ def activate_subscription(account, raw_code):
         locked.save(update_fields=["merchant"])
         logger.info("portal subscription activated: account=%s merchant=%s", locked.pk, merchant.pk)
         return V_OK, merchant
+
+
+def reset_password(account, raw_code, password_hash):
+    """بيتحقق من كود إعادة التعيين، ولو صح بيحط كلمة المرور الجديدة (hash جاهز) وبيصفّر قفل الدخول وبيستهلك
+    كل أكواد الإعادة المفتوحة. نفس نتائج verify_code؛ المحاولة بتنعدّ تحت select_for_update. كود التوثيق
+    أو الاشتراك ما بينفع هون، وكود الإعادة ما بيوثّق رقم ولا بيفعّل اشتراك (الفلترة بالـ purpose)."""
+    code = normalize_code(raw_code)
+    now = timezone.now()
+    with transaction.atomic():
+        locked = MerchantAccount.objects.select_for_update().filter(pk=account.pk).first()
+        if locked is None or not reset_eligible(locked):
+            return V_NONE
+        otp = _latest_open(locked, PhoneOtp.PURPOSE_RESET)
+        if otp is None:
+            return V_NONE
+        if otp.expires_at <= now:
+            return V_EXPIRED
+        if otp.attempts >= MAX_ATTEMPTS:
+            return V_EXHAUSTED
+        if code is None:
+            return V_WRONG  # صيغة غلط: ما بتنعدّ
+        otp.attempts += 1
+        if not hmac.compare_digest(otp.code_hash, hash_code(otp.pk, code)):
+            otp.save(update_fields=["attempts"])
+            return V_EXHAUSTED if otp.attempts >= MAX_ATTEMPTS else V_WRONG
+        otp.consumed_at = now
+        otp.save(update_fields=["attempts", "consumed_at"])
+        PhoneOtp.objects.filter(
+            account=locked, purpose=PhoneOtp.PURPOSE_RESET, consumed_at__isnull=True
+        ).update(consumed_at=now)
+        # hash جديد = بصمة جلسة جديدة: كل الجلسات القديمة بتبطل عالطلب الجاي
+        locked.password = password_hash
+        locked.failed_logins = 0
+        locked.locked_until = None
+        locked.last_login_at = now
+        locked.save(update_fields=["password", "failed_logins", "locked_until", "last_login_at"])
+        logger.info("portal password reset: account=%s", locked.pk)
+        return V_OK
 
 
 def last_store_name(account):

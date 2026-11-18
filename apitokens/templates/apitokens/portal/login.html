@@ -13,7 +13,7 @@
       {% include "apitokens/portal/_field.html" with id="password" name="password" type="password" label=T.portal_login_password autocomplete="current-password" maxlength="1024" %}
       <button type="submit" class="btn-primary block">{{ T.portal_login_button }}</button>
     </form>
-    <p class="card-note" style="margin-top:16px">{{ T.portal_login_forgot }}</p>
+    <p class="card-note" style="margin-top:16px"><a href="{% url 'portal:password_forgot' %}" class="forgot-link" style="color:var(--accent);font-weight:600;text-decoration:none">{{ T.portal_reset_link }}</a> {{ T.portal_login_forgot }}</p>
     <p class="auth-alt"><a href="{% url 'portal:register' %}">{{ T.portal_login_create_account }}</a></p>
   </div>
 {% endblock %}

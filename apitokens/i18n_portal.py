@@ -113,8 +113,8 @@ PORTAL_TRANSLATIONS = {
     "portal_login_password": {"ar": "كلمة المرور", "en": "Password"},
     "portal_login_button": {"ar": "دخول", "en": "Sign in"},
     "portal_login_forgot": {
-        "ar": "نسيت كلمة المرور؟ اطلب من مزوّد المتجر رابط تسجيل جديد.",
-        "en": "Forgot your password? Ask the store provider for a new registration link.",
+        "ar": "يمكنك تعيين كلمة مرور جديدة برمز يصلك عبر واتساب.",
+        "en": "You can set a new one with a code we send to your WhatsApp.",
     },
     "portal_login_create_account": {"ar": "إنشاء حساب جديد", "en": "Create an account"},
     "portal_login_err_generic": {
@@ -428,5 +428,68 @@ PORTAL_TRANSLATIONS = {
     "portal_quota_set_error": {
         "ar": "القيمة غير صالحة، ولم يتغيّر شيء. اختر قيمة من القائمة.",
         "en": "That value is not valid and nothing was changed. Pick one from the list.",
+    },
+
+    # ===== portal password reset =====
+    "portal_reset_link": {"ar": "نسيت كلمة المرور؟", "en": "Forgot your password?"},
+    "portal_reset_forgot_title": {"ar": "استعادة كلمة المرور", "en": "Reset your password"},
+    "portal_reset_forgot_sub": {
+        "ar": "سنرسل رمز إعادة التعيين إلى رقم واتساب المسجّل في حسابك",
+        "en": "We will send a reset code to the WhatsApp number on your account",
+    },
+    "portal_reset_phone": {"ar": "رقم الهاتف", "en": "Phone number"},
+    "portal_reset_phone_hint": {
+        "ar": "الرقم الذي تسجّل الدخول به، مع رمز الدولة، مثل ⁦+966501234567⁩",
+        "en": "The number you sign in with, including the country code, e.g. +966501234567",
+    },
+    "portal_reset_send_button": {"ar": "إرسال الرمز", "en": "Send code"},
+    "portal_reset_back_login": {"ar": "العودة إلى تسجيل الدخول", "en": "Back to sign in"},
+    "portal_reset_err_phone": {
+        "ar": "أدخل الرقم مع رمز الدولة، مثل ⁦+966501234567⁩.",
+        "en": "Enter the number with its country code, e.g. +966501234567.",
+    },
+    "portal_reset_err_throttled": {
+        "ar": "عدد الطلبات كبير. يُرجى المحاولة مرة أخرى بعد قليل.",
+        "en": "Too many requests. Please try again later.",
+    },
+    "portal_reset_title": {"ar": "تعيين كلمة مرور جديدة", "en": "Set a new password"},
+    "portal_reset_sub": {
+        "ar": "أدخل الرمز الذي وصلك عبر واتساب، ثم اختر كلمة مرور جديدة",
+        "en": "Enter the code you received on WhatsApp, then choose a new password",
+    },
+    "portal_reset_sent_prefix": {
+        "ar": "إذا كان هناك حساب موثّق مسجّل بالرقم",
+        "en": "If a verified account is registered to",
+    },
+    "portal_reset_sent_suffix": {
+        "ar": "، فقد أرسلنا إليه رمزًا من 6 أرقام عبر واتساب.",
+        "en": ", we have sent a 6-digit code to it on WhatsApp.",
+    },
+    "portal_reset_delivery_note": {
+        "ar": "قد يستغرق وصول الرسالة دقيقة، ولا يمكن طلب رمز جديد إلا بعد مهلة قصيرة.",
+        "en": "The message can take a minute to arrive. A new code can only be requested after a short wait.",
+    },
+    "portal_reset_code_label": {"ar": "رمز إعادة التعيين", "en": "Reset code"},
+    "portal_reset_code_hint": {"ar": "6 أرقام، صالح لمدة 10 دقائق", "en": "6 digits, valid for 10 minutes"},
+    "portal_reset_code_title": {"ar": "6 أرقام", "en": "6 digits"},
+    "portal_reset_password": {"ar": "كلمة المرور الجديدة", "en": "New password"},
+    "portal_reset_password_hint": {
+        "ar": "8 أحرف على الأقل، ويجب ألّا تكون سهلة التخمين",
+        "en": "At least 8 characters, and not easy to guess",
+    },
+    "portal_reset_password_confirm": {"ar": "تأكيد كلمة المرور الجديدة", "en": "Confirm new password"},
+    "portal_reset_button": {"ar": "حفظ كلمة المرور وتسجيل الدخول", "en": "Save password and sign in"},
+    "portal_reset_resend": {"ar": "لم يصلك الرمز؟ اطلب رمزًا جديدًا", "en": "No code? Request a new one"},
+    "portal_reset_err_wrong": {
+        "ar": "الرمز غير صحيح. تحقّق منه وأعد المحاولة.",
+        "en": "That code is incorrect. Check it and try again.",
+    },
+    "portal_reset_err_expired": {
+        "ar": "الرمز غير صالح أو انتهت صلاحيته. اطلب رمزًا جديدًا.",
+        "en": "This code is invalid or has expired. Request a new one.",
+    },
+    "portal_reset_err_exhausted": {
+        "ar": "تجاوزت عدد المحاولات المسموح به. اطلب رمزًا جديدًا.",
+        "en": "Too many incorrect attempts. Request a new code.",
     },
 }
