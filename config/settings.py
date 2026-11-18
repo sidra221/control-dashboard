@@ -223,6 +223,8 @@ QUOTA_DAILY_MIN = int(os.environ.get("QUOTA_DAILY_MIN", "5"))
 QUOTA_RESERVATION_TTL_SECONDS = int(os.environ.get("QUOTA_RESERVATION_TTL_SECONDS", "180"))
 # حد عادل للشات لكل زبون باليوم (الشات مشمول بسعر الاشتراك فما بيستهلك من الرصيد).
 CHAT_MAX_MESSAGES_PER_SHOPPER_DAY = int(os.environ.get("CHAT_MAX_MESSAGES_PER_SHOPPER_DAY", "150"))
+# سقف رسائل الشات لكل متجر باليوم (يحدّ كلفة الـLLM)؛ بعده الودجت بيرد برسالة ثابتة بلا استدعاء.
+CHAT_MAX_MESSAGES_PER_STORE_DAY = int(os.environ.get("CHAT_MAX_MESSAGES_PER_STORE_DAY", "2000"))
 # حدود الطلبات (نافذة ثابتة): اسم الحد ← (عدد الطلبات، مدة النافذة بالثواني).
 RATE_LIMITS = {
     "tryon_ip": (6, 60),

@@ -80,4 +80,5 @@ PORTAL_ADMIN_TRANSLATIONS = {
     "portal_admin_quota_chat_calls": {"ar": "{n} استدعاء", "en": "{n} calls"},
     "portal_admin_quota_chat_tokens": {"ar": "{n} توكن", "en": "{n} tokens"},
     "portal_admin_quota_chat_none": {"ar": "ما في استهلاك", "en": "No usage"},
+    "portal_admin_quota_chat_cap_hit": {"ar": "بلغ الحد اليومي للمحادثة", "en": "Hit daily chat cap"},
 }
