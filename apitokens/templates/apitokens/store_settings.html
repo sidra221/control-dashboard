@@ -1,0 +1,96 @@
+{% extends "apitokens/base.html" %}
+
+{% block title %}{{ T.store_settings_title_prefix }}{{ merchant.label }} — Control{% endblock %}
+{% block page_title %}{{ T.store_settings_title_prefix }}<bdi>{{ merchant.label }}</bdi>{% endblock %}
+{% block page_sub %}{{ T.store_settings_sub }}{% endblock %}
+{% block header_links %}
+  <a class="back" href="{% url 'apitokens:catalog' merchant.pk %}">{{ T.manual_catalog_link }}</a>
+  <a class="back" href="{% url 'apitokens:dashboard' %}">{{ T.back_to_tokens }}</a>
+{% endblock %}
+
+{% block content %}
+  <style>
+    .settings-form { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 14px; align-items: start; }
+    .settings-form .wide { grid-column: 1 / -1; }
+    .settings-form textarea { padding: 11px 14px; border-radius: 10px; border: 1px solid var(--border); font: inherit; font-size: 14px; background: var(--bg); color: var(--text); min-height: 160px; }
+    .settings-form small, .action-form small { color: var(--muted); font-size: 12px; }
+    .action-form { display: flex; gap: 14px; align-items: end; flex-wrap: wrap; }
+  </style>
+
+  <div class="card" id="usage">
+    <h2>{{ T.store_settings_usage_title }}</h2>
+    <p>{{ usage.line }}</p>
+    {% if usage.expired %}
+      <p class="card-note">{{ T.store_settings_period_expired }}</p>
+    {% else %}
+      <p class="card-note">{{ T.store_settings_period_start }} <bdi dir="ltr">{{ usage.period_start|date:"Y-m-d H:i" }}</bdi> · {{ T.store_settings_period_ends }} <bdi dir="ltr">{{ usage.resets_at|date:"Y-m-d H:i" }}</bdi></p>
+    {% endif %}
+  </div>
+
+  <div class="card" id="settings">
+    <h2>{{ T.store_settings_form_title }}</h2>
+    <form class="settings-form" method="post" action="{% url 'apitokens:store-settings' merchant.pk %}">
+      {% csrf_token %}
+      <div class="field">
+        <label for="label">{{ T.store_settings_label }}</label>
+        <input type="text" id="label" name="label" maxlength="{{ limits.label }}" required value="{{ form.label }}">
+      </div>
+      <div class="field">
+        <label for="image_quota">{{ T.store_settings_quota }}</label>
+        <input type="number" id="image_quota" name="image_quota" min="1" max="{{ limits.quota }}" required value="{{ form.image_quota }}" dir="ltr">
+      </div>
+      <div class="field">
+        <label for="period">{{ T.store_settings_period }}</label>
+        <select id="period" name="period">
+          {% for value, display in periods %}
+            <option value="{{ value }}" {% if value == form.period %}selected{% endif %}>{{ display }}</option>
+          {% endfor %}
+        </select>
+        <small>{{ T.store_settings_period_note }}</small>
+      </div>
+      <div class="field">
+        <label for="currency">{{ T.store_settings_currency }}</label>
+        <input type="text" id="currency" name="currency" maxlength="3" placeholder="SAR" value="{{ form.currency }}" dir="ltr">
+        <small>{{ T.store_settings_currency_help }}</small>
+      </div>
+      <div class="field">
+        <label for="tryons_per_shopper">{{ T.store_settings_per_shopper }}</label>
+        <select id="tryons_per_shopper" name="tryons_per_shopper">
+          {% for choice in shopper_choices %}
+            <option value="{{ choice.value }}" {% if choice.value == form.tryons_per_shopper %}selected{% endif %}>{{ choice.label }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="field wide">
+        <label for="store_info">{{ T.store_settings_store_info }}</label>
+        <textarea id="store_info" name="store_info" rows="8" maxlength="{{ limits.info }}">{{ form.store_info }}</textarea>
+        <small>{{ T.store_settings_store_info_help }}</small>
+      </div>
+      <div class="wide">
+        <button type="submit" class="btn-primary">{{ T.store_settings_save }}</button>
+      </div>
+    </form>
+  </div>
+
+  <div class="card" id="topup">
+    <h2>{{ T.store_settings_topup_title }}</h2>
+    <p class="card-note">{{ T.store_settings_topup_help }}</p>
+    <form class="action-form" method="post" action="{% url 'apitokens:store-topup' merchant.pk %}">
+      {% csrf_token %}
+      <div class="field">
+        <label for="amount">{{ T.store_settings_topup_amount }}</label>
+        <input type="number" id="amount" name="amount" min="1" max="{{ limits.topup }}" required dir="ltr"{% if not usage.can_topup %} disabled{% endif %}>
+      </div>
+      <button type="submit" class="btn-primary"{% if not usage.can_topup %} disabled{% endif %}>{{ T.store_settings_topup_btn }}</button>
+    </form>
+  </div>
+
+  <div class="card" id="new-period">
+    <h2>{{ T.store_settings_new_period_title }}</h2>
+    <p class="card-note">{{ T.store_settings_new_period_help }}</p>
+    <form method="post" action="{% url 'apitokens:store-new-period' merchant.pk %}" onsubmit="return confirm('{{ T.store_settings_new_period_confirm|escapejs }}')">
+      {% csrf_token %}
+      <button type="submit" class="btn-toggle">{{ T.store_settings_new_period_btn }}</button>
+    </form>
+  </div>
+{% endblock %}

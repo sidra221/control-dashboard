@@ -1,6 +1,6 @@
 from django.contrib import admin
 
-from .models import ApiToken, Conversation, Product, ShopifyConnection, WooCommerceConnection
+from .models import ApiToken, Conversation, MerchantAccount, Product, ShopifyConnection, WooCommerceConnection
 
 
 @admin.register(ApiToken)
@@ -59,3 +59,20 @@ class ConversationAdmin(admin.ModelAdmin):
     list_filter = ("merchant",)
     search_fields = ("session_id", "order_id")
     readonly_fields = ("started_at", "updated_at")
+
+
+@admin.register(MerchantAccount)
+class MerchantAccountAdmin(admin.ModelAdmin):
+    """Merchant portal logins. The password hash is never shown or editable here: the model field is
+    editable=False (so no form field) and it is excluded explicitly; staff only see whether one is set."""
+
+    list_display = ("phone", "name", "merchant", "phone_verified", "is_active", "last_login_at", "created_at")
+    list_filter = ("phone_verified", "is_active")
+    search_fields = ("phone", "name")
+    list_select_related = ("merchant",)
+    exclude = ("password",)
+    readonly_fields = ("password_status", "phone_verified_at", "last_login_at", "created_at")
+
+    @admin.display(description="كلمة المرور")
+    def password_status(self, obj):
+        return "مُعيَّنة (مُشفَّرة، لا تُعرض)" if obj.password else "غير مُعيَّنة"

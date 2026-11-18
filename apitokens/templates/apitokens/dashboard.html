@@ -130,6 +130,22 @@
 
   <div class="card">
     <h2>{{ T.current_tokens }}</h2>
+    <form class="upload" method="get" action="{% url 'apitokens:dashboard' %}" role="search" id="stores-search" style="margin-bottom:14px">
+      <div class="field">
+        <label for="stores-q">{{ T.stores_search_label }}</label>
+        <input type="search" id="stores-q" name="q" value="{{ store_filter.q }}" maxlength="120" placeholder="{{ T.stores_search_placeholder }}">
+      </div>
+      <div class="field">
+        <label for="stores-status">{{ T.stores_filter_label }}</label>
+        <select id="stores-status" name="status">
+          <option value="">{{ T.stores_filter_all }}</option>
+          <option value="active" {% if store_filter.status == "active" %}selected{% endif %}>{{ T.stores_filter_active }}</option>
+          <option value="inactive" {% if store_filter.status == "inactive" %}selected{% endif %}>{{ T.stores_filter_inactive }}</option>
+        </select>
+      </div>
+      <button type="submit" class="btn-primary">{{ T.stores_search_btn }}</button>
+      {% if store_filter.active %}<a class="btn-toggle" href="{% url 'apitokens:dashboard' %}">{{ T.stores_search_clear }}</a>{% endif %}
+    </form>
     {% if tokens %}
     <div class="table-scroll">
     <table>
@@ -145,6 +161,7 @@
           <th>{{ T.th_status }}</th>
           <th>{{ T.th_created }}</th>
           <th>{{ T.portal_admin_th }}</th>
+          <th></th>
           <th></th>
           <th></th>
           <th></th>
@@ -203,6 +220,9 @@
             {% endif %}
           </td>
           <td>
+            <a class="btn-toggle" href="{% url 'apitokens:store-settings' t.pk %}">{{ T.store_settings_btn }}</a>
+          </td>
+          <td>
             <a class="btn-toggle" href="{% url 'apitokens:catalog' t.pk %}">{{ T.th_catalog }} ({{ t.product_count }})</a>
           </td>
           <td>
@@ -236,6 +256,8 @@
       </tbody>
     </table>
     </div>
+    {% elif store_filter.active %}
+    <p class="empty" id="stores-search-empty">{{ T.stores_search_empty }}</p>
     {% else %}
     <p class="empty"><span class="ico">🗂️</span>{{ T.empty_tokens }}</p>
     {% endif %}
