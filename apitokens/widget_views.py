@@ -25,6 +25,9 @@ MAX_MESSAGE_CHARS = 2000
 MAX_RECOMMENDATIONS_PER_TURN = 3
 MAX_SHOWN_SKUS = 50
 CHAT_DAY_SECONDS = 24 * 3600
+CHAT_STORE_DAY_KEY = "chatstore"
+# موجود بنافذة اليوم = المتجر وصل سقفه اليومي (منه بيقرا داشبورد الستاف كمان).
+CHAT_STORE_CAP_LOGGED_KEY = "chatstorecap"
 SESSION_ID_PATTERN = re.compile(r"^[A-Za-z0-9_-]{8,64}$")
 WIDGET_EVENTS = {"buy_click": "buy_clicks", "add_to_cart": "add_to_carts"}
 
@@ -114,6 +117,11 @@ CARD_FALLBACK_REPLY = {
 FALLBACK_REPHRASE_REPLY = {
     "ar": "ممكن تعيد سؤالك بطريقة ثانية؟",
     "en": "Could you rephrase that for me?",
+}
+# المتجر وصل سقف رسائل الشات اليومي (CHAT_MAX_MESSAGES_PER_STORE_DAY): رد ثابت بدون استدعاء LLM.
+STORE_DAILY_CAP_REPLY = {
+    "ar": "المعذرة، المساعد ما يقدر يرد الحين 🙏 تقدر تتصفح المنتجات وترجع لنا بعد شوي.",
+    "en": "Sorry, our assistant can't reply right now 🙏 Feel free to browse the products and check back a bit later.",
 }
 
 ARABIC_CHAR_PATTERN = re.compile(r"[؀-ۿ]")
@@ -1100,6 +1108,23 @@ def _llm_chat(merchant, *args, **kwargs):
     return result
 
 
+def _store_daily_cap_response(merchant, clean_messages):
+    # تنبيه الستاف مرة وحدة باليوم لكل متجر: حد بعدّاد 1 على نفس RateBucket (ذرّي بين الـworkers).
+    first, _ = ratelimit.hit_key(f"{CHAT_STORE_CAP_LOGGED_KEY}:{merchant.pk}", 1, CHAT_DAY_SECONDS)
+    if first:
+        logger.error("chat_store_daily_cap_reached merchant=%s", merchant.pk)
+    return _cors_response(
+        {
+            "ok": True,
+            "reply": STORE_DAILY_CAP_REPLY[_customer_lang(clean_messages)],
+            "recommendation": None,
+            "recommendations": [],
+            "discount_offer": None,
+            "size_advice": None,
+        }
+    )
+
+
 def _rate_limited(retry_after):
     return _cors_response(
         {"ok": False, "error": "rate_limited", "retry_after_seconds": retry_after}, status=429,
@@ -1178,6 +1203,12 @@ def chat(request):
         return _cors_response(
             {"ok": False, "error": "chat_limit_reached", "retry_after_seconds": retry_after}, status=429,
         )
+    # سقف يومي للمتجر كله (يحدّ كلفة الـLLM): بعده رد ثابت بشكل الرد العادي و200 حتى الودجت يعرضه.
+    allowed, _ = ratelimit.hit_key(
+        f"{CHAT_STORE_DAY_KEY}:{merchant.pk}", settings.CHAT_MAX_MESSAGES_PER_STORE_DAY, CHAT_DAY_SECONDS,
+    )
+    if not allowed:
+        return _store_daily_cap_response(merchant, clean_messages)
     raw_shown = body.get("shown_skus") if isinstance(body.get("shown_skus"), list) else []
     shown_skus = [str(s)[:64] for s in raw_shown if isinstance(s, (str, int))][:MAX_SHOWN_SKUS]
 

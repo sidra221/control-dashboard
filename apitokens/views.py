@@ -18,7 +18,7 @@ from django.views.decorators.http import require_http_methods
 from . import portal_auth
 from .i18n import LANGUAGES, t
 from .models import (
-    ApiToken, Conversation, DiscountCode, LlmUsage, MerchantAccount, PhoneOtp, Product, SallaConnection, ShopifyConnection, SizeChart, WooCommerceConnection, ZidConnection,
+    ApiToken, Conversation, DiscountCode, LlmUsage, MerchantAccount, PhoneOtp, Product, RateBucket, SallaConnection, ShopifyConnection, SizeChart, WooCommerceConnection, ZidConnection,
     ZidSubscription,
 )
 from .services import catalog as catalog_service
@@ -80,9 +80,11 @@ def dashboard(request):
     tokens, store_filter = _apply_store_filter(request, tokens)
     now = timezone.now()
     chat = _chat_usage_by_store(now)
+    capped = _chat_cap_hit_store_ids(now)
     for tok in tokens:
         tok.portal = portal_auth.portal_status(tok, now)
         tok.quota = _staff_quota(tok, chat.get(tok.pk), now, lang)
+        tok.quota["chat_cap_hit"] = tok.pk in capped
     pending_accounts = list(MerchantAccount.objects.filter(merchant__isnull=True).order_by("created_at"))
     # آخر كود تحقق لكل حساب معلّق (للستاف: حالة التسليم بس، ما في كود ولا hash)
     last_otp = {}
@@ -133,6 +135,18 @@ def _chat_usage_by_store(now):
         r["merchant_id"]: {"calls": r["calls"] or 0, "tokens": (r["input_tokens"] or 0) + (r["output_tokens"] or 0)}
         for r in rows
     }
+
+
+def _chat_cap_hit_store_ids(now):
+    """المتاجر اللي وصلت سقف الشات اليومي (CHAT_MAX_MESSAGES_PER_STORE_DAY) خلال آخر 24 ساعة:
+    علامة الوصول بالشات بتنسجّل كـ RateBucket مرة وحدة بنافذة اليوم."""
+    from .widget_views import CHAT_DAY_SECONDS, CHAT_STORE_CAP_LOGGED_KEY
+
+    prefix = CHAT_STORE_CAP_LOGGED_KEY + ":"
+    keys = RateBucket.objects.filter(
+        key__startswith=prefix, window_start__gt=now - timedelta(seconds=CHAT_DAY_SECONDS),
+    ).values_list("key", flat=True)
+    return {int(k[len(prefix):]) for k in keys if k[len(prefix):].isdigit()}
 
 
 def _staff_quota(tok, chat, now, lang):
