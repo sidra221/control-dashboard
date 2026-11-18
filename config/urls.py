@@ -1,7 +1,7 @@
 from django.contrib import admin
 from django.urls import include, path
 
-from apitokens import demo_views
+from apitokens import demo_views, landing_views
 from apitokens import salla_webhooks, shopify_webhooks, widget_views, woocommerce_webhooks, zid_views, zid_webhooks
 
 admin.site.site_header = "Control — kie.ai Tokens"
@@ -32,6 +32,8 @@ urlpatterns = [
     path("zid/callback/", zid_views.callback, name="zid-callback"),
     path("zid/app/", zid_views.app, name="zid-app"),
     path("privacy/", zid_views.privacy, name="privacy"),
+    # الصفحة التسويقية العامة (PEPLO)
+    path("welcome/", landing_views.landing, name="landing"),
     path("webhooks/zid/app/", zid_webhooks.app_webhook, name="zid-app-webhook"),
     path("webhooks/zid/store/<str:store_id>/<str:event>/", zid_webhooks.store_webhook, name="zid-store-webhook"),
     # متجر الديمو (متجر وهمي لعرض الويدجت) — 404 إذا DEMO_STORE_KEY فاضي
