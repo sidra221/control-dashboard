@@ -2,7 +2,9 @@ import base64
 import hashlib
 import hmac
 import html
+import ipaddress
 import re
+import socket
 import time
 from decimal import Decimal, InvalidOperation
 from urllib.parse import urlsplit
@@ -12,6 +14,10 @@ import requests
 from .sync_guard import CatalogIncomplete
 
 REQUEST_TIMEOUT_SECONDS = 20
+# حذف الـ webhooks عند فصل الربط "أفضل محاولة": مهلة قصيرة حتى لا يتعطّل طلب الموظف.
+CLEANUP_TIMEOUT_SECONDS = 5
+# 429: نلتزم بـ Retry-After (بالثواني) ضمن هذا السقف، وإلا تراجع أُسّي 1، 2، 4...
+MAX_RETRY_AFTER_SECONDS = 30
 PRODUCTS_PER_PAGE = 100
 MAX_PAGES = 500  # سقف أمان (50,000 منتج) ضد pagination خربان
 PRODUCT_WEBHOOK_TOPICS = ["product.created", "product.updated", "product.deleted"]
@@ -61,9 +67,56 @@ def normalize_site_url(value):
     return f"https://{parts.netloc.lower()}{path.rstrip('/')}"
 
 
-def _request(connection, method, path, params=None, json_body=None, max_throttle_retries=3):
+def _ip_is_public(ip):
+    if isinstance(ip, ipaddress.IPv6Address) and ip.ipv4_mapped is not None:
+        ip = ip.ipv4_mapped
+    return not (
+        ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_multicast
+        or ip.is_reserved or ip.is_unspecified or not ip.is_global
+    )
+
+
+def assert_public_host(site_url):
+    """حماية من SSRF: الرابط يُدخله الموظف ويطلبه سيرفرنا، فنرفض أي اسم يُترجَم
+    (ولو لعنوان واحد) إلى عنوان داخلي/خاص/محلي/محجوز (IPv4 وIPv6)."""
+    parts = urlsplit(site_url or "")
+    host = parts.hostname
+    if parts.scheme != "https" or not host:
+        raise WooCommerceError("رابط المتجر غير صالح، ويجب أن يبدأ بـ https")
+    try:
+        port = parts.port or 443
+    except ValueError as exc:
+        raise WooCommerceError("رابط المتجر غير صالح") from exc
+    try:
+        infos = socket.getaddrinfo(host, port, type=socket.SOCK_STREAM)
+    except (socket.gaierror, UnicodeError) as exc:
+        raise WooCommerceError("تعذّر العثور على عنوان المتجر، يُرجى التحقق من الرابط") from exc
+    addresses = set()
+    for info in infos:
+        try:
+            addresses.add(ipaddress.ip_address(info[4][0].split("%")[0]))
+        except ValueError as exc:
+            raise WooCommerceError("تعذّر التحقق من عنوان المتجر") from exc
+    if not addresses or not all(_ip_is_public(ip) for ip in addresses):
+        raise WooCommerceError("رابط المتجر يشير إلى عنوان داخلي أو غير عام، ولا يُسمح بالاتصال به")
+
+
+def _retry_delay(resp, attempt):
+    header = (resp.headers.get("Retry-After") or "").strip() if resp.headers else ""
+    try:
+        seconds = float(header)
+    except ValueError:
+        seconds = None
+    if seconds is None or seconds < 0:
+        seconds = 2 ** attempt
+    return min(seconds, MAX_RETRY_AFTER_SECONDS)
+
+
+def _request(connection, method, path, params=None, json_body=None, max_throttle_retries=3,
+             timeout=REQUEST_TIMEOUT_SECONDS):
     url = f"{connection.site_url}/wp-json/wc/v3/{path}"
     for attempt in range(max_throttle_retries + 1):
+        assert_public_host(connection.site_url)
         try:
             resp = requests.request(
                 method,
@@ -71,10 +124,17 @@ def _request(connection, method, path, params=None, json_body=None, max_throttle
                 params=params,
                 json=json_body,
                 auth=(connection.consumer_key, connection.consumer_secret),
-                timeout=REQUEST_TIMEOUT_SECONDS,
+                timeout=timeout,
+                allow_redirects=False,
             )
         except requests.RequestException as exc:
             raise WooCommerceError(f"تعذر الاتصال بالمتجر: {exc}") from exc
+        if 300 <= resp.status_code < 400:
+            # لا نتبع التحويلات (قد تقود إلى عنوان داخلي). نطلب الرابط النهائي مباشرة.
+            raise WooCommerceError(
+                "المتجر أعاد توجيه الطلب إلى رابط آخر — يُرجى إدخال الرابط النهائي للمتجر "
+                "بصيغة https كما يظهر في المتصفح (مع www أو بدونها)"
+            )
         if resp.status_code == 401:
             raise WooCommerceError("مفاتيح الـ API غير صحيحة — تأكد من الـ Consumer key والـ Secret")
         if resp.status_code == 403:
@@ -87,7 +147,8 @@ def _request(connection, method, path, params=None, json_body=None, max_throttle
                 "بإعدادات ووردبريس مش على Plain"
             )
         if resp.status_code == 429:
-            time.sleep(2)
+            if attempt < max_throttle_retries:
+                time.sleep(_retry_delay(resp, attempt))
             continue
         if not resp.ok:
             raise WooCommerceError(f"رد غير متوقع من المتجر ({resp.status_code})")
@@ -199,6 +260,31 @@ def register_webhooks(connection, callback_url):
         return True
     except WooCommerceError:
         return False
+
+
+def delete_webhooks(connection, callback_url):
+    """عند فصل الربط: نحذف الـ webhooks التي سجّلناها (أفضل محاولة، مهلة قصيرة،
+    والأخطاء تُتجاهل). برجّع عدد ما انحذف."""
+    deleted = 0
+    try:
+        _, hooks = _request(
+            connection, "GET", "webhooks", {"per_page": 100, "status": "all"},
+            max_throttle_retries=0, timeout=CLEANUP_TIMEOUT_SECONDS,
+        )
+    except WooCommerceError:
+        return 0
+    for hook in hooks or []:
+        if hook.get("delivery_url") != callback_url or not hook.get("id"):
+            continue
+        try:
+            _request(
+                connection, "DELETE", f"webhooks/{hook['id']}", {"force": "true"},
+                max_throttle_retries=0, timeout=CLEANUP_TIMEOUT_SECONDS,
+            )
+            deleted += 1
+        except WooCommerceError:
+            continue
+    return deleted
 
 
 def verify_webhook_signature(body_bytes, signature_header, secret):

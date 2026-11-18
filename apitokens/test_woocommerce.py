@@ -5,6 +5,7 @@ import hmac
 import json
 from datetime import timedelta
 from decimal import Decimal
+import socket
 from unittest.mock import Mock, patch
 
 from django.contrib.auth import get_user_model
@@ -14,6 +15,25 @@ from django.utils import timezone
 from .models import ApiToken, Conversation, Product, WooCommerceConnection
 from .services import catalog as catalog_service
 from .services import woocommerce as woo
+from . import woocommerce_webhooks
+
+
+def addrinfo(*ips):
+    return [
+        (socket.AF_INET6 if ":" in ip else socket.AF_INET, socket.SOCK_STREAM, 6, "",
+         (ip, 443, 0, 0) if ":" in ip else (ip, 443))
+        for ip in ips
+    ]
+
+
+class PublicDnsMixin:
+    """كل اسم متجر بالاختبارات يُترجم لعنوان عام — بدون أي استعلام DNS حقيقي."""
+
+    def setUp(self):
+        super().setUp()
+        patcher = patch("apitokens.services.woocommerce.socket.getaddrinfo", return_value=addrinfo("93.184.216.34"))
+        self.mock_dns = patcher.start()
+        self.addCleanup(patcher.stop)
 
 
 def woo_product(**overrides):
@@ -65,6 +85,44 @@ class SiteUrlTests(TestCase):
     def test_rejects_http_and_empty(self):
         self.assertEqual(woo.normalize_site_url("http://shop.example.com"), "")
         self.assertEqual(woo.normalize_site_url("  "), "")
+
+
+class SsrfGuardTests(TestCase):
+    @patch("apitokens.services.woocommerce.socket.getaddrinfo")
+    def test_internal_addresses_are_refused(self, mock_dns):
+        for ip in ("127.0.0.1", "10.1.2.3", "172.16.0.1", "192.168.1.1", "169.254.169.254", "0.0.0.0",
+                   "100.64.0.1", "224.0.0.1", "240.0.0.1", "::1", "::", "fe80::1", "fc00::1", "ff02::1",
+                   "::ffff:127.0.0.1"):
+            mock_dns.return_value = addrinfo(ip)
+            with self.assertRaises(woo.WooCommerceError, msg=ip):
+                woo.assert_public_host("https://shop.example.com")
+
+    def test_literal_ip_urls_are_refused(self):
+        for url in ("https://127.0.0.1", "https://10.0.0.1:8443", "https://169.254.169.254", "https://[::1]"):
+            with self.assertRaises(woo.WooCommerceError, msg=url):
+                woo.assert_public_host(url)
+
+    @patch("apitokens.services.woocommerce.socket.getaddrinfo")
+    def test_hostname_resolving_to_any_private_address_is_refused(self, mock_dns):
+        mock_dns.return_value = addrinfo("93.184.216.34", "10.0.0.7")
+        with self.assertRaisesMessage(woo.WooCommerceError, "عنوان داخلي"):
+            woo.assert_public_host("https://evil.example.com")
+        self.assertEqual(mock_dns.call_args.args[:2], ("evil.example.com", 443))
+
+    @patch("apitokens.services.woocommerce.socket.getaddrinfo", side_effect=socket.gaierror("nx"))
+    def test_unresolvable_host_is_refused(self, _dns):
+        with self.assertRaises(woo.WooCommerceError):
+            woo.assert_public_host("https://nope.example.com")
+
+    @patch("apitokens.services.woocommerce.socket.getaddrinfo",
+           return_value=addrinfo("93.184.216.34", "2606:2800::1"))
+    def test_public_host_is_allowed(self, _dns):
+        woo.assert_public_host("https://shop.example.com")
+        woo.assert_public_host("https://shop.example.com:8443/store")
+
+    def test_http_is_refused(self):
+        with self.assertRaises(woo.WooCommerceError):
+            woo.assert_public_host("http://shop.example.com")
 
 
 class ProductParsingTests(TestCase):
@@ -131,8 +189,9 @@ def fake_response(data, status=200, total_pages=1):
     return resp
 
 
-class RestClientTests(TestCase):
+class RestClientTests(PublicDnsMixin, TestCase):
     def setUp(self):
+        super().setUp()
         self.merchant = ApiToken.objects.create(label="M", image_quota=1)
         self.conn = WooCommerceConnection.objects.create(
             merchant=self.merchant, site_url="https://shop.example.com", consumer_key="ck", consumer_secret="cs",
@@ -166,6 +225,70 @@ class RestClientTests(TestCase):
     def test_throttle_is_retried(self, mock_req, _sleep):
         mock_req.side_effect = [fake_response({}, status=429), fake_response({"value": "USD"})]
         self.assertEqual(woo.get_store_info(self.conn)["currency"], "USD")
+
+    @patch("apitokens.services.woocommerce.time.sleep")
+    @patch("apitokens.services.woocommerce.requests.request")
+    def test_retry_after_is_honored_and_capped(self, mock_req, mock_sleep):
+        slow = fake_response({}, status=429)
+        slow.headers["Retry-After"] = "7"
+        huge = fake_response({}, status=429)
+        huge.headers["Retry-After"] = "3600"
+        mock_req.side_effect = [slow, huge, fake_response({"value": "USD"})]
+        self.assertEqual(woo.get_store_info(self.conn)["currency"], "USD")
+        self.assertEqual([c.args[0] for c in mock_sleep.call_args_list], [7, woo.MAX_RETRY_AFTER_SECONDS])
+
+    @patch("apitokens.services.woocommerce.time.sleep")
+    @patch("apitokens.services.woocommerce.requests.request")
+    def test_throttle_without_retry_after_backs_off_exponentially_then_gives_up(self, mock_req, mock_sleep):
+        bad_date = fake_response({}, status=429)
+        bad_date.headers["Retry-After"] = "Wed, 21 Oct 2026 07:28:00 GMT"
+        mock_req.side_effect = [fake_response({}, status=429), bad_date, fake_response({}, status=429),
+                                fake_response({}, status=429)]
+        with self.assertRaises(woo.WooCommerceError):
+            woo.get_store_info(self.conn)
+        self.assertEqual([c.args[0] for c in mock_sleep.call_args_list], [1, 2, 4])
+
+    @patch("apitokens.services.woocommerce.requests.request")
+    def test_redirects_are_not_followed(self, mock_req):
+        mock_req.return_value = fake_response({}, status=301)
+        with self.assertRaisesMessage(woo.WooCommerceError, "الرابط النهائي"):
+            woo.get_store_info(self.conn)
+        self.assertIs(mock_req.call_args.kwargs["allow_redirects"], False)
+
+    @patch("apitokens.services.woocommerce.requests.request")
+    def test_host_is_rechecked_before_every_request(self, mock_req):
+        # DNS تغيّر بعد الربط ليشير لعنوان داخلي: لا يُرسل أي طلب.
+        self.mock_dns.return_value = addrinfo("10.0.0.5")
+        with self.assertRaises(woo.WooCommerceError):
+            woo.get_store_info(self.conn)
+        mock_req.assert_not_called()
+
+    @patch("apitokens.services.woocommerce.requests.request")
+    def test_delete_webhooks_removes_only_ours_and_ignores_errors(self, mock_req):
+        url = "https://control.example.com/webhooks/woocommerce/tok/"
+        calls = []
+
+        def respond(method, api_url, params=None, **kwargs):
+            calls.append((method, api_url.split("/wc/v3/")[1], params, kwargs["timeout"]))
+            if method == "GET":
+                return fake_response([
+                    {"id": 1, "delivery_url": url}, {"id": 2, "delivery_url": "https://other.example.com/"},
+                    {"id": 3, "delivery_url": url},
+                ])
+            if api_url.endswith("webhooks/1"):
+                return fake_response({}, status=500)
+            return fake_response({})
+        mock_req.side_effect = respond
+        self.assertEqual(woo.delete_webhooks(self.conn, url), 1)
+        deletes = [c for c in calls if c[0] == "DELETE"]
+        self.assertEqual([c[1] for c in deletes], ["webhooks/1", "webhooks/3"])
+        self.assertTrue(all(c[2] == {"force": "true"} for c in deletes))
+        self.assertTrue(all(c[3] == woo.CLEANUP_TIMEOUT_SECONDS for c in calls))
+
+    @patch("apitokens.services.woocommerce.requests.request",
+           side_effect=woo.requests.ConnectionError("down"))
+    def test_delete_webhooks_never_raises(self, _req):
+        self.assertEqual(woo.delete_webhooks(self.conn, "https://c.example.com/w/"), 0)
 
     @patch("apitokens.services.woocommerce.requests.request")
     def test_fetch_all_products_follows_pages_and_loads_variations(self, mock_req):
@@ -295,18 +418,42 @@ class WebhookTests(TestCase):
         self.send("product.updated", woo_product(status="draft"))
         self.assertFalse(Product.objects.exists())
 
-    @patch("apitokens.woocommerce_webhooks.woocommerce_service.fetch_variations")
-    def test_variable_product_loads_variations_from_api(self, mock_vars):
-        mock_vars.return_value = [variation(1, "M")]
-        self.send("product.created", variable_product())
-        self.assertEqual(Product.objects.get(external_id="700").options, {"Size": ["M"]})
-        mock_vars.assert_called_once_with(self.conn, 700)
-
-    @patch("apitokens.woocommerce_webhooks.woocommerce_service.fetch_variations",
-           side_effect=woo.WooCommerceError("down"))
-    def test_variation_fetch_failure_still_saves_product(self, _mock):
-        self.assertEqual(self.send("product.updated", variable_product()).status_code, 200)
+    @patch("apitokens.services.woocommerce.requests.request")
+    def test_variable_product_is_saved_from_payload_without_rest_call(self, mock_req):
+        self.assertEqual(self.send("product.created", variable_product()).status_code, 200)
         self.assertEqual(Product.objects.get(external_id="700").options, {"Size": ["S", "M", "L"]})
+        mock_req.assert_not_called()
+
+    @patch("apitokens.services.woocommerce.requests.request")
+    def test_variable_update_keeps_known_available_options_until_hourly_sync(self, mock_req):
+        Product.objects.create(merchant=self.merchant, external_id="700", sku="WOO-700", title="Tee", price=1,
+                               image_url="https://x/y.jpg", options={"Size": ["M", "XL"]})
+        self.send("product.updated", variable_product(name="Tee v2"))
+        product = Product.objects.get(external_id="700")
+        # XL لم يعد خياراً في المنتج، وS وL معروف من آخر مزامنة أنها غير متوفرة.
+        self.assertEqual((product.title, product.options), ("Tee v2", {"Size": ["M"]}))
+        mock_req.assert_not_called()
+
+    def test_inactive_connection_or_merchant_is_a_no_op(self):
+        self.conn.is_active = False
+        self.conn.save()
+        self.assertEqual(self.send("product.created", woo_product()).status_code, 200)
+        self.assertFalse(Product.objects.exists())
+
+        self.conn.is_active = True
+        self.conn.save()
+        self.merchant.is_active = False
+        self.merchant.save()
+        self.assertEqual(self.send("product.created", woo_product()).status_code, 200)
+        self.assertFalse(Product.objects.exists())
+
+        self.merchant.is_active = True
+        self.merchant.save()
+        self.send("product.created", woo_product())
+        self.conn.is_active = False
+        self.conn.save()
+        self.assertEqual(self.send("product.deleted", {"id": 501}).status_code, 200)
+        self.assertTrue(Product.objects.filter(external_id="501").exists())
 
     # ---- ربط الطلبات بالمحادثات ----
 
@@ -417,8 +564,9 @@ class WebhookTests(TestCase):
 
 
 @override_settings(SITE_BASE_URL="https://control.example.com")
-class ConnectViewTests(TestCase):
+class ConnectViewTests(PublicDnsMixin, TestCase):
     def setUp(self):
+        super().setUp()
         user = get_user_model().objects.create_user("staff", password="x", is_staff=True)
         self.client.force_login(user)
         self.merchant = ApiToken.objects.create(label="متجر ووو", image_quota=5)
@@ -437,24 +585,21 @@ class ConnectViewTests(TestCase):
         self.assertIn("REST API", html)
         self.assertIn('name="consumer_secret"', html)
 
-    @patch("apitokens.views.woocommerce_service.register_webhooks", return_value=True)
-    @patch("apitokens.views.catalog_service.sync_woocommerce", return_value=3)
+    @patch("apitokens.views.start_woocommerce_sync")
     @patch("apitokens.views.woocommerce_service.get_store_info", return_value={"currency": "SAR"})
-    def test_connect_saves_syncs_and_registers_webhooks(self, _info, mock_sync, mock_hooks):
-        resp = self.client.post(self.url, self.form)
-        self.assertEqual(resp.status_code, 302)
+    def test_connect_saves_and_starts_background_sync(self, _info, mock_start):
+        with self.captureOnCommitCallbacks(execute=True):
+            resp = self.client.post(self.url, self.form, follow=True)
         conn = WooCommerceConnection.objects.get(merchant=self.merchant)
         self.assertEqual(conn.site_url, "https://shop.example.com")
         self.assertEqual((conn.consumer_key, conn.consumer_secret), ("ck_1", "cs_1"))
         self.assertTrue(conn.webhook_secret)
-        mock_sync.assert_called_once()
-        self.assertEqual(
-            mock_hooks.call_args.args[1],
-            f"https://control.example.com/webhooks/woocommerce/{self.merchant.token}/",
+        mock_start.assert_called_once_with(
+            conn.pk, f"https://control.example.com/webhooks/woocommerce/{self.merchant.token}/",
         )
+        self.assertIn("في الخلفية", resp.content.decode())
 
-    @patch("apitokens.views.woocommerce_service.register_webhooks", return_value=True)
-    @patch("apitokens.views.catalog_service.sync_woocommerce", return_value=3)
+    @patch("apitokens.views.start_woocommerce_sync")
     @patch("apitokens.views.woocommerce_service.get_store_info", return_value={"currency": "SAR"})
     def test_reconnect_keeps_the_webhook_secret(self, *_mocks):
         self.client.post(self.url, self.form)
@@ -463,15 +608,18 @@ class ConnectViewTests(TestCase):
         conn = WooCommerceConnection.objects.get(merchant=self.merchant)
         self.assertEqual((conn.consumer_key, conn.webhook_secret), ("ck_2", secret))
 
-    @patch("apitokens.views.woocommerce_service.register_webhooks",
-           side_effect=woo.WooCommerceError("المفاتيح ما عندها الصلاحية المطلوبة"))
-    @patch("apitokens.views.catalog_service.sync_woocommerce", return_value=3)
-    @patch("apitokens.views.woocommerce_service.get_store_info", return_value={"currency": "SAR"})
-    def test_webhook_failure_keeps_connection_and_synced_catalog(self, _info, mock_sync, _hooks):
-        resp = self.client.post(self.url, self.form, follow=True)
-        self.assertTrue(WooCommerceConnection.objects.filter(merchant=self.merchant).exists())
-        mock_sync.assert_called_once()
-        self.assertIn("الـ webhooks", resp.content.decode())
+    @patch("apitokens.views.start_woocommerce_sync")
+    @patch("apitokens.services.woocommerce.requests.request")
+    def test_private_store_url_is_refused_before_any_request(self, mock_req, mock_start):
+        for ip in ("127.0.0.1", "10.0.0.8", "169.254.169.254"):
+            self.mock_dns.return_value = addrinfo(ip)
+            resp = self.client.post(self.url, self.form, follow=True)
+            self.assertIn("عنوان داخلي", resp.content.decode())
+        resp = self.client.post(self.url, {**self.form, "site_url": "https://[::1]"}, follow=True)
+        self.assertIn("عنوان داخلي", resp.content.decode())
+        mock_req.assert_not_called()
+        mock_start.assert_not_called()
+        self.assertFalse(WooCommerceConnection.objects.exists())
 
     @patch("apitokens.views.woocommerce_service.get_store_info",
            side_effect=woo.WooCommerceError("مفاتيح الـ API غير صحيحة"))
@@ -485,19 +633,82 @@ class ConnectViewTests(TestCase):
         self.client.post(self.url, {**self.form, "consumer_secret": ""})
         self.assertFalse(WooCommerceConnection.objects.exists())
 
-    @patch("apitokens.views.catalog_service.sync_woocommerce", return_value=1)
-    def test_resync_and_disconnect(self, mock_sync):
+    @patch("apitokens.views.start_woocommerce_sync")
+    def test_resync_runs_in_background(self, mock_start):
+        conn = WooCommerceConnection.objects.create(
+            merchant=self.merchant, site_url="https://shop.example.com", consumer_key="a", consumer_secret="b",
+        )
+        with self.captureOnCommitCallbacks(execute=True):
+            self.client.post(self.url, {"action": "resync"})
+        mock_start.assert_called_once_with(
+            conn.pk, f"https://control.example.com/webhooks/woocommerce/{self.merchant.token}/",
+        )
+
+    @patch("apitokens.views.woocommerce_service.delete_webhooks")
+    def test_disconnect_cleans_up_webhooks_products_and_connection(self, mock_delete):
+        conn = WooCommerceConnection.objects.create(
+            merchant=self.merchant, site_url="https://shop.example.com", consumer_key="a", consumer_secret="b",
+        )
+        other = ApiToken.objects.create(label="Other", image_quota=1)
+        for merchant, ext, sku in ((self.merchant, "501", "W1"), (self.merchant, "", "CSV"), (other, "501", "O1")):
+            Product.objects.create(merchant=merchant, external_id=ext, sku=sku, title="x", price=1,
+                                   image_url="https://x/y.jpg")
+        resp = self.client.post(self.url, {"action": "disconnect"}, follow=True)
+        self.assertFalse(WooCommerceConnection.objects.exists())
+        mock_delete.assert_called_once()
+        self.assertEqual(mock_delete.call_args.args[0].site_url, conn.site_url)
+        self.assertEqual(mock_delete.call_args.args[1],
+                         f"https://control.example.com/webhooks/woocommerce/{self.merchant.token}/")
+        self.assertEqual(set(Product.objects.values_list("merchant__label", "sku")),
+                         {("متجر ووو", "CSV"), ("Other", "O1")})
+        self.assertIn("REST API", resp.content.decode())
+
+    @patch("apitokens.services.woocommerce.requests.request", side_effect=woo.requests.Timeout("slow"))
+    def test_disconnect_succeeds_even_when_store_is_unreachable(self, _req):
         WooCommerceConnection.objects.create(
             merchant=self.merchant, site_url="https://shop.example.com", consumer_key="a", consumer_secret="b",
         )
-        self.client.post(self.url, {"action": "resync"})
-        mock_sync.assert_called_once()
         self.client.post(self.url, {"action": "disconnect"})
         self.assertFalse(WooCommerceConnection.objects.exists())
 
     def test_dashboard_links_the_woocommerce_page(self):
         html = self.client.get("/").content.decode()
         self.assertIn(self.url, html)
+
+
+class InitialSyncTests(TestCase):
+    def setUp(self):
+        self.merchant = ApiToken.objects.create(label="M", image_quota=1)
+        self.conn = WooCommerceConnection.objects.create(
+            merchant=self.merchant, site_url="https://shop.example.com", consumer_key="ck", consumer_secret="cs",
+        )
+
+    @patch("apitokens.woocommerce_webhooks.threading.Thread")
+    def test_start_initial_sync_spawns_daemon_thread(self, mock_thread):
+        woocommerce_webhooks.start_initial_sync(self.conn.pk, "https://c.example.com/w/")
+        kwargs = mock_thread.call_args.kwargs
+        self.assertIs(kwargs["target"], woocommerce_webhooks._initial_sync)
+        self.assertEqual(kwargs["args"], (self.conn.pk, "https://c.example.com/w/"))
+        self.assertTrue(kwargs["daemon"])
+        mock_thread.return_value.start.assert_called_once()
+
+    @patch("apitokens.woocommerce_webhooks.db_connection")
+    @patch("apitokens.woocommerce_webhooks.woocommerce_service.register_webhooks", return_value=True)
+    @patch("apitokens.services.catalog.sync_woocommerce", return_value=3)
+    def test_initial_sync_syncs_then_registers_webhooks_and_closes_db(self, mock_sync, mock_hooks, mock_db):
+        woocommerce_webhooks._initial_sync(self.conn.pk, "https://c.example.com/w/")
+        mock_sync.assert_called_once()
+        self.assertEqual(mock_hooks.call_args.args[1], "https://c.example.com/w/")
+        mock_db.close.assert_called_once()
+
+    @patch("apitokens.woocommerce_webhooks.db_connection")
+    @patch("apitokens.woocommerce_webhooks.woocommerce_service.register_webhooks")
+    @patch("apitokens.services.catalog.sync_woocommerce", side_effect=woo.WooCommerceError("down"))
+    def test_initial_sync_failure_is_logged_not_raised(self, _sync, mock_hooks, mock_db):
+        with self.assertLogs("apitokens.woocommerce_webhooks", level="ERROR"):
+            woocommerce_webhooks._initial_sync(self.conn.pk, "https://c.example.com/w/")
+        mock_hooks.assert_not_called()
+        mock_db.close.assert_called_once()
 
 
 class WidgetEventSkuTests(TestCase):

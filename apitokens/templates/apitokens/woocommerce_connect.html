@@ -23,7 +23,7 @@
     </div>
     <p class="card-note">
       {{ T.last_sync_prefix }}
-      {% if connection.last_synced_at %}{{ connection.last_synced_at|date:"Y-m-d H:i" }}{% else %}{{ T.never_synced }}{% endif %}
+      {% if connection.last_synced_at %}{{ connection.last_synced_at|date:"Y-m-d H:i" }}{% else %}{{ T.never_synced }} — {{ T.woo_sync_in_progress }}{% endif %}
       {{ T.synced_products_count_prefix }}{{ merchant.products.count }}
     </p>
     <div class="woo-actions">
@@ -32,7 +32,7 @@
         <input type="hidden" name="action" value="resync">
         <button type="submit" class="btn-primary">{{ T.sync_now }}</button>
       </form>
-      <form method="post" onsubmit="return confirm('{{ T.disconnect_confirm|escapejs }}');">
+      <form method="post" onsubmit="return confirm('{{ T.woo_disconnect_confirm|escapejs }}');">
         {% csrf_token %}
         <input type="hidden" name="action" value="disconnect">
         <button type="submit" class="btn-toggle">{{ T.disconnect }}</button>
