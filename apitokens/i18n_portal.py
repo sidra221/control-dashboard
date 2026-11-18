@@ -12,18 +12,18 @@ PORTAL_TRANSLATIONS = {
     # الفلاتر
     "portal_home_filter_range": {"ar": "الفترة", "en": "Period"},
     "portal_home_range_7": {"ar": "آخر 7 أيام", "en": "Last 7 days"},
-    "portal_home_range_30": {"ar": "آخر 30 يوم", "en": "Last 30 days"},
+    "portal_home_range_30": {"ar": "آخر 30 يوماً", "en": "Last 30 days"},
     "portal_home_range_period": {"ar": "فترة الاشتراك الحالية", "en": "Current billing period"},
     "portal_home_filter_window": {"ar": "نافذة الربط بالطلب", "en": "Attribution window"},
     "portal_home_window_7": {"ar": "7 أيام", "en": "7 days"},
-    "portal_home_window_14": {"ar": "14 يوم", "en": "14 days"},
-    "portal_home_window_30": {"ar": "30 يوم", "en": "30 days"},
+    "portal_home_window_14": {"ar": "14 يوماً", "en": "14 days"},
+    "portal_home_window_30": {"ar": "30 يوماً", "en": "30 days"},
     "portal_home_apply": {"ar": "تطبيق", "en": "Apply"},
 
     # الحالة الفاضية
-    "portal_home_empty_title": {"ar": "لسا ما في بيانات", "en": "No data yet"},
+    "portal_home_empty_title": {"ar": "لا توجد بيانات بعد", "en": "No data yet"},
     "portal_home_empty_text": {
-        "ar": "البيانات بتبلّش تتجمّع من أول تجربة لبس يعملها زبون عندك. ارجع شوف الصفحة بعد شوي.",
+        "ar": "تبدأ البيانات بالتجمّع من أول تجربة لبس يُجريها أحد زبائنك. عُد إلى هذه الصفحة بعد قليل.",
         "en": "Data starts collecting from the first try-on a shopper makes in your store. Check back soon.",
     },
 
@@ -36,8 +36,8 @@ PORTAL_TRANSLATIONS = {
     "portal_home_orders_line": {"ar": "طلب منسوب للتجربة", "en": "attributed orders"},
     "portal_home_revenue_explain": {
         "ar": (
-            "بنحسب الطلب بقيمته الكاملة إذا الزبون جرّب أي منتج خلال النافذة المحددة قبل ما يشتري. "
-            "هاد بيبيّن العلاقة بين التجربة والشراء، مش دليل إنه التجربة هي سبب الشراء."
+            "نحتسب الطلب بقيمته الكاملة إذا جرّب الزبون أي منتج خلال النافذة المحددة قبل الشراء. "
+            "يبيّن ذلك العلاقة بين التجربة والشراء، وليس دليلاً على أن التجربة هي سبب الشراء."
         ),
         "en": (
             "An order counts at its full value when the shopper tried on any product within the chosen "
@@ -47,7 +47,7 @@ PORTAL_TRANSLATIONS = {
     },
 
     # مؤشرات المحادثات
-    "portal_home_conv_section": {"ar": "المحادثات والمبيعات (آخر 30 يوم)", "en": "Conversations and sales (last 30 days)"},
+    "portal_home_conv_section": {"ar": "المحادثات والمبيعات (آخر 30 يوماً)", "en": "Conversations and sales (last 30 days)"},
     "portal_home_conv_total": {"ar": "محادثات", "en": "Conversations"},
     "portal_home_conv_recommendation": {"ar": "محادثات فيها ترشيح منتجات", "en": "With a product recommendation"},
     "portal_home_conv_intent": {"ar": "نية شراء", "en": "Purchase intent"},
@@ -60,7 +60,7 @@ PORTAL_TRANSLATIONS = {
         "ar": "مخطط يومي: أعمدة التجارب وخط الطلبات المنسوبة",
         "en": "Daily chart: try-on bars and an attributed-orders line",
     },
-    "portal_home_chart_empty": {"ar": "ما في تجارب بهالفترة لسا", "en": "No try-ons in this period yet"},
+    "portal_home_chart_empty": {"ar": "لا توجد تجارب في هذه الفترة بعد", "en": "No try-ons in this period yet"},
     "portal_home_legend_tryons": {"ar": "تجارب", "en": "Try-ons"},
     "portal_home_legend_orders": {"ar": "طلبات منسوبة", "en": "Attributed orders"},
     "portal_home_top_title": {"ar": "أكثر المنتجات تجربة", "en": "Most tried-on products"},
@@ -69,10 +69,10 @@ PORTAL_TRANSLATIONS = {
     "portal_home_th_orders": {"ar": "الطلبات", "en": "Orders"},
     "portal_home_no_orders_badge": {"ar": "بلا طلبات", "en": "No orders"},
     "portal_home_no_orders_hint": {
-        "ar": "جرّبوه كتير وما اشتراه حدا — ممكن يكون في مشكلة بالسعر أو المقاس أو الصورة",
+        "ar": "جرّبه كثيرون ولم يشترِه أحد — قد تكون هناك مشكلة في السعر أو المقاس أو الصورة",
         "en": "Tried on a lot but nobody bought it — may signal a price, size or photo problem",
     },
-    "portal_home_top_empty": {"ar": "ما في منتجات انجرّبت بهالفترة", "en": "No products were tried on in this period"},
+    "portal_home_top_empty": {"ar": "لم تُجرَّب أي منتجات في هذه الفترة", "en": "No products were tried on in this period"},
     # ===== portal/accept.html — موافقة التاجر على سياسة الخصوصية =====
     "portal_accept_title": {"ar": "الموافقة على سياسة الخصوصية", "en": "Privacy policy agreement"},
     "portal_accept_sub": {"ar": "خطوة واحدة قبل عرض لوحة المتجر", "en": "One step before your dashboard"},
@@ -122,77 +122,77 @@ PORTAL_TRANSLATIONS = {
         "en": "The phone number or password is incorrect.",
     },
     "portal_login_err_locked": {
-        "ar": "محاولات كتير. جرّب مرة تانية بعد شوي.",
+        "ar": "محاولات كثيرة. حاول مرة أخرى بعد قليل.",
         "en": "Too many attempts. Please try again later.",
     },
 
     # ===== portal/register.html — إنشاء الحساب برابط الدعوة =====
     "portal_register_title": {"ar": "إنشاء حساب", "en": "Create your account"},
-    "portal_register_sub": {"ar": "خطوة وحدة وبتوصل للوحة متجرك", "en": "One step to reach your store dashboard"},
-    "portal_register_intro_prefix": {"ar": "رح تنشئ الحساب لمتجر «", "en": "You are creating the account for the store \u201c"},
+    "portal_register_sub": {"ar": "خطوة واحدة للوصول إلى لوحة متجرك", "en": "One step to reach your store dashboard"},
+    "portal_register_intro_prefix": {"ar": "ستُنشئ الحساب لمتجر «", "en": "You are creating the account for the store \u201c"},
     "portal_register_intro_suffix": {
-        "ar": "». رقم الهاتف هو اللي بتسجّل فيه دخولك، ورح نبعتلك عليه كود تحقق على واتساب.",
+        "ar": "». ستسجّل دخولك برقم الهاتف هذا، وسنرسل إليه رمز تحقق على واتساب.",
         "en": "\u201d. Your phone number is what you use to sign in, and we will send you a verification code on WhatsApp.",
     },
     "portal_register_reset_note": {
-        "ar": "هالمتجر إله حساب أصلاً. إذا كملت، الاسم والرقم وكلمة المرور القديمة بتنستبدل بالجديدة، وإذا تغيّر الرقم لازم تتحقق منه من جديد.",
+        "ar": "لهذا المتجر حساب مسبقاً. إذا تابعت، فستحلّ البيانات الجديدة محلّ الاسم والرقم وكلمة المرور القديمة، وإذا تغيّر الرقم فيجب التحقق منه من جديد.",
         "en": "This store already has an account. If you continue, its name, phone and password are replaced by the new ones, and a changed number must be verified again.",
     },
     "portal_register_name": {"ar": "اسمك", "en": "Your name"},
     "portal_register_wa_phone": {"ar": "رقم الواتساب", "en": "WhatsApp number"},
     "portal_register_wa_phone_hint": {
-        "ar": "لازم يكون رقم واتساب شغّال، مع رمز الدولة، مثلاً ⁦+966501234567⁩",
+        "ar": "يجب أن يكون رقم واتساب فعّالاً، مع رمز الدولة، مثلاً ⁦+966501234567⁩",
         "en": "Must be a WhatsApp number, with country code, e.g. +966501234567",
     },
     "portal_register_password": {"ar": "كلمة المرور", "en": "Password"},
     "portal_register_password_hint": {
-        "ar": "8 أحرف على الأقل، وما تكون سهلة التخمين",
+        "ar": "8 أحرف على الأقل، وألّا تكون سهلة التخمين",
         "en": "At least 8 characters, and not easy to guess",
     },
     "portal_register_password_confirm": {"ar": "تأكيد كلمة المرور", "en": "Confirm password"},
     "portal_register_button": {"ar": "إنشاء الحساب", "en": "Create account"},
     "portal_register_err_name": {"ar": "اكتب اسمك.", "en": "Please enter your name."},
-    "portal_register_err_name_long": {"ar": "الاسم طويل كتير.", "en": "That name is too long."},
+    "portal_register_err_name_long": {"ar": "الاسم طويل جداً.", "en": "That name is too long."},
     "portal_register_err_phone": {
         "ar": "اكتب الرقم مع رمز الدولة، مثلاً ⁦+966501234567⁩.",
         "en": "Enter the number with its country code, e.g. +966501234567.",
     },
     "portal_register_err_phone_taken": {
-        "ar": "هالرقم مستخدم بحساب تاني. جرّب رقم غيره.",
+        "ar": "هذا الرقم مستخدم في حساب آخر. جرّب رقماً غيره.",
         "en": "This number is already used by another account. Try a different number.",
     },
     "portal_register_err_pw_short": {
-        "ar": "كلمة المرور قصيرة. لازم 8 أحرف على الأقل.",
+        "ar": "كلمة المرور قصيرة. يجب ألّا تقل عن 8 أحرف.",
         "en": "Password is too short. Use at least 8 characters.",
     },
-    "portal_register_err_pw_long": {"ar": "كلمة المرور طويلة كتير.", "en": "Password is too long."},
+    "portal_register_err_pw_long": {"ar": "كلمة المرور طويلة جداً.", "en": "Password is too long."},
     "portal_register_err_pw_common": {
-        "ar": "كلمة المرور شائعة وسهلة التخمين. اختار غيرها.",
+        "ar": "كلمة المرور شائعة وسهلة التخمين. اختر غيرها.",
         "en": "This password is too common and easy to guess. Choose another one.",
     },
     "portal_register_err_pw_weak": {
-        "ar": "كلمة المرور ضعيفة. اخلطها بأحرف وأرقام.",
+        "ar": "كلمة المرور ضعيفة. استخدم مزيجاً من الأحرف والأرقام.",
         "en": "This password is too weak. Mix letters and numbers.",
     },
-    "portal_register_err_mismatch": {"ar": "كلمتا المرور مو متطابقتين.", "en": "The passwords do not match."},
+    "portal_register_err_mismatch": {"ar": "كلمتا المرور غير متطابقتين.", "en": "The passwords do not match."},
     "portal_auth_show_password": {"ar": "إظهار كلمة المرور", "en": "Show password"},
     "portal_auth_hide_password": {"ar": "إخفاء كلمة المرور", "en": "Hide password"},
     "portal_auth_secure_note": {"ar": "اتصال آمن ومشفّر", "en": "Secure, encrypted connection"},
 
     # ===== portal/signup.html — التسجيل العام (حساب معلّق بدون متجر) =====
     "portal_signup_title": {"ar": "إنشاء حساب", "en": "Create your account"},
-    "portal_signup_sub": {"ar": "سجّل بياناتك وبنربط حسابك بمتجرك", "en": "Register and we will link your account to your store"},
+    "portal_signup_sub": {"ar": "سجّل بياناتك وسنربط حسابك بمتجرك", "en": "Register and we will link your account to your store"},
     "portal_signup_note": {
-        "ar": "بعد التسجيل بنبعتلك كود تحقق على الواتساب، وبعدها بنربط حسابك بمتجرك وبنتواصل معك.",
+        "ar": "بعد التسجيل سنرسل إليك رمز تحقق على واتساب، ثم نربط حسابك بمتجرك ونتواصل معك.",
         "en": "After you register we send you a verification code on WhatsApp, then we link your account to your store and contact you.",
     },
-    "portal_signup_have_account": {"ar": "عندك حساب؟ سجّل دخولك", "en": "Already have an account? Sign in"},
+    "portal_signup_have_account": {"ar": "لديك حساب؟ سجّل دخولك", "en": "Already have an account? Sign in"},
     "portal_signup_err_phone_registered": {
-        "ar": "هالرقم مسجّل من قبل. جرّب تسجّل دخولك.",
+        "ar": "هذا الرقم مسجّل مسبقاً. جرّب تسجيل الدخول.",
         "en": "This phone number is already registered. Try signing in.",
     },
     "portal_signup_err_closed": {
-        "ar": "التسجيل غير متاح حالياً. جرّب مرة تانية بعد شوي.",
+        "ar": "التسجيل غير متاح حالياً. حاول مرة أخرى بعد قليل.",
         "en": "Registration is temporarily unavailable. Please try again later.",
     },
 
@@ -304,49 +304,49 @@ PORTAL_TRANSLATIONS = {
 
     # ===== portal/verify.html — تحقق الواتساب (OTP) =====
     "portal_otp_title": {"ar": "تأكيد رقم الواتساب", "en": "Verify your WhatsApp number"},
-    "portal_otp_sub": {"ar": "أدخل الكود اللي وصلك على واتساب", "en": "Enter the code we sent on WhatsApp"},
+    "portal_otp_sub": {"ar": "أدخل الرمز الذي وصلك على واتساب", "en": "Enter the code we sent on WhatsApp"},
     "portal_otp_sent_to": {
-        "ar": "بعتنا كود من 6 أرقام على واتساب الرقم",
+        "ar": "أرسلنا رمزاً من 6 أرقام عبر واتساب إلى الرقم",
         "en": "We sent a 6-digit code on WhatsApp to",
     },
-    "portal_otp_code_label": {"ar": "كود التحقق", "en": "Verification code"},
-    "portal_otp_code_hint": {"ar": "6 أرقام، صالح 10 دقايق", "en": "6 digits, valid for 10 minutes"},
+    "portal_otp_code_label": {"ar": "رمز التحقق", "en": "Verification code"},
+    "portal_otp_code_hint": {"ar": "6 أرقام، صالح لمدة 10 دقائق", "en": "6 digits, valid for 10 minutes"},
     "portal_otp_code_title": {"ar": "6 أرقام", "en": "6 digits"},
     "portal_otp_verify_button": {"ar": "تحقّق", "en": "Verify"},
-    "portal_otp_resend": {"ar": "إعادة إرسال الكود", "en": "Resend code"},
+    "portal_otp_resend": {"ar": "إعادة إرسال الرمز", "en": "Resend code"},
     "portal_otp_resend_in": {"ar": "إعادة الإرسال بعد {n} ث", "en": "Resend in {n} s"},
-    "portal_otp_change_number": {"ar": "استخدم رقم تاني / تسجيل الخروج", "en": "Use a different number / log out"},
-    "portal_otp_sent": {"ar": "بعتنالك كود جديد على واتساب.", "en": "We sent you a new code on WhatsApp."},
+    "portal_otp_change_number": {"ar": "استخدام رقم آخر / تسجيل الخروج", "en": "Use a different number / log out"},
+    "portal_otp_sent": {"ar": "أرسلنا إليك رمزاً جديداً على واتساب.", "en": "We sent you a new code on WhatsApp."},
     "portal_otp_wait": {
-        "ar": "استنى {n} ثانية قبل ما تطلب كود جديد.",
+        "ar": "انتظر {n} ثانية قبل طلب رمز جديد.",
         "en": "Please wait {n} seconds before requesting a new code.",
     },
     "portal_otp_unavailable": {
-        "ar": "خدمة التحقق مو متاحة مؤقتاً. جرّب مرة تانية بعد شوي.",
+        "ar": "خدمة التحقق غير متاحة مؤقتاً. حاول مرة أخرى بعد قليل.",
         "en": "Verification is temporarily unavailable. Please try again later.",
     },
     "portal_otp_throttled": {
-        "ar": "طلبات كتير. جرّب مرة تانية بعد شوي.",
+        "ar": "طلبات كثيرة. حاول مرة أخرى بعد قليل.",
         "en": "Too many requests. Please try again later.",
     },
     "portal_otp_err_wrong": {
-        "ar": "الكود غير صحيح. تأكد منه وجرّب مرة تانية.",
+        "ar": "الرمز غير صحيح. تأكد منه وحاول مرة أخرى.",
         "en": "That code is incorrect. Check it and try again.",
     },
     "portal_otp_err_expired": {
-        "ar": "انتهت صلاحية الكود. اطلب كود جديد.",
+        "ar": "انتهت صلاحية الرمز. اطلب رمزاً جديداً.",
         "en": "This code has expired. Request a new one.",
     },
     "portal_otp_err_exhausted": {
-        "ar": "محاولات غلط كتير. اطلب كود جديد.",
+        "ar": "محاولات خاطئة كثيرة. اطلب رمزاً جديداً.",
         "en": "Too many incorrect attempts. Request a new code.",
     },
     "portal_otp_err_none": {
-        "ar": "ما في كود فعّال. اطلب كود جديد.",
+        "ar": "لا يوجد رمز فعّال. اطلب رمزاً جديداً.",
         "en": "There is no active code. Request a new one.",
     },
     "portal_otp_no_active": {
-        "ar": "اضغط «إعادة إرسال الكود» لتوصلك رسالة جديدة.",
+        "ar": "اضغط «إعادة إرسال الرمز» لتصلك رسالة جديدة.",
         "en": "Tap \u201cResend code\u201d to get a new message.",
     },
 
@@ -358,9 +358,9 @@ PORTAL_TRANSLATIONS = {
         "ar": "استهلكت {used} من {total} ({pct}%)",
         "en": "Used {used} of {total} ({pct}%)",
     },
-    "portal_quota_renews_on": {"ar": "بيتجدد رصيدك بتاريخ", "en": "Your credit renews on"},
+    "portal_quota_renews_on": {"ar": "يتجدد رصيدك بتاريخ", "en": "Your credit renews on"},
     "portal_quota_renews_next_use": {
-        "ar": "فترتك الحالية خلصت، ورصيدك بيتجدد كامل مع أول تجربة جديدة.",
+        "ar": "انتهت فترتك الحالية، وسيتجدد رصيدك كاملاً مع أول تجربة جديدة.",
         "en": "Your last period has ended; your credit renews in full with the next try-on.",
     },
     "portal_quota_daily_line": {
@@ -368,17 +368,17 @@ PORTAL_TRANSLATIONS = {
         "en": "Today's try-ons (last 24 hours): {used} of {cap}",
     },
     "portal_quota_daily_note": {
-        "ar": "في سقف يومي للمتجر بيحميك من إنه الرصيد يخلص بسرعة (مثلاً بسبب استخدام غريب).",
+        "ar": "يوجد سقف يومي للمتجر يحميك من نفاد الرصيد بسرعة (مثلاً بسبب استخدام غير معتاد).",
         "en": "Your store has a daily cap that protects your credit from running out fast (for example because of unusual traffic).",
     },
     "portal_quota_daily_reached": {
-        "ar": "وصلت للسقف اليومي. التجربة بترجع تتفتح تدريجياً خلال 24 ساعة.",
+        "ar": "وصلت إلى السقف اليومي. ستُتاح التجربة مجدداً بشكل تدريجي خلال 24 ساعة.",
         "en": "You have reached today's cap. Try-on opens up again gradually over the next 24 hours.",
     },
     "portal_quota_shared_explain": {
         "ar": (
-            "رصيدك حوض واحد مشترك بين كل زبائن متجرك: كل تجربة لبس ناجحة بتنقص منه وحدة، "
-            "وما بنقسمه عليهم مسبقاً. الشات مع المساعد مشمول بسعر اشتراكك وما بينحسب من الرصيد."
+            "رصيدك حوض واحد مشترك بين كل زبائن متجرك: كل تجربة لبس ناجحة تُنقص منه وحدة، "
+            "ولا نقسّمه عليهم مسبقاً. المحادثة مع المساعد مشمولة بسعر اشتراكك ولا تُحتسب من الرصيد."
         ),
         "en": (
             "Your credit is one pool shared by all of your shoppers: every successful try-on takes one from it, "
@@ -386,22 +386,22 @@ PORTAL_TRANSLATIONS = {
             "subscription and does not count against the credit."
         ),
     },
-    "portal_quota_low_title": {"ar": "رصيدك قارب يخلص", "en": "Your credit is running low"},
+    "portal_quota_low_title": {"ar": "رصيدك على وشك النفاد", "en": "Your credit is running low"},
     "portal_quota_low_text": {
         "ar": (
-            "استهلكت {pct}% من الرصيد وضل {remaining}. لما يخلص، تجربة اللبس بتتوقف عند زبائنك "
-            "لحد ما يتجدد. تواصل معنا إذا بدك تزيده."
+            "استهلكت {pct}% من الرصيد وتبقّى {remaining}. عند نفاده، تتوقف تجربة اللبس لدى زبائنك "
+            "حتى يتجدد. تواصل معنا إذا أردت زيادته."
         ),
         "en": (
             "You have used {pct}% of your credit and {remaining} are left. When it runs out, try-on pauses for "
             "your shoppers until it renews. Contact us if you want to increase it."
         ),
     },
-    "portal_quota_exhausted_title": {"ar": "خلص رصيد تجربة اللبس", "en": "Your try-on credit is used up"},
+    "portal_quota_exhausted_title": {"ar": "نفد رصيد تجربة اللبس", "en": "Your try-on credit is used up"},
     "portal_quota_exhausted_text": {
         "ar": (
-            "تجربة اللبس متوقفة عند زبائنك لحد ما يتجدد رصيدك. المساعد الذكي (الشات) بيضل شغّال. "
-            "تواصل معنا إذا بدك تزيد الرصيد."
+            "تجربة اللبس متوقفة لدى زبائنك حتى يتجدد رصيدك، ويستمر المساعد الذكي (المحادثة) في العمل. "
+            "تواصل معنا إذا أردت زيادة الرصيد."
         ),
         "en": (
             "Try-on is paused for your shoppers until your credit renews. The AI assistant (chat) keeps working. "
@@ -409,13 +409,13 @@ PORTAL_TRANSLATIONS = {
         ),
     },
     "portal_quota_set_title": {"ar": "حد التجارب لكل زبون", "en": "Try-ons per shopper"},
-    "portal_quota_set_label": {"ar": "عدد التجارب لكل زبون باليوم", "en": "Try-ons per shopper per day"},
+    "portal_quota_set_label": {"ar": "عدد التجارب لكل زبون في اليوم", "en": "Try-ons per shopper per day"},
     "portal_quota_set_unlimited": {"ar": "بلا حد", "en": "Unlimited"},
     "portal_quota_set_explain": {
         "ar": (
-            "هاد عدد التجارب الناجحة اللي بيقدر الزبون الواحد يعملها خلال 24 ساعة. رقم أقل معناه إنه "
-            "الرصيد بيكفي زبائن أكتر، ورقم أكبر معناه إنه كل زبون بيجرّب أكتر والرصيد بيخلص أسرع. "
-            "«بلا حد» بيخلّي زبون واحد يقدر يستهلك الرصيد كله."
+            "هذا هو عدد التجارب الناجحة التي يستطيع الزبون الواحد إجراءها خلال 24 ساعة. الرقم الأقل يعني أن "
+            "الرصيد يكفي عدداً أكبر من الزبائن، والرقم الأكبر يعني أن كل زبون يجرّب أكثر فينفد الرصيد أسرع. "
+            "خيار «بلا حد» يسمح لزبون واحد باستهلاك الرصيد كله."
         ),
         "en": (
             "This is how many successful try-ons a single shopper can make in 24 hours. A lower number lets "
@@ -424,9 +424,9 @@ PORTAL_TRANSLATIONS = {
         ),
     },
     "portal_quota_set_save": {"ar": "حفظ", "en": "Save"},
-    "portal_quota_set_saved": {"ar": "انحفظ الإعداد.", "en": "Setting saved."},
+    "portal_quota_set_saved": {"ar": "تم حفظ الإعداد.", "en": "Setting saved."},
     "portal_quota_set_error": {
-        "ar": "القيمة مو صالحة، ما تغيّر شي. اختار وحدة من القائمة.",
+        "ar": "القيمة غير صالحة، ولم يتغيّر شيء. اختر قيمة من القائمة.",
         "en": "That value is not valid and nothing was changed. Pick one from the list.",
     },
 }

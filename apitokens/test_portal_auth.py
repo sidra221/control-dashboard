@@ -698,7 +698,7 @@ class LockoutTests(PortalBase):
         self.bad_logins(5)
         self.set_lang("ar")
         html = self.login_post().content.decode()
-        self.assertIn("محاولات كتير", html)
+        self.assertIn("محاولات كثيرة", html)
         self.assertNotIn("Too many", html)
 
     def test_failures_from_different_sessions_accumulate(self):
@@ -1179,7 +1179,7 @@ class StaffPortalLinkViewTests(PortalBase):
     def test_status_lines_in_arabic(self):
         self.client.force_login(self.staff)
         self.set_lang("ar")
-        self.assertIn("ما في دعوة", self.dashboard())
+        self.assertIn("لا توجد دعوة", self.dashboard())
         self.invite(self.a)
         self.assertIn("دعوة بانتظار التسجيل", self.dashboard())
 
