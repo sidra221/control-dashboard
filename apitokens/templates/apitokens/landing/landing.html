@@ -13,12 +13,12 @@
 <meta property="og:url" content="{{ page_url }}">
 <meta property="og:image" content="{{ og_image }}">
 <meta name="twitter:card" content="summary_large_image">
-<link rel="icon" type="image/png" href="{% static 'apitokens/landing/favicon.png' %}">
-<link rel="apple-touch-icon" href="{% static 'apitokens/landing/apple-touch-icon.png' %}">
+<link rel="icon" type="image/png" href="{% static 'apitokens/landing/favicon.png' %}?v={{ asset_v }}">
+<link rel="apple-touch-icon" href="{% static 'apitokens/landing/apple-touch-icon.png' %}?v={{ asset_v }}">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;500;600;700&family=Cinzel:wght@600&family=Reem+Kufi:wght@500;600;700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="{% static 'apitokens/landing/landing.css' %}">
+<link rel="stylesheet" href="{% static 'apitokens/landing/landing.css' %}?v={{ asset_v }}">
 <script>
   /* بوابة الحركات: بدون JS أو مع prefers-reduced-motion الصفحة كاملة وثابتة */
   (function (d) {
@@ -63,12 +63,12 @@
         {% if demo_enabled %}<a class="btn btn-ghost" href="{% url 'demo-home' %}">جرّب المساعد الآن</a>{% endif %}
       </div>
       <p class="hero-note"><span class="dia" aria-hidden="true"></span>تركيب بسطر واحد <span class="dia" aria-hidden="true"></span>يعمل مع Shopify، WooCommerce، سلة، زد</p>
-      <img class="hero-mark" src="{% static 'apitokens/landing/peplo-mark-cream.webp' %}" alt="" width="783" height="900" aria-hidden="true">
+      <img class="hero-mark" src="{% static 'apitokens/landing/peplo-mark-cream.webp' %}?v={{ asset_v }}" alt="" width="783" height="900" aria-hidden="true">
     </div>
     <div class="hero-visual" aria-hidden="true">
       <span class="spark spark--1"></span><span class="spark spark--2"></span><span class="spark spark--3"></span><span class="spark spark--4"></span>
       <div class="hero-result">
-        <img src="{% static 'apitokens/landing/tryon-after.webp' %}" alt="" width="720" height="1080">
+        <img src="{% static 'apitokens/landing/tryon-after.webp' %}?v={{ asset_v }}" alt="" width="720" height="1080">
         <span><i class="dia"></i>جرّبته عليك</span>
       </div>
       <div class="chat chat--float">
@@ -76,7 +76,7 @@
         <div class="msg msg--user">أبغى فستان لحفلة زواج وميزانيتي ما تتعدى 400 ريال</div>
         <div class="msg msg--bot">أكيد! هذا فستان كورسيه أحمر طويل بـ 339 ريال، مناسب للأعراس. تحبين تشوفينه عليك قبل ما تقررين؟</div>
         <div class="pcard">
-          <span class="pcard-img"><img src="{% static 'apitokens/landing/product-red-dress.webp' %}" alt="" width="162" height="420"></span>
+          <span class="pcard-img"><img src="{% static 'apitokens/landing/product-red-dress.webp' %}?v={{ asset_v }}" alt="" width="162" height="420"></span>
           <span class="pcard-info"><b>فستان كورسيه أحمر طويل</b><i>339 ر.س</i></span>
           <span class="pcard-btn">جرّبيه عليك</span>
         </div>
@@ -181,8 +181,8 @@
       </div>
       <div class="ba-wrap">
         <div class="ba" data-ba dir="ltr">
-          <img class="ba-img" src="{% static 'apitokens/landing/tryon-after.webp' %}" alt="الموديل بعد تجربة فستان الكورسيه الأحمر" width="720" height="1080" loading="lazy">
-          <div class="ba-before"><img class="ba-img" src="{% static 'apitokens/landing/tryon-before.webp' %}" alt="الموديل قبل التجربة" width="720" height="1080" loading="lazy"></div>
+          <img class="ba-img" src="{% static 'apitokens/landing/tryon-after.webp' %}?v={{ asset_v }}" alt="الموديل بعد تجربة فستان الكورسيه الأحمر" width="720" height="1080" loading="lazy">
+          <div class="ba-before"><img class="ba-img" src="{% static 'apitokens/landing/tryon-before.webp' %}?v={{ asset_v }}" alt="الموديل قبل التجربة" width="720" height="1080" loading="lazy"></div>
           <span class="ba-line" aria-hidden="true"></span>
           <span class="ba-knob" aria-hidden="true"><i></i></span>
           <span class="ba-tag ba-tag--after">بعد</span>
@@ -190,7 +190,7 @@
           <input class="ba-range" type="range" min="0" max="100" value="50" aria-label="اسحب للمقارنة بين صورة الزبون قبل التجربة وبعدها">
         </div>
         <div class="ba-product">
-          <img src="{% static 'apitokens/landing/product-red-dress.webp' %}" alt="" width="162" height="420" loading="lazy">
+          <img src="{% static 'apitokens/landing/product-red-dress.webp' %}?v={{ asset_v }}" alt="" width="162" height="420" loading="lazy">
           <span><b>فستان كورسيه أحمر طويل</b><i>339 ر.س</i></span>
         </div>
         <p class="caption caption--light">نتيجة حقيقية من PEPLO على موديل افتراضي (صورة مولَّدة بالذكاء الاصطناعي).</p>
@@ -302,7 +302,7 @@
 <!-- ============ CTA ختامي ============ -->
 <section class="cta">
   <div class="container">
-    <img class="cta-mark" src="{% static 'apitokens/landing/peplo-mark-cream.webp' %}" alt="" width="783" height="900" loading="lazy">
+    <img class="cta-mark" src="{% static 'apitokens/landing/peplo-mark-cream.webp' %}?v={{ asset_v }}" alt="" width="783" height="900" loading="lazy">
     <h2>جاهز ليتحدث متجرك مع زبائنه؟</h2>
     <div class="hero-actions">
       <a class="btn btn-gold" href="{% url 'portal:register' %}">ابدأ تجربتك</a>
@@ -325,6 +325,6 @@
   </div>
 </footer>
 
-<script src="{% static 'apitokens/landing/landing.js' %}" defer></script>
+<script src="{% static 'apitokens/landing/landing.js' %}?v={{ asset_v }}" defer></script>
 </body>
 </html>

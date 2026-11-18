@@ -51,3 +51,13 @@ class LandingPageTests(TestCase):
 
     def test_post_not_allowed(self):
         self.assertEqual(self.client.post(reverse("landing")).status_code, 405)
+
+
+class LandingAssetVersionTests(TestCase):
+    def test_landing_assets_carry_a_version_so_caches_refresh_after_deploy(self):
+        import re
+
+        html = self.client.get("/welcome/").content.decode()
+        refs = re.findall(r'/static/apitokens/landing/[^"\s?]+(\?v=\d+)?', html)
+        self.assertTrue(refs)
+        self.assertTrue(all(r for r in refs), "every landing asset link has ?v=")
