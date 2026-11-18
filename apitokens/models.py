@@ -282,6 +282,8 @@ class SallaConnection(models.Model):
         ApiToken, on_delete=models.CASCADE, related_name="salla_connection",
     )
     salla_merchant_id = models.CharField("رقم التاجر بسلة", max_length=32, unique=True)
+    # جوال صاحب المتجر من سلة (E.164): حساب بوابة موثّق بنفس الرقم بينربط بهالمتجر لحاله
+    owner_phone = models.CharField("جوال صاحب المتجر", max_length=20, blank=True, default="", db_index=True)
     store_name = models.CharField("اسم المتجر", max_length=255, blank=True, default="")
     store_domain = models.CharField("رابط المتجر", max_length=255, blank=True, default="")
     access_token = models.TextField(blank=True, default="")

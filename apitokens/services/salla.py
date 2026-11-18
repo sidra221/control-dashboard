@@ -19,6 +19,7 @@ from django.utils import timezone
 
 from ..models import ApiToken, Product, SallaConnection
 from .shopify import _clean_text as clean_html
+from . import lightotp
 from .sync_guard import CatalogIncomplete
 
 logger = logging.getLogger(__name__)
@@ -77,12 +78,25 @@ def save_authorization(salla_merchant_id, data):
         if not connection.merchant.is_active and not connection.merchant.suspended_by_staff:
             connection.merchant.is_active = True
             connection.merchant.save(update_fields=["is_active"])
-    _fill_store_info(connection)
+    fill_store_info(connection)
     return connection
 
 
-def _fill_store_info(connection):
-    """اسم المتجر ورابطه للداشبورد — فشلها ما بيوقف الربط."""
+def _owner_phone(raw):
+    """جوال سلة (+966… أو 966… أو 05…) ← E.164، أو "" لو مو رقم صالح."""
+    value = str(raw or "").strip()
+    if not value:
+        return ""
+    if value.isdigit() and value.startswith("966"):
+        value = "+" + value
+    try:
+        return lightotp.to_e164(value, "SA")
+    except ValueError:
+        return ""
+
+
+def fill_store_info(connection):
+    """اسم المتجر ورابطه للداشبورد وجوال صاحبه (للربط بحساب البوابة) — فشلها ما بيوقف الربط."""
     try:
         resp = requests.get(
             USER_INFO_URL,
@@ -90,13 +104,17 @@ def _fill_store_info(connection):
             timeout=REQUEST_TIMEOUT_SECONDS,
         )
         resp.raise_for_status()
-        store = resp.json().get("merchant") or {}
-    except (requests.RequestException, ValueError):
+        body = resp.json()
+        # سلة بترجّع {"data": {"mobile": …, "merchant": {…}}}؛ منقبل كمان الشكل بلا data
+        user = body.get("data") if isinstance(body.get("data"), dict) else body
+        store = user.get("merchant") or {}
+    except (requests.RequestException, ValueError, AttributeError):
         logger.warning("salla_user_info_failed merchant=%s", connection.salla_merchant_id)
         return
     connection.store_name = (store.get("name") or "")[:255]
     connection.store_domain = (store.get("domain") or "")[:255]
-    connection.save(update_fields=["store_name", "store_domain", "updated_at"])
+    connection.owner_phone = _owner_phone(user.get("mobile"))
+    connection.save(update_fields=["store_name", "store_domain", "owner_phone", "updated_at"])
     merchant = connection.merchant
     if connection.store_name and merchant.label.startswith("Salla "):
         merchant.label = connection.store_name[:120]

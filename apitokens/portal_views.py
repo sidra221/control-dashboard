@@ -164,6 +164,32 @@ def accept(request):
     )
 
 
+def _link_platform_store(account):
+    """بيربط الحساب (موثّق، بلا متجر) بمتجر سلة فعّال جوال صاحبه = رقم الحساب وما إله حساب.
+    بقفل صف الحساب: طلبين متوازيين ما بيربطوا مرتين. بيرجّع True لو انربط."""
+    from django.db import transaction
+
+    from .models import MerchantAccount, SallaConnection
+
+    if not account.phone_verified:
+        return False
+    connection = (
+        SallaConnection.objects.select_related("merchant")
+        .filter(owner_phone=account.phone, is_active=True, merchant__is_active=True)
+        .order_by("-created_at")
+        .first()
+    )
+    if connection is None:
+        return False
+    with transaction.atomic():
+        locked = MerchantAccount.objects.select_for_update().filter(pk=account.pk, merchant__isnull=True).first()
+        if locked is None or MerchantAccount.objects.filter(merchant=connection.merchant).exists():
+            return False
+        locked.merchant = connection.merchant
+        locked.save(update_fields=["merchant"])
+    return True
+
+
 _SUBSCRIBE_ERRORS = {
     portal_otp.V_WRONG: "portal_sub_err_wrong",
     portal_otp.V_EXPIRED: "portal_sub_err_expired",
@@ -180,6 +206,9 @@ def pending(request):
     على واتساب (action=request)، وإدخال الكود (action=activate) بينشئ المتجر وبيفتح لوحته."""
     account = request.portal_account
     if account.merchant_id is not None:
+        return redirect("portal:home")
+    # صاحب متجر سلة سجّل بنفس جوّاله (موثّق بكود واتساب): بينربط بمتجره بدل متجر تجريبي جديد
+    if _link_platform_store(account):
         return redirect("portal:home")
     lang = _lang(request)
     action = request.POST.get("action") if request.method == "POST" else None

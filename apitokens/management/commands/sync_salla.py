@@ -21,6 +21,10 @@ class Command(BaseCommand):
             try:
                 count = catalog_service.sync_salla(connection.merchant, connection)
                 self.stdout.write(f"{name}: {count} products")
+                if not connection.owner_phone:
+                    # متاجر انربطت قبل ما نحفظ جوال صاحبها: منجيبه مرة (للربط بحساب البوابة)
+                    connection.refresh_from_db()
+                    salla_service.fill_store_info(connection)
             except salla_service.SallaReauthRequired as exc:
                 # الربط انوقف (get_access_token سجّل ERROR) — بيرجع بإعادة تركيب التطبيق بس.
                 self.stderr.write(
