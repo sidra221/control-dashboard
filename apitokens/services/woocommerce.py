@@ -9,8 +9,11 @@ from urllib.parse import urlsplit
 
 import requests
 
+from .sync_guard import CatalogIncomplete
+
 REQUEST_TIMEOUT_SECONDS = 20
 PRODUCTS_PER_PAGE = 100
+MAX_PAGES = 500  # سقف أمان (50,000 منتج) ضد pagination خربان
 PRODUCT_WEBHOOK_TOPICS = ["product.created", "product.updated", "product.deleted"]
 # order.updated لازم نسمعه كمان: طلب الدفع بالبطاقة بينعمل "pending" وبيصير "processing"
 # بعد ما الدفع ينجح — وقتها بس منعتبره طلب فعلي.
@@ -105,18 +108,26 @@ def get_store_info(connection):
 
 
 def _fetch_pages(connection, path, params):
+    """صفحة صفحة. بنعتمد على X-WP-TotalPages؛ لو الهيدر ضاع (CDN/كاش بيشيله) منكمّل لحد صفحة ناقصة
+    بدل ما نفترض صفحة وحدة. فوق MAX_PAGES: CatalogIncomplete مع يلي انجاب (ما منحذف شي)."""
     items = []
     page = 1
-    while True:
+    while page <= MAX_PAGES:
         resp, data = _request(connection, "GET", path, {**params, "per_page": PRODUCTS_PER_PAGE, "page": page})
-        items.extend(data or [])
+        data = data or []
+        items.extend(data)
+        header = resp.headers.get("X-WP-TotalPages")
         try:
-            total_pages = int(resp.headers.get("X-WP-TotalPages") or 1)
+            total_pages = int(header) if header else None
         except ValueError:
-            total_pages = 1
-        if page >= total_pages:
+            total_pages = None
+        if total_pages is not None:
+            if page >= total_pages:
+                return items
+        elif len(data) < PRODUCTS_PER_PAGE:
             return items
         page += 1
+    raise CatalogIncomplete("page_cap", items)
 
 
 def fetch_variations(connection, product_id):
@@ -128,12 +139,21 @@ def fetch_variations(connection, product_id):
 def fetch_all_products(connection):
     """كل المنتجات المنشورة، ومنتجات الـ variable معها نسخها بمفتاح `_variations`
     (التوافر بيتحدد من النسخ، مش من المنتج الأب)."""
-    products = _fetch_pages(
-        connection, "products", {"status": "publish", "_fields": PRODUCT_FIELDS}
-    )
+    complete = True
+    try:
+        products = _fetch_pages(
+            connection, "products", {"status": "publish", "_fields": PRODUCT_FIELDS}
+        )
+    except CatalogIncomplete as exc:
+        products, complete = exc.partial, False
     for product in products:
         if product.get("type") == "variable":
-            product["_variations"] = fetch_variations(connection, product["id"])
+            try:
+                product["_variations"] = fetch_variations(connection, product["id"])
+            except CatalogIncomplete as exc:
+                product["_variations"] = exc.partial
+    if not complete:
+        raise CatalogIncomplete("page_cap", products)
     return products
 
 

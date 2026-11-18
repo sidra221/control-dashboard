@@ -15,6 +15,7 @@ from . import salla as salla_service
 from . import shopify as shopify_service
 from . import woocommerce as woocommerce_service
 from . import zid as zid_service
+from .sync_guard import CatalogIncomplete, should_prune
 
 logger = logging.getLogger(__name__)
 
@@ -30,6 +31,40 @@ EMBEDDING_BATCH = 200
 DESCRIPTION_CHARS_IN_PROMPT = 300
 
 
+def _collect_rows(fetch, to_row):
+    """بيجمع صفوف المنتجات. لو الجالب قال إنه ما جاب كل شي (CatalogIncomplete) منكمّل باللي انجاب
+    ومنرجّع complete=False حتى ما نحذف شي."""
+    rows, complete = [], True
+    try:
+        raws = fetch()
+        for raw in raws:
+            row = to_row(raw)
+            if row is not None:
+                rows.append(row)
+    except CatalogIncomplete as exc:
+        complete = False
+        for raw in exc.partial:
+            row = to_row(raw)
+            if row is not None:
+                rows.append(row)
+    return rows, complete
+
+
+def _save_rows(merchant, rows, complete, source):
+    """upsert لكل المنتجات اللي رجعت، وحذف اللي ما رجعت بس إذا الجلب كامل ومعقول (sync_guard)."""
+    fetched_ids = {row["external_id"] for row in rows}
+    synced = Product.objects.filter(merchant=merchant).exclude(external_id="")
+    with transaction.atomic():
+        prune = should_prune(merchant, synced.count(), len(fetched_ids), complete, source)
+        for row in rows:
+            external_id = row.pop("external_id")
+            Product.objects.update_or_create(
+                merchant=merchant, external_id=external_id, defaults=row,
+            )
+        if prune:
+            synced.exclude(external_id__in=fetched_ids).delete()
+
+
 def sync_shopify(merchant, connection):
     """مزامنة كاملة: معلومات المتجر + كل المنتجات الفعّالة. المنتجات اللي
     انشالت من Shopify بتنشال عنا. برجّع عدد المنتجات."""
@@ -37,27 +72,13 @@ def sync_shopify(merchant, connection):
     info = shopify_service.get_shop_info(connection.shop_domain, token)
     connection.primary_domain = info["primary_domain"]
 
-    rows = []
-    for raw in shopify_service.fetch_all_products(connection.shop_domain, token):
-        row = shopify_service.product_row_from_payload(
+    rows, complete = _collect_rows(
+        lambda: shopify_service.fetch_all_products(connection.shop_domain, token),
+        lambda raw: shopify_service.product_row_from_payload(
             connection.shop_domain, raw, connection.primary_domain
-        )
-        if row is not None:
-            rows.append(row)
-    fetched_ids = {row["external_id"] for row in rows}
-
-    with transaction.atomic():
-        for row in rows:
-            external_id = row.pop("external_id")
-            Product.objects.update_or_create(
-                merchant=merchant, external_id=external_id, defaults=row,
-            )
-        (
-            Product.objects.filter(merchant=merchant)
-            .exclude(external_id="")
-            .exclude(external_id__in=fetched_ids)
-            .delete()
-        )
+        ),
+    )
+    _save_rows(merchant, rows, complete, "shopify")
 
     merchant_fields = []
     if info["currency"] and info["currency"] != merchant.currency:
@@ -85,25 +106,10 @@ def sync_shopify(merchant, connection):
 def sync_salla(merchant, connection):
     """مزامنة كاملة لمتجر سلة، بنفس منطق Shopify: المنتجات اللي انشالت من
     سلة بتنشال عنا. برجّع عدد المنتجات."""
-    rows = []
-    for raw in salla_service.fetch_all_products(connection):
-        row = salla_service.product_row_from_payload(raw)
-        if row is not None:
-            rows.append(row)
-    fetched_ids = {row["external_id"] for row in rows}
-
-    with transaction.atomic():
-        for row in rows:
-            external_id = row.pop("external_id")
-            Product.objects.update_or_create(
-                merchant=merchant, external_id=external_id, defaults=row,
-            )
-        (
-            Product.objects.filter(merchant=merchant)
-            .exclude(external_id="")
-            .exclude(external_id__in=fetched_ids)
-            .delete()
-        )
+    rows, complete = _collect_rows(
+        lambda: salla_service.fetch_all_products(connection), salla_service.product_row_from_payload,
+    )
+    _save_rows(merchant, rows, complete, "salla")
 
     connection.last_synced_at = timezone.now()
     connection.save(update_fields=["last_synced_at", "updated_at"])
@@ -117,25 +123,10 @@ def sync_salla(merchant, connection):
 
 def sync_zid(merchant, connection):
     """مزامنة كاملة لمتجر زد بنفس منطق سلة وShopify. برجّع عدد المنتجات."""
-    rows = []
-    for raw in zid_service.fetch_all_products(connection):
-        row = zid_service.product_row_from_payload(raw)
-        if row is not None:
-            rows.append(row)
-    fetched_ids = {row["external_id"] for row in rows}
-
-    with transaction.atomic():
-        for row in rows:
-            external_id = row.pop("external_id")
-            Product.objects.update_or_create(
-                merchant=merchant, external_id=external_id, defaults=row,
-            )
-        (
-            Product.objects.filter(merchant=merchant)
-            .exclude(external_id="")
-            .exclude(external_id__in=fetched_ids)
-            .delete()
-        )
+    rows, complete = _collect_rows(
+        lambda: zid_service.fetch_all_products(connection), zid_service.product_row_from_payload,
+    )
+    _save_rows(merchant, rows, complete, "zid")
 
     connection.last_synced_at = timezone.now()
     connection.save(update_fields=["last_synced_at", "updated_at"])
@@ -152,25 +143,10 @@ def sync_woocommerce(merchant, connection):
     المتجر (أو انسحبت من النشر) بتنشال عنا. برجّع عدد المنتجات."""
     info = woocommerce_service.get_store_info(connection)
 
-    rows = []
-    for raw in woocommerce_service.fetch_all_products(connection):
-        row = woocommerce_service.product_row_from_payload(raw)
-        if row is not None:
-            rows.append(row)
-    fetched_ids = {row["external_id"] for row in rows}
-
-    with transaction.atomic():
-        for row in rows:
-            external_id = row.pop("external_id")
-            Product.objects.update_or_create(
-                merchant=merchant, external_id=external_id, defaults=row,
-            )
-        (
-            Product.objects.filter(merchant=merchant)
-            .exclude(external_id="")
-            .exclude(external_id__in=fetched_ids)
-            .delete()
-        )
+    rows, complete = _collect_rows(
+        lambda: woocommerce_service.fetch_all_products(connection), woocommerce_service.product_row_from_payload,
+    )
+    _save_rows(merchant, rows, complete, "woocommerce")
 
     if info["currency"] and info["currency"] != merchant.currency:
         merchant.currency = info["currency"]

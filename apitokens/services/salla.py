@@ -19,6 +19,7 @@ from django.utils import timezone
 
 from ..models import ApiToken, Product, SallaConnection
 from .shopify import _clean_text as clean_html
+from .sync_guard import CatalogIncomplete
 
 logger = logging.getLogger(__name__)
 
@@ -328,3 +329,5 @@ def fetch_all_products(connection):
         if page >= int(pagination.get("totalPages") or 1):
             return
         page += 1
+    # وصلنا السقف ولسا في صفحات: المزامنة بتحدّث يلي انجاب بس ما بتحذف شي
+    raise CatalogIncomplete("page_cap")

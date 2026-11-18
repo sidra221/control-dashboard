@@ -6,6 +6,7 @@ import json
 import time
 
 import requests
+from django.conf import settings
 
 UPLOAD_URL = "https://kieai.redpandaai.co/api/file-stream-upload"
 CREATE_TASK_URL = "https://api.kie.ai/api/v1/jobs/createTask"
@@ -14,6 +15,8 @@ RECORD_INFO_URL = "https://api.kie.ai/api/v1/jobs/recordInfo"
 MODEL = "gpt-image-2-image-to-image"
 DEFAULT_MAX_ATTEMPTS = 50
 DEFAULT_DELAY_SECONDS = 5
+# هامش بين آخر محاولة وانتهاء حجز الرصيد (طلب الاستعلام نفسه بياخد لحد 15 ث)
+TTL_MARGIN_SECONDS = 25
 
 
 class TryOnError(Exception):
@@ -59,8 +62,12 @@ def create_task(api_key, prompt, input_urls):
     return data["data"]["taskId"]
 
 
-def poll_until_done(api_key, task_id, max_attempts=DEFAULT_MAX_ATTEMPTS, delay=DEFAULT_DELAY_SECONDS):
+def poll_until_done(api_key, task_id, max_attempts=DEFAULT_MAX_ATTEMPTS, delay=DEFAULT_DELAY_SECONDS,
+                    deadline=None):
+    """deadline (time.monotonic): ما منتجاوزه حتى لو باقي محاولات — حجز الرصيد إله مدة."""
     for _ in range(max_attempts):
+        if deadline is not None and time.monotonic() + delay >= deadline:
+            break
         time.sleep(delay)
         response = requests.get(
             RECORD_INFO_URL,
@@ -86,10 +93,12 @@ def generate_tryon(api_key, person_photo, person_filename, product_image_url, pr
     """بترفع صورة الزبون، بتبلّش مهمة توليد بصورتين (الزبون + المنتج)،
     وبتستنى لحد ما تخلص. برجّع رابط الصورة النهائية أو بترمي TryOnError.
     """
+    # سقف كلّي للعملية كلها أقل من مدة حجز الرصيد: بعدها الحجز بيخلص وبيقدر طلب تاني ياخد نفس الصورة
+    deadline = time.monotonic() + max(30, settings.QUOTA_RESERVATION_TTL_SECONDS - TTL_MARGIN_SECONDS)
     person_url = upload_image(api_key, person_photo, person_filename)
     task_id = create_task(
         api_key,
         prompt=prompt,
         input_urls=[person_url, product_image_url],
     )
-    return poll_until_done(api_key, task_id)
+    return poll_until_done(api_key, task_id, deadline=deadline)

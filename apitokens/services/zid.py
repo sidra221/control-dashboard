@@ -17,6 +17,7 @@ from django.utils import timezone
 
 from ..models import ApiToken, Product, ZidConnection
 from .shopify import _clean_text as clean_html
+from .sync_guard import CatalogIncomplete
 
 logger = logging.getLogger(__name__)
 
@@ -436,6 +437,8 @@ def fetch_all_products(connection):
         if not body.get("next"):
             return
         page += 1
+    # وصلنا السقف ولسا في صفحات: المزامنة بتحدّث يلي انجاب بس ما بتحذف شي
+    raise CatalogIncomplete("page_cap")
 
 
 def store_webhook_url(connection, event):
