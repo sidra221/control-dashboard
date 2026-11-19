@@ -38,14 +38,14 @@ class LandingPageTests(TestCase):
     def test_tryon_comparison_and_assets(self):
         res = self.client.get(reverse("landing"))
         self.assertContains(res, "data-ba")
-        for name in ("tryon-before.webp", "tryon-after.webp", "product-red-dress.webp", "landing.js", "landing.css"):
+        for name in ("tryon-before.webp", "tryon-after.webp", "product-blue-shirt.webp", "landing.js", "landing.css"):
             self.assertContains(res, name)
 
     def test_static_assets_exist(self):
         from pathlib import Path
 
         base = Path(__file__).parent / "static" / "apitokens" / "landing"
-        for name in ("tryon-before.webp", "tryon-after.webp", "product-red-dress.webp", "peplo-mark-cream.webp",
+        for name in ("tryon-before.webp", "tryon-after.webp", "product-blue-shirt.webp", "peplo-mark-cream.webp",
                      "favicon.png", "apple-touch-icon.png", "og.png", "landing.js", "landing.css"):
             self.assertTrue((base / name).is_file(), name)
 
